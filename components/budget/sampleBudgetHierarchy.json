@@ -1,0 +1,67 @@
+[
+  {
+    "id": "item-1",
+    "name": "남부 분소",
+    "type": "root",
+    "children": [
+      {
+        "id": "mok-1",
+        "name": "자살예방사업비(남부)",
+        "type": "mok",
+        "children": [
+          {
+            "id": "semok-1",
+            "name": "정신건강사업비(남부)",
+            "type": "semok",
+            "children": [
+              {
+                "id": "detail-1",
+                "name": "강좌 운영비",
+                "calculation": "50,000원 * 20명 * 4회",
+                "amount": 4000000,
+                "remarks": "상반기 2회, 하반기 2회",
+                "type": "detail"
+              },
+              {
+                "id": "detail-2",
+                "name": "홍보물 제작비",
+                "calculation": "2,000원 * 500개",
+                "amount": 1000000,
+                "remarks": "리플렛 및 배너",
+                "type": "detail"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "mok-2",
+        "name": "남부권정신건강증진(아동)",
+        "type": "mok",
+        "children": [
+          {
+            "id": "semok-2",
+            "name": "사례관리 진행비",
+            "type": "semok",
+            "children": [
+              {
+                "id": "detail-3",
+                "name": "상담 소모품",
+                "calculation": "10,000원 * 100회",
+                "amount": 1000000,
+                "remarks": "다과 및 상담 도구",
+                "type": "detail"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "item-2",
+    "name": "증진 팀",
+    "type": "root",
+    "children": []
+  }
+]

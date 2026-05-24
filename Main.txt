@@ -1,0 +1,127 @@
+// ==========================================
+// MAIN ENTRY POINTS
+// ==========================================
+
+/**
+ * Force authorization for full Drive scope.
+ * Authorization required: https://www.googleapis.com/auth/drive
+ */
+
+function doGet(e) {
+  Logger.log("App Starting...");
+  // 'App' matches the name of your HTML file in GAS
+  return HtmlService.createTemplateFromFile('App')
+      .evaluate()
+      .setTitle('이천센터 의뢰관리시스템')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+// ==========================================
+// ISP ANALYSIS HISTORY
+// ==========================================
+
+function getISPAnalysisHistory() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("ISP_History");
+  
+  if (!sheet) {
+    return [];
+  }
+  
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return []; // Header only or empty
+  
+  // Header: [ID, Timestamp, Summary, FullDataJSON]
+  // Return list without FullDataJSON to save bandwidth
+  const history = [];
+  for (let i = 1; i < data.length; i++) {
+    history.push({
+      id: data[i][0],
+      timestamp: data[i][1],
+      summary: data[i][2],
+      // We don't send the full blob here
+    });
+  }
+  return history.reverse(); // Newest first
+}
+
+function loadISPAnalysisDetail(id) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("ISP_History");
+  if (!sheet) return null;
+  
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] == id) {
+      return JSON.parse(data[i][3]); // Return parsed JSON data
+    }
+  }
+  return null;
+}
+
+function saveISPAnalysis(analysisData) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("ISP_History");
+  
+  if (!sheet) {
+    sheet = ss.insertSheet("ISP_History");
+    sheet.appendRow(["ID", "Timestamp", "Summary", "FullDataJSON"]);
+  }
+  
+  const id = Utilities.getUuid();
+  const timestamp = new Date().toLocaleString('ko-KR');
+  const summary = `분석 결과 (${analysisData.length}건)`;
+  const jsonString = JSON.stringify(analysisData);
+  
+  // Check string length limit (50k cell limit in some contexts, but usually OK in Sheet cell up to 50k chars)
+  // If extremely large, might need chunking, but for now assume it fits or use Drive.
+  // Sheets cell limit is 50,000 characters. JSON might exceed this for many rows.
+  // Better approach: Save to Drive if large, or just try Sheet. 
+  // Safety: If > 45000 chars, maybe warn?
+  
+  if (jsonString.length > 45000) {
+     // Fallback to Drive or Error? 
+     // Let's use PropertyService for small chunks or Drive for large files?
+     // Actually, Drive is safest for large JSON.
+     try {
+       const fileName = `ISP_Analysis_${timestamp}.json`;
+       const file = DriveApp.createFile(fileName, jsonString, MimeType.PLAIN_TEXT);
+       const fileId = file.getId();
+       
+       sheet.appendRow([id, timestamp, summary, "DRIVE:" + fileId]);
+       return { success: true, id: id, mode: 'drive' };
+     } catch (e) {
+       return { success: false, error: e.toString() };
+     }
+  } else {
+    sheet.appendRow([id, timestamp, summary, jsonString]);
+    return { success: true, id: id, mode: 'sheet' };
+  }
+}
+
+function deleteISPAnalysis(id) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("ISP_History");
+  if (!sheet) return;
+  
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] == id) {
+       const cellContent = data[i][3];
+       if (cellContent.startsWith("DRIVE:")) {
+         try {
+           DriveApp.getFileById(cellContent.split(":")[1]).setTrashed(true);
+         } catch(e) {}
+       }
+       sheet.deleteRow(i + 1);
+       return { success: true };
+    }
+  }
+  return { success: false };
+}
+

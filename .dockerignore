@@ -1,0 +1,41 @@
+# Dependencies
+node_modules
+npm-debug.log*
+
+# Build outputs
+dist
+dist-local
+NAS_READY_PACKAGE
+NAS_UPDATE_READY
+NAS_READY
+
+# Environment and secrets
+.env*
+.env
+
+# Data and backups (Handled by volumes)
+app/data
+attachments
+upload
+archive
+*.json.bak
+*.log
+_gas_backup_html
+
+# System and IDE
+.git
+.gitignore
+.agents
+.cursor
+.gemini
+.vscode
+scratch
+scripts
+diag_reports
+skills
+table-main
+Main.txt
+의뢰대상자 회신(2025).xlsx
+NAS_READY_PACKAGE
+*.log
+.DS_Store

@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  app:
+    image: ghcr.io/ssams-claw/icheon-referral:latest
+    build: .
+    container_name: referral-system-v3
+    ports:
+      - "3000:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATA_DIR=/app/data
+      - ATTACHMENTS_DIR=/app/attachments
+    volumes:
+      - ./app/data:/app/data
+      - ./app/attachments:/app/attachments
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  default:
+    name: imhc-network

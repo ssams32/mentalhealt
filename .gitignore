@@ -1,0 +1,58 @@
+node_modules/
+dist/
+dist-local/
+.git_corrupted/
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+.vite/
+.cache/
+coverage/
+.env
+.env.local
+.claude/
+scratch/
+brain/
+archive/
+
+# Backup & Dev files
+*.old
+*.backup
+*.zip
+*.7z
+*.rar
+
+# Operational Data (JSON exclusion policy)
+app/data/*.json
+data/*.json
+!app/data/*.example.json
+!data/*.example.json
+
+# Extra backups, legacy and transfer folders
+NAS_COMPLETE_V3/
+NAS_EXPORT/
+NAS_READY_PACKAGE/
+_TRANSFER_TO_OTHER_PC_FULL_HANDOFF/
+_gas_backup_html/
+_legacy_backup/
+upload/
+node-portable/
+nas-deploy/
+diag_reports/
+table-main/
+docker/Data/
+.agents/
+skills/
+test_result.json
+
+# Excel files
+*.xlsx
+*.xls
+
+# Mac Custom Finder Icons
+**/Icon?
+**/Icon*
+Icon
+

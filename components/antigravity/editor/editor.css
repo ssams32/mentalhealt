@@ -1,0 +1,105 @@
+/* Basic Editor Styles */
+.ProseMirror {
+    outline: none;
+    min-height: 300px;
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+    color: #adb5bd;
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+}
+
+/* Callout */
+.callout {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1rem 1rem;
+    border-radius: 0.5rem;
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    margin: 1rem 0;
+}
+
+.callout-icon {
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+}
+
+.callout-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.callout-content p {
+    margin: 0;
+}
+
+/* Image */
+.ProseMirror img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 0.5rem;
+    display: block;
+    margin: 1rem 0;
+}
+
+.ProseMirror img.ProseMirror-selectednode {
+    outline: 2px solid #6366f1;
+}
+
+/* Toggle Block */
+.toggle-block {
+    /* Styles handled in component, mostly layout */
+}
+
+.toggle-content>div> :first-child {
+    /* The summary Paragraph */
+    font-weight: 500;
+    /* Optional styling for summary */
+    margin-bottom: 0.25rem;
+}
+
+.toggle-content.hidden-children>div> :not(:first-child) {
+    display: none;
+}
+
+/* Colors and Highlights */
+.ProseMirror span[data-color] {
+    color: var(--color);
+}
+
+.ProseMirror mark {
+    background-color: var(--highlight-color, #fefce8);
+    border-radius: 0.2rem;
+    padding: 0.1rem 0.2rem;
+}
+
+/* Link */
+.ProseMirror a {
+    color: #6366f1;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* Dark Mode Overrides */
+.dark .ProseMirror {
+    color: #e2e8f0;
+}
+
+.dark .ProseMirror p.is-editor-empty:first-child::before {
+    color: #64748b;
+}
+
+.dark .callout {
+    background-color: #1e293b;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+.dark .database-block {
+    /* Styles for database block wrapper if needed */
+}

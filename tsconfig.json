@@ -1,0 +1,51 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "module": "ESNext",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "skipLibCheck": true,
+    "types": [
+      "node",
+      "vite/client"
+    ],
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
+  "include": [
+    "./**/*.ts",
+    "./**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "upload",
+    ".agents",
+    "skills",
+    "archive",
+    "scratch",
+    "NAS_COMPLETE_V3",
+    "NAS_EXPORT",
+    "NAS_READY_PACKAGE",
+    "dist-local",
+    "nas-deploy",
+    "_legacy_backup",
+    "_gas_backup_html",
+    "_TRANSFER_TO_OTHER_PC_FULL_HANDOFF"
+  ]
+}

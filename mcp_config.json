@@ -1,0 +1,19 @@
+{
+    "mcpServers": {
+        "filesystem": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-filesystem",
+                "D:\\다운로드\\이천센터의뢰관리시스템 (1)"
+            ]
+        },
+        "memory": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-memory"
+            ]
+        }
+    }
+}

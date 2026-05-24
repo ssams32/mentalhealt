@@ -1,0 +1,5 @@
+{
+  "name": "이천센터의뢰관리시스템",
+  "description": "An integrated system for managing referrals, suicide attempters, and case analysis for the Icheon Mental Health Center. Features include data management, statistical reporting, and user account administration.",
+  "requestFramePermissions": []
+}

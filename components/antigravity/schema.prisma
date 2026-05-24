@@ -1,0 +1,141 @@
+// This is a reference schema for the "All-in-One Workspace" application.
+// In a real Node.js/Postgres environment, this would be a Prisma schema file (schema.prisma).
+
+// 1. User & Workspace
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  avatarUrl String?
+  
+  workspaces WorkspaceMember[]
+  createdPages Page[]  @relation("CreatedBy")
+  updatedPages Page[]  @relation("UpdatedBy")
+  
+  comments  Comment[]
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  icon      String?
+  members   WorkspaceMember[]
+  pages     Page[]
+}
+
+model WorkspaceMember {
+  id          String    @id @default(uuid())
+  userId      String
+  workspaceId String
+  role        String    // 'admin', 'member', 'guest'
+  
+  user        User      @relation(fields: [userId], references: [id])
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+}
+
+// 2. Page & Blocks (The Core)
+model Page {
+  id          String   @id @default(uuid())
+  workspaceId String
+  parentId    String?  // For nested pages tree
+  title       String
+  icon        String?
+  coverImage  String?
+  fullWidth   Boolean  @default(false)
+  
+  archived    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  createdById String
+  createdBy   User     @relation("CreatedBy", fields: [createdById], references: [id])
+  updatedById String
+  updatedBy   User     @relation("UpdatedBy", fields: [updatedById], references: [id])
+
+  // Content is stored as recursively linked Blocks
+  blocks      Block[]
+  
+  // If this page is a Database, it has properties and views
+  isDatabase  Boolean  @default(false)
+  properties  Property[]
+  views       View[]
+  
+  // Relations to parent/workspace
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  parent      Page?     @relation("PageTree", fields: [parentId], references: [id])
+  children    Page[]    @relation("PageTree")
+  
+  comments    Comment[]
+}
+
+model Block {
+  id          String   @id @default(uuid())
+  pageId      String
+  parentId    String?  // For nested blocks (e.g. list inside toggle)
+  
+  type        String   // 'text', 'heading_1', 'toggle', 'image', 'column_list', etc.
+  content     Json?    // Text content, formatting, specialized data
+  properties  Json?    // Color, width, checked state, etc.
+  
+  order       Float    // Lexorank or float for ordering
+  
+  page        Page     @relation(fields: [pageId], references: [id])
+  parent      Block?   @relation("BlockTree", fields: [parentId], references: [id])
+  children    Block[]  @relation("BlockTree")
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// 3. Database System
+model Property {
+  id        String  @id @default(uuid())
+  pageId    String  // The database page
+  name      String
+  type      String  // 'text', 'number', 'select', 'relation', 'formula', etc.
+  config    Json?   // Select options, relation target ID, formula expression
+  
+  page      Page    @relation(fields: [pageId], references: [id])
+  values    PropertyValue[]
+}
+
+model PropertyValue {
+  id          String @id @default(uuid())
+  propertyId  String
+  pageId      String // The row page
+  
+  // Value storage (polymorphic or flattened)
+  textValue   String?
+  numberValue Float?
+  dateValue   DateTime?
+  jsonValue   Json?   // Multi-select, files, relation mapping
+  
+  property    Property @relation(fields: [propertyId], references: [id])
+}
+
+model View {
+  id        String @id @default(uuid())
+  pageId    String // The database page
+  name      String
+  type      String // 'table', 'board', 'calendar', 'list', 'gallery'
+  
+  filter    Json?
+  sort      Json?
+  group     Json?
+  config    Json?  // Visible columns, card size, etc.
+  
+  page      Page   @relation(fields: [pageId], references: [id])
+}
+
+// 4. Collaboration
+model Comment {
+  id        String   @id @default(uuid())
+  pageId    String
+  blockId   String?  // Optional: inline comment on specific block
+  userId    String
+  content   String
+  resolved  Boolean  @default(false)
+  
+  user      User     @relation(fields: [userId], references: [id])
+  page      Page     @relation(fields: [pageId], references: [id])
+}

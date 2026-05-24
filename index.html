@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>이천센터 의뢰관리 시스템</title>
+    <!-- Tailwind CSS (Vite handles this but we can include a CDN link for simple standalone if needed, 
+         however the project uses full Vite/PostCSS) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" />
+
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "San Francisco", "Helvetica Neue", Helvetica, Arial, sans-serif;
+            background-color: #F2F2F7;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .whitespace-pre-wrap {
+            white-space: pre-wrap;
+        }
+
+        .ios-mesh-bg {
+            background-color: #ffffff;
+            background-image: radial-gradient(at 40% 20%, hsla(28, 100%, 74%, 1) 0px, transparent 50%),
+                radial-gradient(at 80% 0%, hsla(189, 100%, 56%, 1) 0px, transparent 50%),
+                radial-gradient(at 0% 50%, hsla(340, 100%, 76%, 1) 0px, transparent 50%),
+                radial-gradient(at 80% 50%, hsla(21, 100%, 77%, 1) 0px, transparent 50%),
+                radial-gradient(at 0% 100%, hsla(22, 100%, 77%, 1) 0px, transparent 50%),
+                radial-gradient(at 80% 100%, hsla(242, 100%, 70%, 1) 0px, transparent 50%),
+                radial-gradient(at 0% 0%, hsla(343, 100%, 76%, 1) 0px, transparent 50%);
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #C1C1C1;
+            border-radius: 10px;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+
+        @keyframes fade-in {
+            0% {
+                opacity: 0;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        .animate-fade-in {
+            animation: fade-in 0.2s ease-out;
+        }
+
+        @keyframes scale-in {
+            0% {
+                transform: scale(0.95);
+                opacity: 0;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .animate-scale-in {
+            animation: scale-in 0.2s ease-out;
+        }
+
+        @keyframes slide-in-bottom {
+            0% {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+
+            100% {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .animate-slide-in-bottom {
+            animation: slide-in-bottom 0.3s ease-out forwards;
+        }
+    </style>
+
+    <script>
+        // MORE ROBUST GLOBAL ERROR HANDLER
+        (function () {
+            function displayError(title, detail) {
+                console.error(title, detail);
+                const show = function () {
+                    if (!document.body) {
+                        setTimeout(show, 100);
+                        return;
+                    }
+                    const div = document.createElement('div');
+                    div.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#fff0f0;color:#aa0000;z-index:9999999;padding:20px;overflow:auto;font-family:monospace;border:5px solid red;';
+                    div.innerHTML = `<h1 style="font-size: 24px;">${title}</h1><div style="background:white;padding:15px;border:1px solid #ffcccc;"><pre style="white-space:pre-wrap;">${detail}</pre></div>`;
+                    document.body.appendChild(div);
+                };
+                show();
+            }
+
+            window.onerror = function (msg, url, line, col, error) {
+                displayError("Runtime Error Caught", `${msg}\nFile: ${url}\nLine: ${line}, Col: ${col}\nStack: ${error ? error.stack : 'N/A'}`);
+                return false;
+            };
+
+            window.onunhandledrejection = function (event) {
+                displayError("Promise Rejection Caught", event.reason ? (event.reason.stack || event.reason) : event.reason);
+            };
+        })();
+    </script>
+    <link rel="stylesheet" href="./index.css">
+
+</head>
+
+<body class="text-slate-900">
+    <div id="root"></div>
+    <script type="module" src="./index.tsx"></script>
+</body>
+
+</html>
