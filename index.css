@@ -1,0 +1,291 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --executive-indigo: #4338ca;
+        --executive-slate: #1e293b;
+        --report-bg: #f8fafc;
+        --glass-bg: rgba(255, 255, 255, 0.7);
+        --glass-border: rgba(255, 255, 255, 0.5);
+        --premium-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.08);
+    }
+
+    body {
+        @apply bg-[#f1f5f9] text-slate-800 antialiased;
+        font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        letter-spacing: -0.03em;
+    }
+}
+
+@layer utilities {
+    .glass-morphism {
+        @apply backdrop-blur-md bg-white/70 border border-white/50 shadow-xl;
+    }
+
+    .premium-card {
+        @apply bg-white rounded-[2rem] border-2 border-slate-100 shadow-sm transition-all hover:shadow-2xl hover:border-blue-400/30;
+    }
+
+    .no-scrollbar::-webkit-scrollbar {
+        display: none;
+    }
+
+    .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+
+    .animate-load {
+        animation: slide-up 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    }
+}
+
+@keyframes slide-up {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.print-only {
+  display: none;
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .print-only,
+  .print-only * {
+    visibility: visible !important;
+  }
+
+  .print-only {
+    display: block !important;
+    position: absolute !important;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: white;
+    color: #111827;
+    padding: 24px;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .referral-print-page {
+    page-break-after: always;
+    break-after: page;
+    padding: 16px;
+  }
+
+  .referral-print-page:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  @page {
+    size: A4;
+    margin: 16mm;
+  }
+}
+
+@layer utilities {
+    .animate-bounce-subtle {
+        animation: bounce-subtle 2s infinite;
+    }
+
+    .animate-pulse-subtle {
+        animation: pulse-subtle 3s infinite;
+    }
+}
+
+@keyframes bounce-subtle {
+
+    0%,
+    100% {
+        transform: translateY(-5%);
+        animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+    }
+
+    50% {
+        transform: translateY(0);
+        animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+    }
+}
+
+@keyframes pulse-subtle {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.8;
+    }
+}
+
+/* Custom scrollbar for premium look */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #e2e8f0;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #cbd5e1;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* Bento Card — 홈화면 요약 카드 스타일 */
+.bento-card {
+    background: #ffffff;
+    border-radius: 1.25rem;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.04);
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.bento-card:hover {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.10), 0 2px 8px rgba(0, 0, 0, 0.06);
+    transform: translateY(-2px);
+}
+
+/* 홈화면 입장 애니메이션 */
+.animate-entrance {
+    animation: entrance 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes entrance {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 안티그래피티 예산관리 전용 스타일 패치 */
+.budget-management-wrapper {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* 자식인 tbody에서 스크롤 제어 */
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+/* 예산관리 수기 내역 모달 컨테이너 및 테이블 스크롤/헤더 고정 */
+.budget-manual-modal-container {
+  width: min(960px, calc(100vw - 48px)) !important;
+  max-height: calc(100vh - 80px) !important;
+}
+
+.manual-budget-table-scroll {
+  flex: 1 1 0% !important;
+  overflow: auto !important;
+  min-height: 200px;
+}
+
+.manual-budget-table-scroll table {
+  min-width: 880px !important;
+}
+
+.manual-budget-table-scroll thead th {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 10 !important;
+  background-color: #f3f4f6 !important; /* bg-gray-100 색상 명시 */
+  box-shadow: inset 0 -1px 0 #e5e7eb, inset 0 1px 0 #e5e7eb; /* sticky 상태에서 테두리 유지 */
+}
+
+/* 수기 내역 테이블의 각 컬럼별 고정 너비 속성 */
+.manual-budget-table-scroll .col-date {
+  width: 120px !important;
+  min-width: 120px !important;
+}
+
+.manual-budget-table-scroll .col-writer {
+  width: 100px !important;
+  min-width: 100px !important;
+}
+
+.manual-budget-table-scroll .col-amount {
+  width: 140px !important;
+  min-width: 140px !important;
+}
+
+.manual-budget-table-scroll .col-desc {
+  min-width: 320px !important;
+}
+
+.manual-budget-table-scroll .col-action {
+  width: 48px !important;
+  min-width: 48px !important;
+}
+
+/* 드래그 앤 드롭 시각적 피드백 */
+.drag-indicator-before {
+  border-top: 2px solid #3b82f6 !important;
+}
+
+.drag-indicator-after {
+  border-bottom: 2px solid #3b82f6 !important;
+}
+
+.drag-indicator-inside {
+  background-color: rgba(59, 130, 246, 0.15) !important;
+}
+
+.dragging-active, .dragging-active * {
+  cursor: grabbing !important;
+}
