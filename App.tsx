@@ -26,8 +26,17 @@ import HomePage from './components/home/HomePage';
 declare var _: any;
 
 // --- Error Boundary Component ---
-class ErrorBoundary extends (React.Component as any) {
-    constructor(props: any) {
+interface ErrorBoundaryProps {
+    children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+    hasError: boolean;
+    error: any;
+}
+
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+    constructor(props: ErrorBoundaryProps) {
         super(props);
         this.state = { hasError: false, error: null };
     }

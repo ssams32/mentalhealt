@@ -8,11 +8,12 @@ import {
     IspMemberEvaluation, 
     IspMonthlyEvaluation, 
     IspEvaluationResult, 
-    IspDetailLevel 
+    IspDetailLevel,
+    MemberPerformanceExtended
 } from '../types';
 
 interface MemberAnalysisTabProps {
-    data: MemberPerformance[];
+    data: MemberPerformanceExtended[];
     dateRange: { start: string; end: string };
 }
 
@@ -602,7 +603,7 @@ const MemberAnalysisTab: React.FC<MemberAnalysisTabProps> = ({ data }) => {
         ispEvaluation, 
         year 
     }: { 
-        record: MemberPerformance, 
+        record: MemberPerformanceExtended, 
         ispEvaluation: IspMemberEvaluation | undefined,
         year: string
     }) => {

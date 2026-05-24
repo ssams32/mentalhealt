@@ -1,5 +1,11 @@
 import { MemberPerformance } from '../../types';
 
+export interface MemberPerformanceExtended extends MemberPerformance {
+  memberRegistrationNo?: string | number;
+  memberNo?: string | number;
+}
+
+
 export type IspEvaluationResult =
   | 'NOT_EVALUATED'
   | 'FUTURE_NOT_DUE'

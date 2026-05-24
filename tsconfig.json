@@ -46,6 +46,8 @@
     "nas-deploy",
     "_legacy_backup",
     "_gas_backup_html",
-    "_TRANSFER_TO_OTHER_PC_FULL_HANDOFF"
+    "_TRANSFER_TO_OTHER_PC_FULL_HANDOFF",
+    "components/antigravity/editor/**",
+    "components/antigravity/AntiGravityContainer.tsx"
   ]
 }
