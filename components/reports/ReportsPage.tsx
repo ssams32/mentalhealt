@@ -212,14 +212,15 @@ function isChildYouthSuicideAttempter(record: any, userTeamMap: Map<string, stri
 // --- Summary Builders ---
 function buildReferralSegmentSummary(records: any[]) {
   const safeRecords = Array.isArray(records) ? records : [];
+  const southRecords = safeRecords.filter(isSouthReferral);
 
   return {
-    total: safeRecords.length,
-    south: safeRecords.filter(isSouthReferral).length,
-    recovery: safeRecords.filter(isRecoveryReferral).length,
-    suicide: safeRecords.filter(isSuicideReferral).length,
-    youth: safeRecords.filter(isYouthReferral).length,
-    childYouth: safeRecords.filter(isChildYouthReferral).length
+    total: southRecords.length,
+    south: southRecords.length,
+    recovery: southRecords.filter(isRecoveryReferral).length,
+    suicide: southRecords.filter(isSuicideReferral).length,
+    youth: southRecords.filter(isYouthReferral).length,
+    childYouth: southRecords.filter(isChildYouthReferral).length
   };
 }
 
@@ -228,14 +229,21 @@ function buildSuicideSegmentSummary(
   userTeamMap: Map<string, string>
 ) {
   const safeRecords = Array.isArray(records) ? records : [];
+  const southRecords = safeRecords.filter((record) =>
+    isSouthSuicideAttempter(record, userTeamMap)
+  );
 
   return {
-    total: safeRecords.length,
-    south: safeRecords.filter((record) => isSouthSuicideAttempter(record, userTeamMap)).length,
-    recovery: safeRecords.filter((record) => isRecoverySuicideAttempter(record, userTeamMap)).length,
-    suicide: safeRecords.filter(isSuicideSuicideAttempter).length,
-    youth: safeRecords.filter(isYouthSuicideAttempter).length,
-    childYouth: safeRecords.filter((record) => isChildYouthSuicideAttempter(record, userTeamMap)).length
+    total: southRecords.length,
+    south: southRecords.length,
+    recovery: southRecords.filter((record) =>
+      isRecoverySuicideAttempter(record, userTeamMap)
+    ).length,
+    suicide: southRecords.filter(isSuicideSuicideAttempter).length,
+    youth: southRecords.filter(isYouthSuicideAttempter).length,
+    childYouth: southRecords.filter((record) =>
+      isChildYouthSuicideAttempter(record, userTeamMap)
+    ).length
   };
 }
 
@@ -483,11 +491,11 @@ const SegmentSummaryPanel = React.memo(({
     <div className="bg-white p-8 rounded-[2.5rem] border-2 border-slate-50 shadow-sm mb-12 animate-load no-print" style={{ animationDelay: '0.35s' }}>
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div>
-          <h3 className="text-xl font-black text-slate-800 tracking-tight">남부·회복·자살·청년·아청 분리 통계</h3>
-          <p className="text-xs font-bold text-slate-400 mt-1">현재 필터 기준 중복 포함 분류 현황</p>
+          <h3 className="text-xl font-black text-slate-800 tracking-tight">남부 의뢰 대상자 세부분류 통계</h3>
+          <p className="text-xs font-bold text-slate-400 mt-1">남부 의뢰 대상자 중 회복·자살·청년·아청 해당 건수입니다.</p>
         </div>
         <div className="text-[10px] text-slate-400 bg-slate-50 px-3 py-1.5 rounded-xl font-bold leading-relaxed max-w-md">
-          * 각 항목은 중복 포함 기준입니다. (예: 남부이면서 청년인 대상자는 두 항목에 모두 포함될 수 있습니다.)
+          * 각 항목은 중복 포함 기준입니다. 예: 남부 청년 대상자는 남부 전체와 청년 항목에 함께 포함될 수 있습니다.
         </div>
       </div>
 
@@ -496,10 +504,9 @@ const SegmentSummaryPanel = React.memo(({
           <thead>
             <tr className="bg-slate-50 text-slate-500 font-black border-b border-slate-100">
               <th className="py-3 px-4 text-left font-bold border-r border-slate-100">구분</th>
-              <th className="py-3 px-4 font-bold border-r border-slate-100 bg-slate-100/50">전체 건수</th>
-              <th className="py-3 px-4 font-bold border-r border-slate-100 text-indigo-600 bg-indigo-50/20">남부 분소</th>
-              <th className="py-3 px-4 font-bold border-r border-slate-100 text-emerald-600 bg-emerald-50/20">회복 지원</th>
-              <th className="py-3 px-4 font-bold border-r border-slate-100 text-rose-600 bg-rose-50/20">자살 예방</th>
+              <th className="py-3 px-4 font-bold border-r border-slate-100 bg-slate-100/50">남부 전체</th>
+              <th className="py-3 px-4 font-bold border-r border-slate-100 text-emerald-600 bg-emerald-50/20">회복</th>
+              <th className="py-3 px-4 font-bold border-r border-slate-100 text-rose-600 bg-rose-50/20">자살</th>
               <th className="py-3 px-4 font-bold border-r border-slate-100 text-amber-600 bg-amber-50/20">청년 (만19~34세)</th>
               <th className="py-3 px-4 font-bold text-sky-600 bg-sky-50/20">아청 (만19세미만)</th>
             </tr>
@@ -508,7 +515,6 @@ const SegmentSummaryPanel = React.memo(({
             <tr className="hover:bg-slate-50/50 transition-colors">
               <td className="py-3.5 px-4 text-left font-black border-r border-slate-100 bg-slate-50/30">일반 의뢰</td>
               <td className="py-3.5 px-4 font-extrabold border-r border-slate-100 bg-slate-50/10 text-slate-800">{referralSummary.total}건</td>
-              <td className="py-3.5 px-4 font-bold border-r border-slate-100 text-indigo-700">{referralSummary.south}건</td>
               <td className="py-3.5 px-4 font-bold border-r border-slate-100 text-emerald-700">{referralSummary.recovery}건</td>
               <td className="py-3.5 px-4 font-bold border-r border-slate-100 text-rose-700">{referralSummary.suicide}건</td>
               <td className="py-3.5 px-4 font-bold border-r border-slate-100 text-amber-700">{referralSummary.youth}건</td>
@@ -517,7 +523,6 @@ const SegmentSummaryPanel = React.memo(({
             <tr className="hover:bg-slate-50/50 transition-colors">
               <td className="py-3.5 px-4 text-left font-black border-r border-slate-100 bg-slate-50/30">자살시도자</td>
               <td className="py-3.5 px-4 font-extrabold border-r border-slate-100 bg-slate-50/10 text-slate-800">{suicideSummary.total}건</td>
-              <td className="py-3.5 px-4 font-bold border-r border-slate-100 text-indigo-700">{suicideSummary.south}건</td>
               <td className="py-3.5 px-4 font-bold border-r border-slate-100 text-emerald-700">{suicideSummary.recovery}건</td>
               <td className="py-3.5 px-4 font-bold border-r border-slate-100 text-rose-700">{suicideSummary.suicide}건</td>
               <td className="py-3.5 px-4 font-bold border-r border-slate-100 text-amber-700">{suicideSummary.youth}건</td>
