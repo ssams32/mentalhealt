@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { User, Referral, SuicideAttempterReferral, Log, Team, Page, Note, Attachment, AnyLog } from './types';
 import { initialUsers, initialReferrals, initialSuicideAttempterReferrals, ALL_TEAMS, TEAM_CODES, PAGES_CONFIG, ICHEON_REGIONS, MAIN_TEAMS } from './constants';
 import { apiClient } from './services/apiClient';
@@ -91,6 +91,9 @@ function App() {
 
     // [New] Pending referrals for notification badge and inbox
     const [pendingReferrals, setPendingReferrals] = useState<any[]>([]);
+    // ref로 referrals 최신값 유지 (폴링 의존성 배열에 referrals 포함 시 연쇄 재시작 방지)
+    const referralsRef = useRef(referrals);
+    useEffect(() => { referralsRef.current = referrals; }, [referrals]);
 
     // Load data from Google Sheets on mount
     useEffect(() => {
@@ -215,20 +218,21 @@ function App() {
                 }
 
                 // Stage 2: Parallel sync using syncRequest
+                // referralsRef.current 사용 → referrals 변경 시 interval 재시작 없이 최신값 참조
                 const syncResults = await Promise.all(data.map(async (pending) => {
                     try {
-                        const syncResult = await apiClient.syncRequest(pending, referrals);
+                        const syncResult = await apiClient.syncRequest(pending, referralsRef.current);
                         return { pending, alert: syncResult.alert };
                     } catch (syncErr) {
                         console.error("[App] Sync failed for item:", pending.name || pending.id, syncErr);
-                        return { pending, alert: true }; // Default to alert on error to avoid loss
+                        return { pending, alert: true };
                     }
                 }));
 
                 const alertItems = syncResults.filter(r => r.alert).map(r => r.pending);
 
                 console.log(`[App] Periodic Referral Sync: ${data.length} found, ${alertItems.length} alerts triggered`);
-                
+
                 // [De-duplication] Merge by name + phone
                 const uniqueMap = new Map();
                 alertItems.forEach(item => {
@@ -238,7 +242,7 @@ function App() {
                     }
                 });
                 const finalData = Array.from(uniqueMap.values());
-                
+
                 setPendingReferrals(finalData);
             } catch (err) {
                 console.error("[App] Failed to periodic fetch pending referrals", err);
@@ -246,14 +250,14 @@ function App() {
         };
 
         fetchPending();
-        
-        // Polling every 1 minute
-        const interval = setInterval(fetchPending, 1 * 60 * 1000);
-        
+
+        // Polling every 1 minute — 의존성 배열 [] 고정: 마운트 1회만 시작
+        const interval = setInterval(fetchPending, 60_000);
+
         return () => {
             clearInterval(interval);
         };
-    }, [referrals]); // Only run when referrals change, perfectly safe since loadData is mount-isolated!
+    }, []); // [Fix] [] 고정: referrals 변경마다 interval 재시작하는 연쇄 트리거 차단
 
     // [New] Notification effect when new pending referrals arrive
     useEffect(() => {

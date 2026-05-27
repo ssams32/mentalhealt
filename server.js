@@ -885,6 +885,29 @@ app.get('/api/pending-referrals', (req, res) => {
     res.json(getData('PendingReferrals', []));
 });
 
+// 스크레이퍼 상태 진단 API
+app.get('/api/pending-referrals/status', (req, res) => {
+    const list = getData('PendingReferrals', []);
+    const filePath = path.join(DATA_DIR, 'PendingReferrals.json');
+    const stat = fs.existsSync(filePath) ? fs.statSync(filePath) : null;
+    const latest = list.reduce((a, b) =>
+        (a.createdAt || '') > (b.createdAt || '') ? a : b, {});
+    const ageMs = stat ? Date.now() - new Date(stat.mtime).getTime() : Infinity;
+    const ageDays = ageMs / 86400000;
+    const scraperLagging = ageDays > 1;
+    if (scraperLagging) {
+        console.warn(`⚠️ [SCRAPER] PendingReferrals.json이 ${ageDays.toFixed(1)}일째 미갱신.`);
+    }
+    res.json({
+        total: list.length,
+        pending: list.filter(r => r.status === 'pending').length,
+        lastFileModified: stat ? stat.mtime : null,
+        latestCreatedAt: latest.createdAt || null,
+        ageHours: Math.round(ageMs / 3600000),
+        scraperLagging
+    });
+});
+
 app.post('/api/pending-referrals', (req, res) => {
     const list = getData('PendingReferrals', []);
     list.push(req.body);
@@ -1431,6 +1454,90 @@ app.post('/api/activity', (req, res) => {
     res.json({ success: true });
 });
 
+// ─── 📎 FILE UPLOAD ────────────────────────────────────────────────────────
+// POST /api/upload
+// Body: { base64: string, filename: string, mimeType: string,
+//         referralId?: string, referralName?: string, folderType?: string }
+// ───────────────────────────────────────────────────────────────────────────
+app.post('/api/upload', async (req, res) => {
+    const { base64, filename, mimeType, referralId, referralName, folderType } = req.body;
+    const requestId = `UPLOAD_${Date.now()}`;
+
+    // 1. 필수 필드 검증
+    if (!base64 || !filename) {
+        console.warn(`⚠️ [${requestId}] ATTACH_400: base64 또는 filename 누락`);
+        return res.status(400).json({
+            success: false, status: 'error',
+            code: 'ATTACH_400', message: 'base64와 filename은 필수입니다.'
+        });
+    }
+
+    // 2. 파일 크기 검증 (50MB)
+    const estimatedBytes = Math.ceil(base64.length * 0.75);
+    if (estimatedBytes > 50 * 1024 * 1024) {
+        console.warn(`⚠️ [${requestId}] ATTACH_413: ${(estimatedBytes / 1024 / 1024).toFixed(1)}MB 초과`);
+        return res.status(413).json({
+            success: false, status: 'error',
+            code: 'ATTACH_413',
+            message: `파일 크기가 50MB를 초과합니다. (${(estimatedBytes / 1024 / 1024).toFixed(1)}MB)`
+        });
+    }
+
+    // 3. 확장자 검증
+    const allowedExt = ['.pdf', '.jpg', '.jpeg', '.png', '.hwp', '.hwpx', '.docx', '.xlsx'];
+    const ext = path.extname(filename).toLowerCase();
+    if (!allowedExt.includes(ext)) {
+        console.warn(`⚠️ [${requestId}] ATTACH_415: 허용되지 않은 확장자 ${ext}`);
+        return res.status(415).json({
+            success: false, status: 'error',
+            code: 'ATTACH_415',
+            message: `허용되지 않은 파일 형식입니다. (${ext}) 허용: ${allowedExt.join(', ')}`
+        });
+    }
+
+    // 4. 폴더 결정 (Path Traversal 방지)
+    const rawFolder = referralId || folderType || 'unsorted';
+    const safeFolder = rawFolder.replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
+    const folderPath = path.join(ATTACHMENTS_DIR, safeFolder);
+    if (!fs.existsSync(folderPath)) {
+        fs.mkdirSync(folderPath, { recursive: true });
+    }
+
+    // 5. 타임스탬프 prefix로 중복 충돌 방지
+    const safeFilename = filename.replace(/[^a-z0-9가-힣._\-]/gi, '_');
+    const fileId = `${Date.now()}_${safeFilename}`;
+    const filePath = path.join(folderPath, fileId);
+    const fileUrl = `/attachments/${safeFolder}/${encodeURIComponent(fileId)}`;
+
+    try {
+        const buffer = Buffer.from(base64, 'base64');
+        await fs.promises.writeFile(filePath, buffer);
+        console.log(`✅ [${requestId}] ATTACH_200: folder=${safeFolder} file=${fileId} size=${(buffer.length / 1024).toFixed(1)}KB`);
+
+        // GAS 호환(status:'success') + REST 호환(success:true) 모두 충족
+        return res.json({
+            success: true,
+            status: 'success',
+            code: 'ATTACH_200',
+            fileId: fileId,
+            filename: filename,
+            fileUrl: fileUrl,
+            size: buffer.length,
+            folder: safeFolder,
+            requestId: requestId
+        });
+    } catch (e) {
+        console.error(`❌ [${requestId}] ATTACH_500: 파일 저장 실패 path=${filePath}`, e.message);
+        return res.status(500).json({
+            success: false, status: 'error',
+            code: 'ATTACH_500',
+            message: '서버 파일 저장에 실패했습니다.',
+            requestId: requestId
+        });
+    }
+});
+// ───────────────────────────────────────────────────────────────────────────
+
 app.delete('/api/deleteFile/:folder/:fileId', async (req, res) => {
     const { folder, fileId } = req.params;
     const filePath = path.join(ATTACHMENTS_DIR, folder, fileId);
@@ -1626,10 +1733,169 @@ app.get('/api/unregistered', (req, res) => {
     res.json(getData('Unregistered', []));
 });
 
-// SCRAPER (Minimal placeholder for restoration)
+// ==========================================
+// 🚀 EXTERNAL REFERRAL SCRAPER (imhc.co.kr)
+// ==========================================
+
+const EXTERNAL_CONFIG = {
+    loginUrl: 'http://www.imhc.co.kr/sa/login/login_pro.php',
+    listUrl: 'http://www.imhc.co.kr/sa/community/reqask_list.php',
+    viewUrl: 'http://www.imhc.co.kr/sa/community/reqask_view.php',
+    credentials: {
+        login_id: 'Admin',
+        login_pw: 'dlcjstl!@#$'
+    },
+    pollInterval: 30 * 60 * 1000 // 30 mins
+};
+
 async function fetchExternalReferrals() {
-    console.log('[Scraper] External referral check skipped in restoration.');
+    console.log('🔄 [Scraper] Starting external referral check...');
+    try {
+        // 1. Login to get session cookie
+        const loginFormData = new URLSearchParams();
+        Object.entries(EXTERNAL_CONFIG.credentials).forEach(([k, v]) => loginFormData.append(k, v));
+
+        const loginRes = await fetch(EXTERNAL_CONFIG.loginUrl, {
+            method: 'POST',
+            body: loginFormData,
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            redirect: 'manual'
+        });
+
+        const cookieHeader = loginRes.headers.get('set-cookie');
+        if (!cookieHeader) {
+            console.error('❌ [Scraper] Login failed: No cookies received');
+            return;
+        }
+
+        const sessionCookie = cookieHeader.split(';')[0];
+
+        // 2. Fetch the list page
+        const listRes = await fetch(EXTERNAL_CONFIG.listUrl, {
+            headers: { 'Cookie': sessionCookie }
+        });
+        const listHtml = await listRes.text();
+
+        // 3. Parse IDs (idx) from the list
+        const idxMatches = [...listHtml.matchAll(/reqask_view\.php\?idx=([0-9]+)/g)];
+        const indices = [...new Set(idxMatches.map(m => m[1]))].slice(0, 30);
+
+        if (indices.length === 0) {
+            console.log('ℹ️ [Scraper] No referrals found in list');
+            return;
+        }
+
+        const existingPending = getData('PendingReferrals', []);
+
+        // Load persistent tracking of scraped IDs
+        const scrapedIdsArray = getData('ScrapedExternalIds', []);
+        const scrapedIds = new Set(scrapedIdsArray);
+
+        existingPending.forEach(p => {
+            if (p.externalIdx) scrapedIds.add(p.externalIdx);
+            if (p.id) scrapedIds.add(p.id);
+        });
+
+        const newItems = [];
+
+        // 4. Fetch details
+        for (const idx of indices) {
+            const currentExtId = `ext_${idx}`;
+            if (scrapedIds.has(currentExtId)) continue;
+
+            console.log(`📥 [Scraper] Fetching details for idx: ${idx}`);
+            const viewRes = await fetch(`${EXTERNAL_CONFIG.viewUrl}?idx=${idx}`, {
+                headers: { 'Cookie': sessionCookie }
+            });
+            const viewHtml = await viewRes.text();
+
+            const extractField = (label) => {
+                const regex = new RegExp(`<label>${label}<\/label>\\s*<div><strong>(.*?)<\/strong><\/div>`, 's');
+                const match = viewHtml.match(regex);
+                return match ? match[1].replace(/<br\s*\/?>/gi, '\n').trim() : '';
+            };
+
+            const registrationDateLine = viewHtml.match(/<div><strong>(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})<\/strong><\/div>/);
+            const registrationDate = registrationDateLine ? registrationDateLine[1] : new Date().toISOString();
+
+            const birthDate = extractField('생년월일');
+            const genderRaw = extractField('성별');
+            const gender = genderRaw.includes('남') ? '남성' : (genderRaw.includes('여') ? '여성' : '기타');
+
+            let age = 0;
+            if (birthDate && birthDate.match(/^\d{4}/)) {
+                const birthYear = parseInt(birthDate.substring(0, 4));
+                age = new Date().getFullYear() - birthYear;
+            }
+
+            const agency = extractField('의뢰인기관명');
+            let referralPath = '기타';
+            if (agency.includes('행정복지센터') || agency.includes('동사무소') || agency.includes('면사무소')) referralPath = '읍면동 행정복지센터';
+            else if (agency.includes('경찰')) referralPath = '경찰서';
+            else if (agency.includes('소방') || agency.includes('119')) referralPath = '소방';
+            else if (agency.includes('보건소')) referralPath = '보건소';
+            else if (agency.includes('병원') || agency.includes('의료원') || agency.includes('의원')) referralPath = '의료기관';
+            else if (agency) referralPath = '의뢰기관';
+
+            const item = {
+                id: `ext_${idx}`,
+                externalIdx: `ext_${idx}`,
+                name: extractField('이름'),
+                phone: extractField('연락처'),
+                gender: gender,
+                age: age,
+                birthDate: birthDate,
+                address: extractField('주소'),
+                medicalInsurance: extractField('의료보장'),
+                disabilityStatus: extractField('장애등록여부'),
+                problem: extractField('주문제'),
+                guardianPresence: extractField('보호자유무'),
+                guardianName: extractField('보호자성명'),
+                guardianRelation: extractField('보호자관계'),
+                guardianPhone: extractField('보호자연락처'),
+                guardianNotes: extractField('보호자기타내용'),
+                consentToReferral: extractField('센터의뢰동의여부'),
+                consentNotes: extractField('센터의뢰동의여부기타내용'),
+                reason: extractField('의뢰이유'),
+                agency: agency,
+                agencyPhone: extractField('의뢰인연락처'),
+                requesterName: extractField('의뢰인이름'),
+                requesterFax: extractField('의뢰인팩스'),
+                requesterEmail: extractField('의뢰인이메일'),
+                registrationDate: registrationDate.split(' ')[0],
+                createdAt: registrationDate,
+                referralPath: referralPath,
+                isWebsiteReferral: true,
+                status: 'pending'
+            };
+
+            if (item.name) {
+                newItems.push(item);
+                console.log(`✅ [Scraper] Successfully scraped: ${item.name}`);
+            }
+        }
+
+        if (newItems.length > 0) {
+            const updatedPending = [...newItems, ...existingPending];
+            saveData('PendingReferrals', updatedPending);
+
+            newItems.forEach(item => {
+                if (item.externalIdx) scrapedIds.add(item.externalIdx);
+            });
+            saveData('ScrapedExternalIds', Array.from(scrapedIds));
+
+            console.log(`🚀 [Scraper] Added ${newItems.length} new external referrals`);
+        } else {
+            console.log('😴 [Scraper] No new referrals to add');
+        }
+    } catch (err) {
+        console.error('❌ [Scraper] Error during external fetch:', err);
+    }
 }
+
+// Initial check and set interval
+setTimeout(fetchExternalReferrals, 5000); // 5초 후 최초 1회 실행
+setInterval(fetchExternalReferrals, EXTERNAL_CONFIG.pollInterval); // 30분 주기
 
 // START SERVER
 app.listen(PORT, () => {

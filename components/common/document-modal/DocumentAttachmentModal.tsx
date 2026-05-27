@@ -205,7 +205,8 @@ const DocumentAttachmentModal: React.FC<DocumentAttachmentModalProps> = ({
                                 folderType: folderType
                             });
 
-                            if (result && result.status === 'success') {
+                            // GAS 호환(status==='success') + REST 호환(success===true) 모두 허용
+                            if (result && (result.success === true || result.status === 'success')) {
                                 const newAttachment: Attachment = {
                                     id: result.fileId,
                                     name: result.filename,
@@ -221,9 +222,17 @@ const DocumentAttachmentModal: React.FC<DocumentAttachmentModalProps> = ({
                                     return updated;
                                 });
                             } else {
-                                const errorMsg = result?.message || result?.error || '서버 오류 또는 로컬 환경 제한';
-                                console.error('Upload failed:', result);
-                                alert(`업로드 실패 (${file.name}): ${errorMsg}\n\n*로컬 환경(localhost)에서는 실제 업로드와 HWP 변환이 지원되지 않습니다. GAS에 배포 후 테스트해 주세요.`);
+                                const codeMessages: Record<string, string> = {
+                                    'ATTACH_413': '파일이 너무 큽니다 (50MB 초과).',
+                                    'ATTACH_415': '허용되지 않는 파일 형식입니다.',
+                                    'ATTACH_409': '이미 동일한 파일이 존재합니다.',
+                                    'ATTACH_500': '서버 저장 오류입니다. 관리자에게 문의하세요.',
+                                };
+                                const errorMsg = result?.code
+                                    ? (codeMessages[result.code] || result.message || '업로드 실패')
+                                    : (result?.message || result?.error || '서버 오류');
+                                console.error('[Upload] failed:', result);
+                                alert(`업로드 실패 (${file.name}):\n${errorMsg}`);
                             }
                             resolve();
                         } catch (err) {
