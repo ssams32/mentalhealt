@@ -96,6 +96,22 @@ const ReferralsPage: React.FC<ReferralsPageProps> = ({
         if (statusFilter === 'closed') result = result.filter(r => r.closureStatus !== '미종결');
 
         return result.sort((a, b) => {
+            // 1. 종결 건 또는 등록관리 건은 후순위(하단)로 이동
+            const aCompleted = Boolean(
+                (a.closureStatus && a.closureStatus !== '미종결') ||
+                (a.actionResult && (a.actionResult.includes('등록관리') || a.actionResult.includes('종결')))
+            );
+            const bCompleted = Boolean(
+                (b.closureStatus && b.closureStatus !== '미종결') ||
+                (b.actionResult && (b.actionResult.includes('등록관리') || b.actionResult.includes('종결')))
+            );
+
+            // 미종결/진행중 건(false) 우선, 종결/등록관리 건(true)은 후순위
+            if (aCompleted !== bCompleted) {
+                return aCompleted ? 1 : -1;
+            }
+
+            // 동일 그룹 내에서는 최신 의뢰일자 순(내림차순)
             const dateA = a.requestDate ? new Date(a.requestDate).getTime() : 0;
             const dateB = b.requestDate ? new Date(b.requestDate).getTime() : 0;
             

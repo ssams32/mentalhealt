@@ -215,7 +215,7 @@ const createBackup = async (filename) => {
 };
 
 const saveData = (filename, data) => {
-    if (filename.startsWith('Budget') || filename === 'Referrals' || filename === 'SuicideAttempters') {
+    if (filename.startsWith('Budget') || filename === 'Referrals' || filename === 'SuicideAttempters' || filename === 'Users') {
         createBackup(filename).catch(e => console.error(`Pre-save backup failed: ${e}`));
     }
 
@@ -882,7 +882,32 @@ app.post('/api/analysis/current', (req, res) => {
 
 // PENDING REFERRALS (Scraper Sync)
 app.get('/api/pending-referrals', (req, res) => {
-    res.json(getData('PendingReferrals', []));
+    const referrals = getData('Referrals', []);
+    let list = getData('PendingReferrals', []);
+    const normalizePhone = (num) => num ? num.replace(/[^0-9]/g, '') : '';
+    
+    const beforeCount = list.length;
+    list = list.filter(p => {
+        const isRegistered = referrals.some(r => {
+            const nameMatch = r.name && r.name.trim() === p.name.trim();
+            if (!nameMatch) return false;
+
+            const rPhone = normalizePhone(r.phone);
+            const pPhone = normalizePhone(p.phone);
+            if (rPhone && pPhone && rPhone === pPhone) return true;
+
+            if (r.birthDate && p.birthDate && r.birthDate.trim() === p.birthDate.trim()) return true;
+
+            return false;
+        });
+        return !isRegistered;
+    });
+
+    if (list.length !== beforeCount) {
+        saveData('PendingReferrals', list);
+    }
+    
+    res.json(list);
 });
 
 // 스크레이퍼 상태 진단 API
@@ -1335,6 +1360,13 @@ app.delete('/api/pending-referrals/:id', (req, res) => {
     let list = getData('PendingReferrals', []);
     list = list.filter(item => item.id !== id);
     saveData('PendingReferrals', list);
+    
+    // Explicitly add to ScrapedExternalIds to prevent re-scraping
+    const scrapedIdsArray = getData('ScrapedExternalIds', []);
+    const scrapedIds = new Set(scrapedIdsArray);
+    scrapedIds.add(id);
+    saveData('ScrapedExternalIds', Array.from(scrapedIds));
+    
     res.json({ success: true });
 });
 
@@ -1785,11 +1817,44 @@ async function fetchExternalReferrals() {
             return;
         }
 
-        const existingPending = getData('PendingReferrals', []);
+        const referrals = getData('Referrals', []);
+        let existingPending = getData('PendingReferrals', []);
 
         // Load persistent tracking of scraped IDs
         const scrapedIdsArray = getData('ScrapedExternalIds', []);
         const scrapedIds = new Set(scrapedIdsArray);
+
+        const normalizePhone = (num) => num ? num.replace(/[^0-9]/g, '') : '';
+
+        // Auto-cleanup: remove already registered clients from existingPending
+        const beforeCleanupCount = existingPending.length;
+        existingPending = existingPending.filter(p => {
+            const isRegistered = referrals.some(r => {
+                const nameMatch = r.name && r.name.trim() === p.name.trim();
+                if (!nameMatch) return false;
+
+                const rPhone = normalizePhone(r.phone);
+                const pPhone = normalizePhone(p.phone);
+                if (rPhone && pPhone && rPhone === pPhone) return true;
+
+                if (r.birthDate && p.birthDate && r.birthDate.trim() === p.birthDate.trim()) return true;
+
+                return false;
+            });
+
+            if (isRegistered) {
+                console.log(`🧹 [Scraper Cleanup] Removing pending referral for already-registered person: ${p.name}`);
+                if (p.externalIdx) scrapedIds.add(p.externalIdx);
+                if (p.id) scrapedIds.add(p.id);
+                return false;
+            }
+            return true;
+        });
+
+        if (existingPending.length !== beforeCleanupCount) {
+            saveData('PendingReferrals', existingPending);
+            saveData('ScrapedExternalIds', Array.from(scrapedIds));
+        }
 
         existingPending.forEach(p => {
             if (p.externalIdx) scrapedIds.add(p.externalIdx);
@@ -1870,6 +1935,26 @@ async function fetchExternalReferrals() {
             };
 
             if (item.name) {
+                const isAlreadyRegistered = referrals.some(r => {
+                    const nameMatch = r.name && r.name.trim() === item.name.trim();
+                    if (!nameMatch) return false;
+
+                    const rPhone = normalizePhone(r.phone);
+                    const itemPhone = normalizePhone(item.phone);
+                    if (rPhone && itemPhone && rPhone === itemPhone) return true;
+
+                    if (r.birthDate && item.birthDate && r.birthDate.trim() === item.birthDate.trim()) return true;
+
+                    return false;
+                });
+
+                if (isAlreadyRegistered) {
+                    console.log(`ℹ️ [Scraper] Skipping ${item.name} because they are already registered in the system.`);
+                    scrapedIds.add(currentExtId);
+                    saveData('ScrapedExternalIds', Array.from(scrapedIds));
+                    continue;
+                }
+
                 newItems.push(item);
                 console.log(`✅ [Scraper] Successfully scraped: ${item.name}`);
             }

@@ -12,9 +12,10 @@ services:
       - PORT=3001
       - DATA_DIR=/app/data
       - ATTACHMENTS_DIR=/app/attachments
+      - TZ=Asia/Seoul
     volumes:
-      - ./app/data:/app/data
-      - ./app/attachments:/app/attachments
+      - /volume2/docker/imhc/app/data:/app/data
+      - /volume2/docker/imhc/app/attachments:/app/attachments
     restart: always
     logging:
       driver: "json-file"

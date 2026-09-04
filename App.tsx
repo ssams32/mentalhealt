@@ -135,8 +135,17 @@ function App() {
                         apiClient.getUnregistered().catch(e => { console.error("Unregistered fetch failed", e); return []; })
                     ]);
 
-                    if (Array.isArray(loadedLogs)) setLogs(loadedLogs);
-                    if (Array.isArray(loadedReferrals)) setReferrals(loadedReferrals.length > 0 ? loadedReferrals : initialReferrals);
+                    if (Array.isArray(loadedLogs)) {
+                        setLogs(loadedLogs);
+                        safeLocalStorage.setItem('logs', JSON.stringify(loadedLogs));
+                    }
+                    if (Array.isArray(loadedReferrals)) {
+                        // 서버의 실데이터가 빈 배열이 아닐 경우 강제로 덮어쓰기 및 로컬 스토리지 동기화 강제 갱신
+                        const referralsToSet = loadedReferrals.length > 0 ? loadedReferrals : initialReferrals;
+                        setReferrals(referralsToSet);
+                        safeLocalStorage.setItem('referrals', JSON.stringify(referralsToSet));
+                        console.log(`[App] Server referrals (${referralsToSet.length} items) successfully synced and forced to LocalStorage.`);
+                    }
                     
                     if (Array.isArray(loadedSAs)) {
                         // Ultra-Robust Numeric Sorting: Handle mixed year formats perfectly
