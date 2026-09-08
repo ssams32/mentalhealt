@@ -28,6 +28,8 @@ interface FilterControlsProps {
     // Global Date Range
     dateRange: { start: string; end: string };
     setDateRange: React.Dispatch<React.SetStateAction<{ start: string; end: string }>>;
+    isRestrictedUser?: boolean;
+    userTeam?: string;
 }
 
 const FilterControls: React.FC<FilterControlsProps> = ({
@@ -38,7 +40,9 @@ const FilterControls: React.FC<FilterControlsProps> = ({
     selectedCounselors,
     setSelectedCounselors,
     dateRange,
-    setDateRange
+    setDateRange,
+    isRestrictedUser = false,
+    userTeam = ''
 }) => {
     const [isOpen, setIsOpen] = useState(true);
 
@@ -112,10 +116,16 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                                     <Building2 size={14} />
                                     <span>부서 ({selectedDepartments.length})</span>
                                 </div>
-                                <div className="flex gap-2 text-[10px] font-bold">
-                                    <button onClick={() => setSelectedDepartments(departments)} className="text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 px-2 py-1 rounded">전체 선택</button>
-                                    <button onClick={() => setSelectedDepartments([])} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 px-2 py-1 rounded">초기화</button>
-                                </div>
+                                {isRestrictedUser ? (
+                                    <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-full">
+                                        소속 부서({userTeam || '지정팀'}) 전용
+                                    </span>
+                                ) : (
+                                    <div className="flex gap-2 text-[10px] font-bold">
+                                        <button onClick={() => setSelectedDepartments(departments)} className="text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 px-2 py-1 rounded">전체 선택</button>
+                                        <button onClick={() => setSelectedDepartments([])} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 px-2 py-1 rounded">초기화</button>
+                                    </div>
+                                )}
                             </div>
                             <div className="flex flex-wrap gap-2 p-4 bg-slate-50/50 rounded-xl border border-slate-100 min-h-[100px] max-h-[200px] overflow-y-auto custom-scrollbar content-start">
                                 {departments.length === 0 && <span className="text-xs text-slate-300 p-2">데이터 없음</span>}
@@ -124,7 +134,7 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                                         key={dept}
                                         label={dept}
                                         isSelected={selectedDepartments.includes(dept)}
-                                        onClick={() => handleDeptChange(dept)}
+                                        onClick={() => !isRestrictedUser && handleDeptChange(dept)}
                                     />
                                 ))}
                             </div>

@@ -65,6 +65,7 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
     // 폼 유효성 검사 오류 메시지를 관리하는 상태
     const [error, setError] = useState('');
     const [currentNote, setCurrentNote] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     // [NEW] PDF Rendering Logic
     // [NEW] PDF Rendering Logic
@@ -522,8 +523,10 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
     };
 
     // 폼 제출 핸들러
-    const handleSubmit = (e?: React.FormEvent) => {
+    const handleSubmit = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
+        if (isSubmitting) return;
+
         const requiredFields = [
             { key: 'name', label: '대상자 성명' },
             { key: 'phone', label: '연락처' },
@@ -552,41 +555,44 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
         }
 
         setError('');
+        setIsSubmitting(true);
 
-        const submissionData: Partial<Referral> = { ...formData };
-        if (currentNote.trim()) {
-            const timestamp = new Date().toLocaleString('ko-KR');
-            const newNote: ReferralNote = {
-                id: `note_${Date.now()}`,
-                content: currentNote,
-                createdAt: timestamp,
-                author: currentUser.name,
-            };
-            submissionData.notes = [newNote, ...(submissionData.notes || [])];
-            // [Bugfix] Ensure summary fields are updated for list visibility
-            submissionData.latestNote = currentNote;
-            submissionData.latestNoteDate = timestamp;
-        }
+        try {
+            const submissionData: Partial<Referral> = { ...formData };
+            if (currentNote.trim()) {
+                const timestamp = new Date().toLocaleString('ko-KR');
+                const newNote: ReferralNote = {
+                    id: `note_${Date.now()}`,
+                    content: currentNote,
+                    createdAt: timestamp,
+                    author: currentUser.name,
+                };
+                submissionData.notes = [newNote, ...(submissionData.notes || [])];
+                submissionData.latestNote = currentNote;
+                submissionData.latestNoteDate = timestamp;
+            }
 
-        const originalRefNo = isEditing && referralData && referralData.refNo !== submissionData.refNo
-            ? referralData.refNo
-            : undefined;
+            const originalRefNo = isEditing && referralData && referralData.refNo !== submissionData.refNo
+                ? referralData.refNo
+                : undefined;
 
-        onSubmit(submissionData, originalRefNo);
-        setCurrentNote(''); // Clear note after manual save
+            await onSubmit(submissionData, originalRefNo);
+            setCurrentNote(''); // Clear note after manual save
 
-        if (!isEditing) {
-            showToast('저장 중입니다... PDF 생성도 함께 진행됩니다.');
-            runGAS('saveReferralPdf', formData)
-                .then(res => {
-                    if (res.status === 'success') {
-                        showToast('저장 완료! PDF가 드라이브에 생성되었습니다.');
-                    } else {
-                        showToast(`저장은 완료되었으나 PDF 생성 실패: ${res.status === 'error' ? res.message : '알 수 없는 오류'} `);
-                    }
-                })
-        } else {
-            showToast('수정 내용이 저장되었습니다.');
+            if (!isEditing) {
+                // PDF background generation if needed
+                runGAS('saveReferralPdf', formData)
+                    .then(res => {
+                        if (res.status === 'success') {
+                            showToast('PDF가 드라이브에 생성되었습니다.');
+                        }
+                    }).catch(() => {});
+            }
+        } catch (err: any) {
+            console.error('Submit error in editor:', err);
+            setError(err?.message || '저장 중 오류가 발생했습니다. 다시 시도해주세요.');
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -786,11 +792,16 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                         <div className="relative flex flex-col items-center justify-start ml-2 w-[130px] shrink-0">
                             <button
                                 type="submit"
-                                className="flex items-center justify-center gap-1.5 px-3 h-10 bg-blue-600 text-white hover:bg-blue-700 rounded-xl shadow-xl shadow-blue-200 transition-all active:scale-95 w-full shrink-0 relative z-10"
+                                disabled={isSubmitting}
+                                className={`flex items-center justify-center gap-1.5 px-3 h-10 ${isSubmitting ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 active:scale-95'} text-white rounded-xl shadow-xl shadow-blue-200 transition-all w-full shrink-0 relative z-10`}
                             >
-                                <Check size={16} className="shrink-0" />
+                                {isSubmitting ? (
+                                    <Loader2 size={16} className="animate-spin shrink-0" />
+                                ) : (
+                                    <Check size={16} className="shrink-0" />
+                                )}
                                 <span className="font-black text-sm whitespace-nowrap">
-                                    {isEditing ? '수동 저장' : '등록'}
+                                    {isSubmitting ? '저장 중...' : (isEditing ? '수동 저장' : '등록')}
                                 </span>
                             </button>
                             {isEditing && (

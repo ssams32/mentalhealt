@@ -35,7 +35,17 @@ const getAssigneeColor = (name: string) => {
     for (let i = 0; i < name.length; i++) {
         hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
-    return colors[Math.abs(hash) % colors.length];
+};
+
+// [Track B] CWE-1236: CSV/Excel Formula Injection 방어 함수
+export const sanitizeExcelCell = (value: any): string => {
+    if (value === null || value === undefined) return '';
+    const str = String(value);
+    // 수식 트리거 문자(=, +, -, @, \t, \r)로 시작하거나 공백 뒤에 수식 트리거가 오는 경우 작은따옴표(') 접두사로 안전하게 이스케이프
+    if (/^[=+\-@\t\r]/.test(str) || /^[=+\-@]/.test(str.trimStart())) {
+        return `'${str}`;
+    }
+    return str;
 };
 
 interface ReferralDashboardV2Props {
@@ -78,6 +88,25 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
     const [referralPathFilter, setReferralPathFilter] = useState('all');
     const [viewMode, setViewMode] = useState<'standard' | 'unregistered' | 'trash'>('standard');
     const [selectedRefNos, setSelectedRefNos] = useState<Set<string>>(new Set());
+
+    // [Track B] User.team 및 Permission 기반 부서 선택 권한 판정
+    const canSelectTeam = useMemo(() => {
+        if (!currentUser) return false;
+        if (currentUser.role === 'admin') return true;
+        if (currentUser.role === 'manager') {
+            return currentUser.permissions?.referrals?.read !== false;
+        }
+        return false;
+    }, [currentUser]);
+
+    // 일반 사용자이거나 부서 권한이 없는 경우 본인 소속팀으로 자동 고정
+    useEffect(() => {
+        if (!canSelectTeam && currentUser?.team) {
+            if (selectedTeam !== currentUser.team) {
+                setSelectedTeam(currentUser.team as any);
+            }
+        }
+    }, [canSelectTeam, currentUser?.team, selectedTeam, setSelectedTeam]);
 
     // [New] South Branch Filter Toggle
     const [showNambu, setShowNambu] = useState(true);
@@ -193,7 +222,14 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                 return teamMatch && searchMatch && assigneeMatch && criMatch && statusMatch && dateMatch && pathMatch;
             })
             .sort((a, b) => {
-                // 1. 종결 건 또는 등록관리 건은 후순위(하단)로 이동
+                // 1. 미등록 의뢰 최우선 정렬
+                const isUnregA = (a.registrationStatus === '미등록' || a.isUnregistered === true);
+                const isUnregB = (b.registrationStatus === '미등록' || b.isUnregistered === true);
+                if (isUnregA !== isUnregB) {
+                    return isUnregA ? -1 : 1;
+                }
+
+                // 2. 미종결(진행중) 우선 정렬 (종결/등록관리 건은 후순위)
                 const aCompleted = Boolean(
                     (a.closureStatus && a.closureStatus !== '미종결') ||
                     (a.actionResult && (a.actionResult.includes('등록관리') || a.actionResult.includes('종결')))
@@ -203,18 +239,16 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                     (b.actionResult && (b.actionResult.includes('등록관리') || b.actionResult.includes('종결')))
                 );
 
-                // 미종결/진행중 건(false) 우선, 종결/등록관리 건(true)은 후순위
                 if (aCompleted !== bCompleted) {
                     return aCompleted ? 1 : -1;
                 }
 
-                // 동일 그룹 내에서는 최신 의뢰일자 순(내림차순)
+                // 3. 동일 그룹 내에서는 최신 의뢰 접수일자 순 (내림차순)
                 const dateA = a.requestDate ? new Date(a.requestDate).getTime() : 0;
                 const dateB = b.requestDate ? new Date(b.requestDate).getTime() : 0;
-                
                 if (dateA !== dateB) return dateB - dateA;
                 
-                // 날짜가 같으면 refNo로 정렬 (내림차순)
+                // 4. 날짜가 같으면 의뢰번호 내림차순
                 const refA = a.refNo || '';
                 const refB = b.refNo || '';
                 return refB.localeCompare(refA);
@@ -432,7 +466,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
         });
     }, [selectedReferrals]);
 
-    const handleExportReplyForm = (referrals: Referral[]) => {
+    const handleExportReplyForm = async (referrals: Referral[], exportScope: string = '선택') => {
         if (referrals.length === 0) return;
         try {
             // Updated 2025 Template Headers (14 Columns)
@@ -440,6 +474,8 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                 '연번', '이름', '성별', '생년월일(나이)', '주소', '연락처', '의뢰일', '의뢰기관', '의뢰자', '상담 및 개입내용', '조치결과', '지역', '담당자', '회신 여부'
             ];
 
+            // [Track B] 상담메모(notes) 전체 히스토리와 첨부파일(attachments) 본문은 기본 제외
+            // 회신서에는 최신 1건 요약 메모만 포함하며, 모든 셀에 Formula Injection 방어 적용
             const rows = referrals.map((r, index) => {
                 let noteContent = r.latestNote || '-';
                 if (noteContent === '-' && r.notes && r.notes.length > 0) {
@@ -450,20 +486,20 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                 }
 
                 return [
-                    (index + 1).toString(),
-                    r.name,
-                    r.gender === '여성' ? '여' : r.gender === '남성' ? '남' : r.gender,
-                    r.age,
-                    r.region || '이천시',
-                    r.phone || '-',
-                    r.requestDate,
-                    r.requestAgency,
-                    r.requestorName || '-',
-                    noteContent,
-                    r.actionResult || '-',
-                    r.region,
-                    r.assignee,
-                    r.replyStatus || (r.reply ? '회신완료' : '회신예정')
+                    sanitizeExcelCell((index + 1).toString()),
+                    sanitizeExcelCell(r.name),
+                    sanitizeExcelCell(r.gender === '여성' ? '여' : r.gender === '남성' ? '남' : r.gender),
+                    sanitizeExcelCell(r.age),
+                    sanitizeExcelCell(r.region || '이천시'),
+                    sanitizeExcelCell(r.phone || '-'),
+                    sanitizeExcelCell(r.requestDate),
+                    sanitizeExcelCell(r.requestAgency),
+                    sanitizeExcelCell(r.requestorName || '-'),
+                    sanitizeExcelCell(noteContent),
+                    sanitizeExcelCell(r.actionResult || '-'),
+                    sanitizeExcelCell(r.region),
+                    sanitizeExcelCell(r.assignee),
+                    sanitizeExcelCell(r.replyStatus || (r.reply ? '회신완료' : '회신예정'))
                 ];
             });
 
@@ -547,7 +583,17 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                 : `${currentYear}년_통합_회신서_${referrals.length}명_${new Date().toISOString().split('T')[0]}.xlsx`;
 
             XLSX.writeFile(wb, fileName);
-            alert(`${referrals.length}명의 회신서가 프리미엄 양식으로 다운로드되었습니다.`);
+
+            // [Track B] 다운로드 감사 로그 기록
+            try {
+                const operatorName = currentUser?.name || currentUser?.id || '사용자';
+                const logDetails = `의뢰대장 엑셀 다운로드 [${exportScope} ${referrals.length}건] (팀: ${selectedTeam}, 검색: "${searchTerm || '없음'}")`;
+                await apiClient.logActivity(operatorName, 'EXCEL_EXPORT', logDetails);
+            } catch (logErr) {
+                console.warn('⚠️ 감사 로그 전송 실패:', logErr);
+            }
+
+            alert(`${referrals.length}명의 회신서가 안전한 양식으로 다운로드되었습니다.`);
         } catch (error) {
             console.error('Excel export failed:', error);
             alert('엑셀 파일 생성 중 오류가 발생했습니다.');
@@ -645,10 +691,12 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                 <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                     <select
                         value={selectedTeam}
+                        disabled={!canSelectTeam}
                         onChange={(e) => setSelectedTeam(e.target.value as any)}
-                        className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 focus:border-indigo-500 outline-none shadow-sm min-w-[80px]"
+                        title={!canSelectTeam ? `부서 선택 권한이 제한되어 소속팀(${currentUser?.team || '지정팀'})으로 고정됩니다.` : '팀 선택'}
+                        className={`px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 focus:border-indigo-500 outline-none shadow-sm min-w-[80px] ${!canSelectTeam ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' : ''}`}
                     >
-                        <option value="all">전체 팀</option>
+                        {canSelectTeam && <option value="all">전체 팀</option>}
                         {MAIN_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
 
@@ -670,26 +718,48 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                     </button>
 
                 </div>
+                {/* [Track B] 엑셀 다운로드: 선택 항목 및 필터 전체 항목 지원 */}
                 <div className="flex w-full mt-2 gap-2">
-                    <button
-                        onClick={() => {
-                            const selected = filteredReferrals.filter(r => selectedRefNos.has(getReferralKey(r)));
-                            handleExportReplyForm(selected);
-                        }}
-                        disabled={selectedRefNos.size === 0}
-                        className={`${selectedRefNos.size > 0 ? 'flex-1' : 'w-full'} flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${selectedRefNos.size > 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed'}`}
-                    >
-                        <Download size={14} />
-                        엑셀 ({selectedRefNos.size})
-                    </button>
-                    {selectedRefNos.size > 0 && (
+                    {selectedRefNos.size > 0 ? (
+                        <>
+                            <button
+                                onClick={() => {
+                                    const selected = filteredReferrals.filter(r => selectedRefNos.has(getReferralKey(r)));
+                                    handleExportReplyForm(selected, '선택');
+                                }}
+                                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl border text-xs font-bold bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm hover:bg-emerald-100 transition-all"
+                                title="선택된 항목만 엑셀 다운로드"
+                            >
+                                <Download size={14} />
+                                선택 엑셀 ({selectedRefNos.size})
+                            </button>
+                            <button
+                                onClick={() => handleExportReplyForm(filteredReferrals, '필터 전체')}
+                                disabled={filteredReferrals.length === 0}
+                                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl border text-xs font-bold bg-white border-slate-200 text-slate-700 shadow-sm hover:bg-slate-50 transition-all"
+                                title="현재 필터 조건에 해당하는 전체 항목 엑셀 다운로드"
+                            >
+                                <Download size={14} />
+                                전체 ({filteredReferrals.length})
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsPrintModalOpen(true)}
+                                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-xs font-bold transition-all shadow-sm hover:bg-indigo-100"
+                            >
+                                <Printer size={14} />
+                                출력 ({selectedRefNos.size})
+                            </button>
+                        </>
+                    ) : (
                         <button
-                            type="button"
-                            onClick={() => setIsPrintModalOpen(true)}
-                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-xs font-bold transition-all shadow-sm hover:bg-indigo-100"
+                            onClick={() => handleExportReplyForm(filteredReferrals, '필터 전체')}
+                            disabled={filteredReferrals.length === 0}
+                            className={`w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${filteredReferrals.length > 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm hover:bg-emerald-100' : 'bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed'}`}
+                            title="현재 필터 조건에 부합하는 모든 항목 엑셀 다운로드"
                         >
-                            <Printer size={14} />
-                            출력 ({selectedRefNos.size}건)
+                            <Download size={14} />
+                            필터 전체 엑셀 ({filteredReferrals.length}건)
                         </button>
                     )}
                 </div>
@@ -912,13 +982,14 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                     onSubmit={async (data) => {
                         try {
                             const saved = await onAddNewReferral(data);
-                            if (saved && saved.clientId) {
-                                setSelectedReferralId(saved.clientId);
+                            if (saved && (saved.referralId || saved.clientId)) {
+                                setSelectedReferralId((saved.referralId || saved.clientId) as string);
                             }
                             setIsAddModalOpen(false);
                             setTransferPrefill(null);
                         } catch (e) {
-                            console.error(e);
+                            console.error('Failed to add referral in modal:', e);
+                            throw e;
                         }
                     }}
                     referralData={transferPrefill as Referral | null}
@@ -938,7 +1009,10 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                         try {
                             await onUpdateReferral(updated);
                             setIsEditModalOpen(false);
-                        } catch (e) { console.error(e); }
+                        } catch (e) { 
+                            console.error('Failed to update referral in modal:', e);
+                            throw e;
+                        }
                     }}
                     onDelete={(id) => handleDeleteReferral(id, activeReferral)}
                     referralData={activeReferral}

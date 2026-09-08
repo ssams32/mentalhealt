@@ -129,7 +129,7 @@ export const TEAM_CODES: Record<Team, string> = {
 
 export const NAMBU_SUB_TEAMS = ['회복', '아청', '자살', '청년'];
 
-export const REFERRAL_EXCEL_HEADERS: Record<keyof Omit<Referral, 'createdAt' | 'updatedAt' | 'clientId' | 'latestNoteDate' | 'isWebsiteReferral' | 'externalIdx' | 'address' | 'problem' | 'medicalInsurance' | 'disabilityStatus' | 'guardianPresence' | 'guardianName' | 'guardianRelation' | 'guardianPhone' | 'guardianNotes' | 'consentToReferral' | 'consentNotes' | 'agency' | 'requesterEmail' | 'requesterFax' | 'requesterName' | 'requesterPhone' | 'reason'>, string> = {
+export const REFERRAL_EXCEL_HEADERS: Record<keyof Omit<Referral, 'referralId' | 'version' | 'registrationStatus' | 'createdAt' | 'updatedAt' | 'clientId' | 'latestNoteDate' | 'isWebsiteReferral' | 'externalIdx' | 'address' | 'problem' | 'medicalInsurance' | 'disabilityStatus' | 'guardianPresence' | 'guardianName' | 'guardianRelation' | 'guardianPhone' | 'guardianNotes' | 'consentToReferral' | 'consentNotes' | 'agency' | 'requesterEmail' | 'requesterFax' | 'requesterName' | 'requesterPhone' | 'reason'>, string> = {
     refNo: '의뢰번호', name: '이름', phone: '연락처', gender: '성별', age: '나이',
     requestDate: '의뢰일', team: '담당팀', subTeam: '세부팀', assignee: '담당자',
     region: '지역', referralPath: '의뢰경로', requestAgency: '의뢰기관',

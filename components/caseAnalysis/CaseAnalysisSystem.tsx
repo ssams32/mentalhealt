@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { AnalysisResult } from '../../types';
+import { AnalysisResult, User } from '../../types';
 import { analyzeAllFiles } from '../../services/excelAnalysisService';
 import { apiClient } from '../../services/apiClient';
 import PageContainer from '../layout/PageContainer';
@@ -8,7 +8,26 @@ import FilterControls from './FilterControls';
 import AnalysisDashboard from './AnalysisDashboard';
 import { Loader2, AlertTriangle, FileSpreadsheet } from 'lucide-react';
 
-const CaseAnalysisSystem: React.FC = () => {
+interface CaseAnalysisSystemProps {
+    currentUser?: User;
+}
+
+const TEAM_TO_DEPT_MAP: Record<string, string[]> = {
+    '자살예방센터': ['자살팀', '자살예방센터'],
+    '증진팀': ['증진팀'],
+    '회복팀': ['회복팀'],
+    '남부분소': ['남부분소'],
+    '아동청소년': ['아동청소년', '아청팀']
+};
+
+const CaseAnalysisSystem: React.FC<CaseAnalysisSystemProps> = ({ currentUser }) => {
+    // [Role & Team Isolation]
+    const isRestrictedUser = Boolean(currentUser && currentUser.role === 'user');
+    const userAllowedDepts = useMemo(() => {
+        if (!isRestrictedUser || !currentUser?.team) return null;
+        return TEAM_TO_DEPT_MAP[currentUser.team] || [currentUser.team];
+    }, [isRestrictedUser, currentUser?.team]);
+
     // --- State ---
     const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -51,11 +70,20 @@ const CaseAnalysisSystem: React.FC = () => {
 
     const initializeFilters = (results: AnalysisResult) => {
         const counselorPerf = Array.isArray(results.counselorPerformance) ? results.counselorPerformance : [];
-        const allDepts = Array.from(new Set(counselorPerf.map(c => c.department))).sort();
-        const allCounselors = counselorPerf.map(c => c.counselorName).sort();
+        let allDepts = Array.from(new Set(counselorPerf.map(c => c.department))).sort();
+
+        if (userAllowedDepts && userAllowedDepts.length > 0) {
+            const matching = allDepts.filter(d => userAllowedDepts.includes(d));
+            allDepts = matching.length > 0 ? matching : userAllowedDepts;
+        }
+
+        const validCounselors = counselorPerf
+            .filter(c => allDepts.includes(c.department))
+            .map(c => c.counselorName)
+            .sort();
 
         setSelectedDepartments(allDepts);
-        setSelectedCounselors(allCounselors);
+        setSelectedCounselors(validCounselors);
 
         // Date Range Auto-detect
         const allDates = counselorPerf.flatMap(c => (Array.isArray(c.faceToFaceSessions) ? c.faceToFaceSessions : []).map(s => s.date)).filter(Boolean);
@@ -95,8 +123,13 @@ const CaseAnalysisSystem: React.FC = () => {
     const availableDepartments = useMemo(() => {
         if (!analysisResult) return [];
         const counselorPerf = Array.isArray(analysisResult.counselorPerformance) ? analysisResult.counselorPerformance : [];
-        return Array.from(new Set(counselorPerf.map(c => c.department))).sort();
-    }, [analysisResult]);
+        const depts = Array.from(new Set(counselorPerf.map(c => c.department))).sort();
+        if (userAllowedDepts && userAllowedDepts.length > 0) {
+            const matching = depts.filter(d => userAllowedDepts.includes(d));
+            return matching.length > 0 ? matching : userAllowedDepts;
+        }
+        return depts;
+    }, [analysisResult, userAllowedDepts]);
 
     const availableCounselors = useMemo(() => {
         if (!analysisResult) return [];
@@ -255,6 +288,8 @@ const CaseAnalysisSystem: React.FC = () => {
                             setSelectedCounselors={setSelectedCounselors}
                             dateRange={dateRange}
                             setDateRange={setDateRange}
+                            isRestrictedUser={isRestrictedUser}
+                            userTeam={currentUser?.team}
                         />
 
                         <AnalysisDashboard

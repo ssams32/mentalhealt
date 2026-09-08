@@ -96,14 +96,17 @@ function App() {
     useEffect(() => { referralsRef.current = referrals; }, [referrals]);
 
     // Load data from Google Sheets on mount
+    const [isOfflineFallback, setIsOfflineFallback] = useState(false);
+
     useEffect(() => {
         console.log("Frontend Version: 2.2.5 (Performance Optimized)");
 
-        // Emergency Escape Hatch: If loading takes > 15 seconds, FORCE it to stop
+        // Emergency Escape Hatch: If loading takes > 15 seconds, reveal cached UI and mark offline
         const escapeHatch = setTimeout(() => {
             setIsLoadingData(prev => {
                 if (prev) {
-                    console.warn("[App] Emergency Escape Hatch Triggered: Loading took > 15s. Forcing UI reveal.");
+                    console.warn("[App] Emergency Escape Hatch Triggered: Loading took > 15s. Switching to offline cache.");
+                    setIsOfflineFallback(true);
                     return false;
                 }
                 return prev;
@@ -123,16 +126,17 @@ function App() {
                         console.warn("No users found on server or invalid response, using local fallback.");
                         const saved = safeLocalStorage.getItem('users');
                         setUsers(saved ? JSON.parse(saved) : initialUsers);
+                        setIsOfflineFallback(true);
                     }
                     setIsLoadingData(false); // Unblock UI!
 
                     // 2. Background Data: Logs, Referrals, etc. (Heavy)
                     console.log("Stage 2: Fetching heavy data in background...");
                     const [loadedLogs, loadedReferrals, loadedSAs, loadedUnregistered] = await Promise.all([
-                        apiClient.getLogs().catch(e => { console.error("Logs fetch failed", e); return []; }),
-                        apiClient.getReferrals().catch(e => { console.error("Referrals fetch failed", e); return []; }),
-                        apiClient.getSuicideAttempters().catch(e => { console.error("SAs fetch failed", e); return []; }),
-                        apiClient.getUnregistered().catch(e => { console.error("Unregistered fetch failed", e); return []; })
+                        apiClient.getLogs().catch(e => { console.error("Logs fetch failed", e); return null; }),
+                        apiClient.getReferrals().catch(e => { console.error("Referrals fetch failed", e); return null; }),
+                        apiClient.getSuicideAttempters().catch(e => { console.error("SAs fetch failed", e); return null; }),
+                        apiClient.getUnregistered().catch(e => { console.error("Unregistered fetch failed", e); return null; })
                     ]);
 
                     if (Array.isArray(loadedLogs)) {
@@ -140,11 +144,13 @@ function App() {
                         safeLocalStorage.setItem('logs', JSON.stringify(loadedLogs));
                     }
                     if (Array.isArray(loadedReferrals)) {
-                        // 서버의 실데이터가 빈 배열이 아닐 경우 강제로 덮어쓰기 및 로컬 스토리지 동기화 강제 갱신
                         const referralsToSet = loadedReferrals.length > 0 ? loadedReferrals : initialReferrals;
                         setReferrals(referralsToSet);
                         safeLocalStorage.setItem('referrals', JSON.stringify(referralsToSet));
-                        console.log(`[App] Server referrals (${referralsToSet.length} items) successfully synced and forced to LocalStorage.`);
+                        setIsOfflineFallback(false);
+                        console.log(`[App] Server referrals (${referralsToSet.length} items) successfully synced.`);
+                    } else if (loadedReferrals === null) {
+                        setIsOfflineFallback(true);
                     }
                     
                     if (Array.isArray(loadedSAs)) {
@@ -220,11 +226,16 @@ function App() {
     useEffect(() => {
         const fetchPending = async () => {
             try {
-                const data = await apiClient.getPendingReferrals();
-                if (!Array.isArray(data)) {
+                const rawData = await apiClient.getPendingReferrals();
+                if (!Array.isArray(rawData)) {
                     setPendingReferrals([]);
                     return;
                 }
+
+                // Filter out automated security probes / test spam (sparrow, dast, etc.)
+                const data = rawData.filter(p => !/sparrow|dast|<script|alert\(/i.test(
+                    `${p.name} ${p.phone} ${p.problem} ${p.reason}`
+                ));
 
                 // Stage 2: Parallel sync using syncRequest
                 // referralsRef.current 사용 → referrals 변경 시 interval 재시작 없이 최신값 참조
@@ -355,97 +366,104 @@ function App() {
     }, [currentUser]);
 
     const handleAddNewReferral = useCallback(async (newReferral: Omit<Referral, 'refNo' | 'clientId'>): Promise<Referral> => {
-        const teamCode = TEAM_CODES[newReferral.team] || 'ET';
-        const now = new Date();
-        const yearYY = now.getFullYear().toString().slice(-2); // "26"
+        if (isOfflineFallback) {
+            const msg = '현재 오프라인 캐시 모드이므로 신규 저장이 제한됩니다. 백엔드 서버(Port 8889) 상태를 확인해주세요.';
+            showToast(msg);
+            throw new Error(msg);
+        }
 
-        // Search for existing IDs with format: Code-YY-Seq (e.g. ET-26-001)
-        // Or legacy format: CodeSeq (e.g. ET001) - We will ignore legacy for max calculation of new format if possible, or migrate? 
-        // Strategy: Only look for patterns matching Current Year format to increment sequence.
-
-        const currentYearPrefix = `${teamCode}-${yearYY}-`; // "ET-26-"
-
-        // Filter referrals that match the current year's pattern
-        const existingIds = referrals
-            .map(r => r.refNo)
-            .filter(refNo => refNo && refNo.startsWith(currentYearPrefix))
-            .map(refNo => parseInt(refNo.split('-')[2], 10)) // Extract sequence
-            .filter(num => !isNaN(num));
-
-        const maxId = existingIds.length > 0 ? Math.max(...existingIds) : 0;
-        const newRefNo = `${currentYearPrefix}${String(maxId + 1).padStart(3, '0')}`; // ET-26-001
-        const finalReferral: Referral = {
-            ...newReferral,
-            refNo: newRefNo,
-            clientId: `C${Date.now()}`,
-        };
-
-        // Create Referral
         try {
-            await apiClient.createReferral(finalReferral);
-            showToast('의뢰가 등록되었습니다.');
+            // Send creation request to server; Server assigns refNo and referralId atomically
+            const res = await apiClient.createReferral(newReferral);
+            if (!res || !res.success || !res.data) {
+                throw new Error('서버 저장 응답에 실패했습니다.');
+            }
 
-            // Deletion logic for imported external referrals (moved from HomePage)
-            // This ensures data is ONLY removed after successful persistence in the main registry.
+            const savedReferral: Referral = res.data;
+            showToast(`의뢰가 등록되었습니다. [${savedReferral.refNo}]`);
+
+            // Deletion logic for imported external referrals
             const externalId = (newReferral as any).externalIdx || (newReferral as any).id;
             if (externalId && String(externalId).startsWith('ext_')) {
                 try {
                     await fetch(`/api/pending-referrals/${externalId}`, { method: 'DELETE' });
                     setPendingReferrals(prev => prev.filter(p => p.id !== externalId));
-                    console.log(`[App] Successfully deleted pending referral ${externalId} after registration.`);
                 } catch (delErr) {
                     console.error("Cleanup of pending referral failed:", delErr);
                 }
             }
-        } catch (error) {
-            console.error('Save error:', error);
-            showToast('저장에 실패했습니다.');
-        }
 
-        setReferrals(prev => [finalReferral, ...prev]);
-        return finalReferral;
-    }, [referrals, showToast]);
+            // Update UI state ONLY AFTER confirmed persistent write
+            setReferrals(prev => [savedReferral, ...prev]);
+            return savedReferral;
+        } catch (error: any) {
+            console.error('Save error:', error);
+            const errMsg = error?.message || '저장에 실패했습니다.';
+            showToast(errMsg);
+            throw error; // Re-throw so modal/form remains open with error state
+        }
+    }, [isOfflineFallback, showToast]);
 
     const handleUpdateReferral = useCallback(async (updatedReferral: Referral, originalRefNo?: string) => {
+        if (isOfflineFallback) {
+            const msg = '현재 오프라인 캐시 모드이므로 수정이 제한됩니다.';
+            showToast(msg);
+            throw new Error(msg);
+        }
+
         try {
             if (originalRefNo && originalRefNo !== updatedReferral.refNo) {
-                // ID Change Logic: Create New -> Delete Old
-                await apiClient.createReferral(updatedReferral);
+                // ID Change Logic
+                const createRes = await apiClient.createReferral(updatedReferral);
+                const saved = createRes.data || updatedReferral;
                 await apiClient.deleteReferral(originalRefNo);
                 showToast('의뢰번호가 성공적으로 변경되었습니다.');
 
                 setReferrals(prev => {
-                    const others = prev.filter(r => r.refNo !== originalRefNo);
-                    return [...others, updatedReferral];
+                    const others = prev.filter(r => r.refNo !== originalRefNo && (!r.referralId || r.referralId !== updatedReferral.referralId));
+                    return [saved, ...others];
                 });
-                return;
+                return saved;
             } else {
-                // Normal Update
-                await apiClient.updateReferral(updatedReferral);
-                // Toast removed for smoother auto-save experience, or kept minimal
-                // showToast('의뢰가 수정되었습니다.'); 
+                // Normal Update with OCC
+                const updateRes = await apiClient.updateReferral(updatedReferral);
+                const saved = updateRes.data || updatedReferral;
+                showToast('의뢰가 수정되었습니다.');
+
+                setReferrals(prev => prev.map(r => {
+                    const matchById = saved.referralId && r.referralId && r.referralId === saved.referralId;
+                    const matchByRefNo = r.refNo === saved.refNo;
+                    return (matchById || matchByRefNo) ? saved : r;
+                }));
+                return saved;
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Update error:', error);
-            showToast('수정에 실패했습니다.');
+            const errMsg = error?.code === 'VERSION_CONFLICT'
+                ? '다른 사용자가 이미 의뢰를 수정했습니다. 화면을 새로고침하여 최신 정보를 확인해주세요.'
+                : (error?.message || '수정에 실패했습니다.');
+            showToast(errMsg);
+            throw error;
+        }
+    }, [isOfflineFallback, showToast]);
+
+    const handleDeleteReferral = useCallback(async (refNoOrId: string) => {
+        if (isOfflineFallback) {
+            showToast('현재 오프라인 캐시 모드이므로 삭제가 제한됩니다.');
             return;
         }
 
-        setReferrals(prev => prev.map(r => r.refNo === updatedReferral.refNo ? updatedReferral : r));
-    }, [showToast]);
-
-    const handleDeleteReferral = useCallback(async (refNo: string) => {
         if (window.confirm('정말로 이 의뢰를 삭제하시겠습니까?')) {
             try {
-                await apiClient.deleteReferral(refNo);
-                setReferrals(prev => prev.filter(r => r.refNo !== refNo));
+                await apiClient.deleteReferral(refNoOrId);
+                setReferrals(prev => prev.filter(r => r.referralId !== refNoOrId && r.refNo !== refNoOrId && r.clientId !== refNoOrId));
                 showToast('의뢰가 삭제되었습니다.');
-            } catch (error) {
+            } catch (error: any) {
                 console.error('Delete error:', error);
-                showToast(`삭제 실패: ${error}`);
+                showToast(`삭제 실패: ${error?.message || error}`);
             }
         }
-    }, [showToast]);
+    }, [isOfflineFallback, showToast]);
 
     const handleAddNewSAReferral = useCallback(async (newReferral: SuicideAttempterReferral): Promise<SuicideAttempterReferral> => {
         try {
@@ -658,7 +676,7 @@ function App() {
                     onTransferToReferral={handleTransferToReferral}
                 />;
             case 'caseAnalysis':
-                return (currentUser.role === 'admin' || currentUser.role === 'manager') ? <CaseAnalysisSystem /> : null;
+                return (currentUser.role === 'admin' || currentUser.role === 'manager' || currentUser.permissions?.caseAnalysis?.read === true) ? <CaseAnalysisSystem currentUser={currentUser} /> : null;
             case 'data':
                 return <DataManagementPage
                     referrals={referrals}
@@ -723,6 +741,20 @@ function App() {
                     pendingCount={pendingReferrals.length}
                 />
                 <main className="flex-1 flex flex-col min-w-0 min-h-0 relative overflow-hidden text-left">
+                    {isOfflineFallback && (
+                        <div className="bg-amber-500 text-white px-4 py-2 text-xs font-bold flex items-center justify-between shadow-md z-40">
+                            <span className="flex items-center gap-2">
+                                <span>⚠️</span>
+                                <span>[오프라인 캐시 모드] 서버 응답이 지연되어 로컬에 캐시된 정보를 읽기 전용으로 표시하고 있습니다. 데이터 무결성을 위해 신규 저장/수정이 제한됩니다.</span>
+                            </span>
+                            <button
+                                onClick={() => window.location.reload()}
+                                className="bg-amber-600 hover:bg-amber-700 px-3 py-1 rounded-lg text-[11px] transition-colors"
+                            >
+                                서버 재연결 시도
+                            </button>
+                        </div>
+                    )}
                     {renderPage()}
                 </main>
                 <AgentChat

@@ -27,6 +27,8 @@ archive/
 # Operational Data (JSON exclusion policy)
 app/data/*.json
 data/*.json
+app/data/backups/
+audit-output/
 !app/data/*.example.json
 !data/*.example.json
 

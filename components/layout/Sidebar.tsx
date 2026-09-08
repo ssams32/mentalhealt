@@ -84,7 +84,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                     <nav className="flex-1 px-3 space-y-1 overflow-y-auto custom-scrollbar">
                         {(['home', 'referrals', 'suicideAttempters', 'caseAnalysis', 'data', 'reports', 'budget', 'accounts'] as Page[]).filter(p => {
                             if (p === 'accounts') return true;
-                            if (p === 'caseAnalysis') return currentUser.role === 'admin' || currentUser.role === 'manager';
+                            if (p === 'caseAnalysis') return currentUser.role === 'admin' || currentUser.role === 'manager' || currentUser.permissions?.caseAnalysis?.read === true;
                             if (p === 'data') return currentUser.role === 'admin';
                             return true;
                         }).map((page) => {

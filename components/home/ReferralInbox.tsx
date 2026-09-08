@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
-import { User, AlertTriangle, Phone, Building2, Calendar, UserPlus, ChevronRight, X, Loader2, FileInput, Bell, Trash2 } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { User as UserType } from '../../types';
+import { AlertTriangle, Bell, User, Phone, Building2, ChevronRight, FileInput, Trash2, X } from 'lucide-react';
 
 interface PendingReferral {
     id: string;
     name: string;
     phone?: string;
     gender?: string;
-    age?: string;
+    age?: string | number;
     agency?: string;
     agencyPhone?: string;
     requesterName?: string;
@@ -14,14 +15,15 @@ interface PendingReferral {
     problem?: string;
     reason?: string;
     createdAt: string;
+    [key: string]: any;
 }
 
 interface ReferralInboxProps {
     pendingReferrals: PendingReferral[];
-    onAccept: (referral: PendingReferral, team: string, assignee: string) => void;
+    onAccept: (referral: PendingReferral, team: string, assignee: string) => Promise<void>;
     onDismiss: (id: string) => void;
     onImport: (referral: PendingReferral) => void;
-    users: { name: string; team: string }[];
+    users: { name: string; team: any }[];
 }
 
 const TEAMS = ['증진팀', '자살예방팀', '아동청소년팀', '중독관리팀', '남부분소'];
@@ -31,6 +33,13 @@ const ReferralInbox: React.FC<ReferralInboxProps> = ({ pendingReferrals, onAccep
     const [selectedTeam, setSelectedTeam] = useState('증진팀');
     const [selectedAssignee, setSelectedAssignee] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
+
+    // [Security & Noise Filter] Exclude automated scanner probes or test spam
+    const cleanReferrals = useMemo(() => {
+        return (pendingReferrals || []).filter(p => !/sparrow|dast|<script|alert\(/i.test(
+            `${p.name} ${p.phone} ${p.problem} ${p.reason}`
+        ));
+    }, [pendingReferrals]);
 
     const handleAccept = async (referral: PendingReferral) => {
         if (!selectedAssignee) {
@@ -49,24 +58,24 @@ const ReferralInbox: React.FC<ReferralInboxProps> = ({ pendingReferrals, onAccep
     const teamUsers = users.filter(u => u.team === selectedTeam);
 
     return (
-        <div className={`rounded-3xl border-2 p-6 mb-6 shadow-lg ${pendingReferrals.length > 0
+        <div className={`rounded-3xl border-2 p-6 mb-6 shadow-lg ${cleanReferrals.length > 0
             ? 'bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200'
             : 'bg-gradient-to-br from-slate-50 to-blue-50 border-slate-200'}`}>
             <div className="flex items-center gap-3 mb-4">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${pendingReferrals.length > 0 ? 'bg-amber-500 shadow-amber-200' : 'bg-slate-400 shadow-slate-200'
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${cleanReferrals.length > 0 ? 'bg-amber-500 shadow-amber-200' : 'bg-slate-400 shadow-slate-200'
                     }`}>
-                    {pendingReferrals.length > 0
+                    {cleanReferrals.length > 0
                         ? <AlertTriangle className="text-white" size={20} />
                         : <Bell className="text-white" size={20} />
                     }
                 </div>
                 <div>
-                    <h3 className={`text-lg font-black ${pendingReferrals.length > 0 ? 'text-amber-900' : 'text-slate-700'}`}>
+                    <h3 className={`text-lg font-black ${cleanReferrals.length > 0 ? 'text-amber-900' : 'text-slate-700'}`}>
                         알림 / 신규 의뢰
                     </h3>
-                    <p className={`text-xs font-bold ${pendingReferrals.length > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
-                        {pendingReferrals.length > 0
-                            ? `홈페이지에서 ${pendingReferrals.length}건의 새로운 의뢰가 도착했습니다.`
+                    <p className={`text-xs font-bold ${cleanReferrals.length > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                        {cleanReferrals.length > 0
+                            ? `홈페이지에서 ${cleanReferrals.length}건의 새로운 의뢰가 도착했습니다.`
                             : '대기 중인 신규 의뢰가 없습니다.'
                         }
                     </p>
@@ -74,7 +83,7 @@ const ReferralInbox: React.FC<ReferralInboxProps> = ({ pendingReferrals, onAccep
             </div>
 
             <div className="space-y-3">
-                {pendingReferrals.map((referral) => (
+                {cleanReferrals.map((referral) => (
                     <div
                         key={referral.id}
                         className={`bg-white rounded-2xl border-2 transition-all duration-300 overflow-hidden ${expandedId === referral.id

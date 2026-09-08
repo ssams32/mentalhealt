@@ -14,7 +14,6 @@ class ApiClient {
     private baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
     private loadingListeners: ((isLoading: boolean) => void)[] = [];
     private activeRequests = 0;
-    private recentRequests: Map<string, number> = new Map(); // [v5.5] Deduplication
 
 
     addLoadingListener(listener: (isLoading: boolean) => void) {
@@ -33,22 +32,26 @@ class ApiClient {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+    private getAuthHeaders(): Record<string, string> {
+        const headers: Record<string, string> = {};
+        try {
+            if (typeof window !== 'undefined' && window.sessionStorage) {
+                const saved = window.sessionStorage.getItem('currentUser');
+                if (saved) {
+                    const user = JSON.parse(saved);
+                    if (user?.id) headers['x-user-id'] = user.id;
+                    if (user?.role) headers['x-user-role'] = user.role;
+                    if (user?.team) headers['x-user-team'] = encodeURIComponent(user.team);
+                }
+            }
+        } catch (ignore) {}
+        return headers;
+    }
+
     /**
-     * 중앙집중형 요청 처리 함수 (지수 백오프 포함)
+     * 중앙집중형 요청 처리 함수
      */
     private async request<T>(url: string, options: RequestInit = {}, retryCount = 0): Promise<T> {
-        // [v5.5] Request Deduplication for DELETE/POST (prevent ghost errors)
-        const requestKey = `${options.method || 'GET'}:${url}`;
-        const now = Date.now();
-        if (options.method && ['DELETE', 'POST'].includes(options.method)) {
-            const lastTime = this.recentRequests.get(requestKey);
-            if (lastTime && (now - lastTime < 500)) {
-                console.warn(`[API] Deduplicating redundant request: ${requestKey}`);
-                return Promise.resolve({ success: true, duplicated: true } as any);
-            }
-            this.recentRequests.set(requestKey, now);
-        }
-
         if (this.activeRequests === 0) this.notifyLoading(true);
         this.activeRequests++;
 
@@ -63,6 +66,7 @@ class ApiClient {
                 ...options,
                 headers: {
                     'Content-Type': 'application/json',
+                    ...this.getAuthHeaders(),
                     ...options.headers,
                 },
                 signal: controller.signal
@@ -70,17 +74,30 @@ class ApiClient {
             
             clearTimeout(timeoutId);
 
-            // 408 Request Timeout 발생 시 지수 백오프 재시도 (최대 3회)
-            if (response.status === 408 && retryCount < 3) {
-                console.warn(`[API] 408 Timeout detected. Retrying... (${retryCount + 1}/3)`);
-                this.activeRequests--; // 재시도 전 카운트 감소
-                const delay = Math.pow(2, retryCount) * 1000;
+            // 408 Request Timeout 처리: 
+            // GET 요청이거나 Idempotency-Key 헤더가 명시된 경우에만 안전하게 재시도 (최대 3회)
+            const isIdempotent = !options.method || options.method === 'GET' || (options.headers && (options.headers as any)['Idempotency-Key']);
+            if (response.status === 408 && isIdempotent && retryCount < 3) {
+                console.warn(`[API] 408 Timeout detected on idempotent request. Retrying... (${retryCount + 1}/3)`);
+                this.activeRequests--;
+                const delay = Math.pow(2, retryCount) * 1000 + Math.floor(Math.random() * 200);
                 await this.wait(delay);
                 return this.request<T>(url, options, retryCount + 1);
             }
 
             if (!response.ok) {
-                throw new Error(`HTTP Error: ${response.status} ${response.statusText}`);
+                let errorBody: any = null;
+                try {
+                    errorBody = await response.json();
+                } catch (ignore) {}
+
+                const errMsg = errorBody?.error || errorBody?.message || `HTTP Error: ${response.status} ${response.statusText}`;
+                const err = new Error(errMsg) as any;
+                err.status = response.status;
+                err.code = errorBody?.code;
+                err.serverItem = errorBody?.serverItem;
+                err.currentVersion = errorBody?.currentVersion;
+                throw err;
             }
 
             const data = await response.json();
@@ -101,7 +118,7 @@ class ApiClient {
         }
     }
 
-    // --- 인터페이스 호환성 유지 메서드 (SheetsService와 동일한 시그니처) ---
+    // --- 인터페이스 호환성 유지 메서드 ---
 
     // Users
     async getUsers(): Promise<User[]> { return this.request<User[]>('/users'); }
@@ -119,11 +136,65 @@ class ApiClient {
     }
 
     // Referrals
-    async getReferrals(): Promise<Referral[]> { return this.request<Referral[]>('/referrals'); }
-    async createReferral(referral: Referral): Promise<any> { return this.request('/referrals', { method: 'POST', body: JSON.stringify(referral) }); }
-    async updateReferral(referral: Referral): Promise<any> { return this.request('/referrals', { method: 'PUT', body: JSON.stringify(referral) }); }
-    async deleteReferral(id: string): Promise<any> { return this.request(`/referrals/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
-    async deleteReferralsBulk(ids: string[]): Promise<any> { return this.request('/referrals/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }); }
+    async getReferrals(params?: { team?: string; closureStatus?: string; registrationStatus?: string; view?: string }): Promise<Referral[]> {
+        let query = '';
+        if (params) {
+            const searchParams = new URLSearchParams();
+            if (params.team) searchParams.set('team', params.team);
+            if (params.closureStatus) searchParams.set('closureStatus', params.closureStatus);
+            if (params.registrationStatus) searchParams.set('registrationStatus', params.registrationStatus);
+            if (params.view) searchParams.set('view', params.view);
+            const qs = searchParams.toString();
+            if (qs) query = `?${qs}`;
+        }
+        return this.request<Referral[]>(`/referrals${query}`);
+    }
+
+    async createReferral(referral: Partial<Referral>, idempotencyKey?: string): Promise<{ success: boolean; data: Referral }> {
+        const headers: Record<string, string> = {};
+        const effectiveKey = idempotencyKey || `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        headers['Idempotency-Key'] = effectiveKey;
+
+        return this.request<{ success: boolean; data: Referral }>('/referrals', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(referral)
+        });
+    }
+
+    async updateReferral(referral: Partial<Referral>, idempotencyKey?: string): Promise<{ success: boolean; data: Referral }> {
+        const targetId = referral.referralId || referral.refNo || referral.clientId;
+        const url = targetId ? `/referrals/${encodeURIComponent(targetId)}` : '/referrals';
+        const headers: Record<string, string> = {};
+        if (idempotencyKey) {
+            headers['Idempotency-Key'] = idempotencyKey;
+        }
+        return this.request<{ success: boolean; data: Referral }>(url, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify(referral)
+        });
+    }
+
+    async deleteReferral(id: string): Promise<any> {
+        return this.request(`/referrals/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    }
+
+    async deleteReferralsBulk(ids: string[]): Promise<any> {
+        return this.request('/referrals/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) });
+    }
+
+    async saveNotes(refNo: string, notes: any[], referralId?: string, idempotencyKey?: string, version?: number): Promise<{ success: boolean; data: Referral }> {
+        const headers: Record<string, string> = {};
+        if (idempotencyKey) {
+            headers['Idempotency-Key'] = idempotencyKey;
+        }
+        return this.request<{ success: boolean; data: Referral }>('/saveNotes', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ refNo, notes, referralId, version })
+        });
+    }
 
     // Unregistered (Monitoring)
     async getUnregistered(): Promise<Referral[]> { return this.request<Referral[]>('/unregistered'); }
@@ -160,8 +231,6 @@ class ApiClient {
     async restoreTrash(id: string): Promise<any> { return this.request('/trash/restore', { method: 'POST', body: JSON.stringify({ id }) }); }
     async permanentDelete(id: string): Promise<any> { return this.request(`/trash/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
 
-    // Notes
-    async saveNotes(refNo: string, notes: Note[]): Promise<any> { return this.request('/saveNotes', { method: 'POST', body: JSON.stringify({ refNo, notes }) }); }
 
     // Logs
     async getLogs(): Promise<Log[]> { return this.request<Log[]>('/logs'); }
@@ -173,6 +242,12 @@ class ApiClient {
             user, action, details,
             timestamp: new Date().toLocaleString('ko-KR')
         };
+        // Dual audit logging: /activity (dedicated ActivityLogs.json) & /logs fallback
+        try {
+            await this.request('/activity', { method: 'POST', body: JSON.stringify({ user, action, details }) });
+        } catch (e) {
+            console.warn('[AuditLog] /activity failed, falling back to /logs:', e);
+        }
         return this.createLog(activityLog);
     }
 

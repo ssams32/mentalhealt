@@ -100,8 +100,10 @@ export interface Attachment {
 }
 
 export interface Referral {
+    referralId?: string; // [v5.5 Immutable Primary Key]
     refNo: string;
     clientId: string;
+    version?: number; // [v5.5 Optimistic Concurrency Control]
     createdAt?: Date | string;
     updatedAt?: Date | string;
     name: string;
@@ -118,11 +120,13 @@ export interface Referral {
     interventionContent: string;
     actionResult: string;
     closureStatus: '종결' | '미종결';
+    registrationStatus?: '등록' | '미등록' | '확인중' | '해당없음'; // [v5.5 Explicit Registration Status]
     policeIntervention: boolean;
     criLevel: 'a' | 'b' | 'c' | 'd' | 'e';
     region: string;
     assignee: string;
     requestorName?: string; // 의뢰자 성명 추가
+    requesterName?: string; // [호환성 필드] 의뢰자 성명
     reply: boolean;
     replyStatus?: string; // 회신 상태 (회신필요/회신완료)
     team: Team;
@@ -153,7 +157,6 @@ export interface Referral {
     consentNotes?: string;
     problem?: string;
     reason?: string;
-    requesterName?: string;
 }
 
 // 노트 데이터 구조를 정의하는 인터페이스

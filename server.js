@@ -6,6 +6,7 @@ import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -144,47 +145,28 @@ const getData = (filename, defaultValue = []) => {
     return memoryCache[filename];
 };
 
-// Helper: Trigger asynchronous save to disk with retry
-const triggerSave = async (filename) => {
-    if (saveQueue[filename] && saveQueue[filename].isWriting) {
-        saveQueue[filename].pending = true;
-        return;
+// In-Memory Idempotency Store for mutations
+const idempotencyStore = new Map();
+const cleanIdempotencyStore = () => {
+    if (idempotencyStore.size > 2000) {
+        const keys = Array.from(idempotencyStore.keys()).slice(0, 500);
+        keys.forEach(k => idempotencyStore.delete(k));
     }
+};
 
-    if (!saveQueue[filename]) {
-        saveQueue[filename] = { isWriting: false, pending: false };
-    }
+const hashPayload = (obj) => {
+    return crypto.createHash('sha256').update(JSON.stringify(obj || {})).digest('hex');
+};
 
-    saveQueue[filename].isWriting = true;
-    saveQueue[filename].pending = false;
-
-    const filePath = path.join(DATA_DIR, `${filename}.json`);
-    const dataToSave = JSON.stringify(memoryCache[filename], null, 2);
-
-    const tryWrite = async () => {
-        let retries = 3;
-        for (let i = 0; i < retries; i++) {
-            const tempPath = `${filePath}.tmp.${Date.now()}`;
-            try {
-                await fs.promises.writeFile(tempPath, dataToSave, 'utf8');
-                await fs.promises.rename(tempPath, filePath);
-                return;
-            } catch (e) {
-                console.error(`Attempt ${i + 1} failed saving to ${filePath}:`, e.message);
-                if (fs.existsSync(tempPath)) {
-                    try { await fs.promises.unlink(tempPath); } catch (ignore) { }
-                }
-                if (i === retries - 1) return;
-                await new Promise(r => setTimeout(r, Math.pow(2, i) * 100));
-            }
-        }
-    };
-
-    await tryWrite();
-    saveQueue[filename].isWriting = false;
-    if (saveQueue[filename].pending) {
-        triggerSave(filename);
-    }
+const TEAM_CODES = {
+    '정신건강증진팀': 'HB',
+    '예방관리팀': 'YP',
+    '중독관리팀': 'JD',
+    '지역복지팀': 'ET',
+    '기획홍보팀': 'GH',
+    '아동청소년팀': 'AD',
+    '위기관리팀': 'WG',
+    '남부분소': 'NB'
 };
 
 // Helper: Create a backup of a file before overwriting
@@ -214,13 +196,67 @@ const createBackup = async (filename) => {
     }
 };
 
-const saveData = (filename, data) => {
+// Queue state for serializing file writes safely
+const fileLocks = {};
+
+// Helper: Persist data safely to disk (Atomic write: temp file -> JSON verify -> rename)
+// Returns a Promise that resolves ONLY when data is successfully flushed to disk.
+const persistData = async (filename, data) => {
     if (filename.startsWith('Budget') || filename === 'Referrals' || filename === 'SuicideAttempters' || filename === 'Users') {
-        createBackup(filename).catch(e => console.error(`Pre-save backup failed: ${e}`));
+        try {
+            await createBackup(filename);
+        } catch (e) {
+            console.error(`Pre-save backup failed: ${e}`);
+        }
     }
 
     memoryCache[filename] = data;
-    triggerSave(filename).catch(e => console.error(`Async save failed for ${filename}:`, e));
+
+    if (!fileLocks[filename]) {
+        fileLocks[filename] = Promise.resolve();
+    }
+
+    const currentLock = fileLocks[filename];
+    const writeOperation = async () => {
+        const filePath = path.join(DATA_DIR, `${filename}.json`);
+        const dataToSave = JSON.stringify(data, null, 2);
+        let retries = 3;
+        let lastErr = null;
+
+        for (let i = 0; i < retries; i++) {
+            const tempPath = `${filePath}.tmp.${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+            try {
+                await fs.promises.writeFile(tempPath, dataToSave, 'utf8');
+                // Verify temp file is not empty and valid JSON
+                const written = await fs.promises.readFile(tempPath, 'utf8');
+                if (!written || written.length === 0) throw new Error("Empty file write detected");
+                JSON.parse(written); // verify JSON integrity
+                await fs.promises.rename(tempPath, filePath);
+                return true;
+            } catch (e) {
+                lastErr = e;
+                console.error(`Attempt ${i + 1} failed saving to ${filePath}:`, e.message);
+                if (fs.existsSync(tempPath)) {
+                    try { await fs.promises.unlink(tempPath); } catch (ignore) { }
+                }
+                if (i < retries - 1) {
+                    await new Promise(r => setTimeout(r, Math.pow(2, i) * 100));
+                }
+            }
+        }
+        throw lastErr || new Error(`Failed to persist ${filename} after ${retries} attempts`);
+    };
+
+    const nextLock = currentLock.then(writeOperation, writeOperation);
+    fileLocks[filename] = nextLock;
+    return nextLock;
+};
+
+// Legacy compatibility wrapper: triggers async save
+const saveData = (filename, data) => {
+    persistData(filename, data).catch(e => {
+        console.error(`Async save failed for ${filename}:`, e);
+    });
     return true;
 };
 
@@ -355,16 +391,21 @@ app.post('/api/users', (req, res) => {
     res.json({ success: true });
 });
 
-app.put('/api/users', (req, res) => {
-    const updatedUser = req.body;
-    const users = getData('Users', []);
-    const index = users.findIndex(u => u.id === updatedUser.id);
-    if (index !== -1) {
-        users[index] = updatedUser;
-        saveData('Users', users);
-        return res.json({ success: true });
+app.put('/api/users', async (req, res) => {
+    try {
+        const updatedUser = req.body;
+        const users = getData('Users', []);
+        const index = users.findIndex(u => u.id === updatedUser.id);
+        if (index !== -1) {
+            users[index] = updatedUser;
+            await persistData('Users', users);
+            return res.json({ success: true, user: updatedUser });
+        }
+        res.status(404).json({ success: false, error: "User not found" });
+    } catch (err) {
+        console.error('❌ PUT /api/users error:', err);
+        res.status(500).json({ success: false, error: err.message });
     }
-    res.status(404).json({ success: false, error: "User not found" });
 });
 
 app.delete('/api/users/:id', (req, res) => {
@@ -380,45 +421,360 @@ app.delete('/api/users/:id', (req, res) => {
 
 // REFERRALS
 app.get('/api/referrals', (req, res) => {
-    res.json(getData('Referrals', []));
-});
+    try {
+        let referrals = getData('Referrals', []);
+        const { team, closureStatus, registrationStatus, view } = req.query;
 
-app.post('/api/referrals', (req, res) => {
-    const referrals = getData('Referrals', []);
-    referrals.push(req.body);
-    saveData('Referrals', referrals);
-    res.json({ success: true });
-});
+        // [Track B: Server-side Team & Permission Enforcement]
+        const reqUserId = req.headers['x-user-id'] || req.query.userId;
+        const reqUserRole = req.headers['x-user-role'] || req.query.userRole;
+        let reqUserTeam = req.headers['x-user-team'] || req.query.userTeam;
+        if (reqUserTeam) {
+            try { reqUserTeam = decodeURIComponent(reqUserTeam); } catch {}
+        }
 
-app.put('/api/referrals', (req, res) => {
-    const referral = req.body;
-    const referrals = getData('Referrals', []);
-    const index = referrals.findIndex(r => r.refNo === referral.refNo);
-    if (index !== -1) {
-        referrals[index] = referral;
-        saveData('Referrals', referrals);
-        res.json({ success: true, data: referral });
-    } else {
-        res.status(404).json({ success: false, error: "Referral not found" });
+        let effectiveTeam = team;
+
+        if (reqUserId || reqUserRole) {
+            const users = getData('Users', []);
+            const user = users.find(u => u.id === reqUserId || u.username === reqUserId);
+            const role = user?.role || reqUserRole || 'user';
+            const userTeam = user?.team || reqUserTeam;
+            const referralsReadPerm = user?.permissions?.referrals?.read;
+
+            if (role === 'admin') {
+                // Admin can query any team or all
+                effectiveTeam = team;
+            } else if (role === 'manager' && referralsReadPerm !== false) {
+                // Authorized manager can query any team or all
+                effectiveTeam = team;
+            } else {
+                // Regular user or restricted manager: forced to own team only
+                effectiveTeam = userTeam;
+            }
+        }
+
+        if (effectiveTeam && effectiveTeam !== 'all') {
+            referrals = referrals.filter(r => {
+                if (effectiveTeam === '남부분소') {
+                    return r.team === '남부분소';
+                }
+                return r.team === effectiveTeam || (r.team === '남부분소' && r.subTeam === effectiveTeam);
+            });
+        }
+
+        if (closureStatus && closureStatus !== 'all') {
+            if (closureStatus === 'ongoing') {
+                referrals = referrals.filter(r => r.closureStatus === '미종결');
+            } else if (closureStatus === 'closed') {
+                referrals = referrals.filter(r => r.closureStatus !== '미종결');
+            }
+        }
+
+        if (registrationStatus && registrationStatus !== 'all') {
+            referrals = referrals.filter(r => (r.registrationStatus || (r.isUnregistered ? '미등록' : '확인중')) === registrationStatus);
+        }
+
+        // [Track B: Default Sort: Unregistered & Unclosed first]
+        referrals.sort((a, b) => {
+            // 1. 미등록 우선
+            const isUnregA = Boolean(a.registrationStatus === '미등록' || a.isUnregistered === true);
+            const isUnregB = Boolean(b.registrationStatus === '미등록' || b.isUnregistered === true);
+            if (isUnregA !== isUnregB) return isUnregA ? -1 : 1;
+
+            // 2. 미종결(진행중) 우선
+            const aCompleted = Boolean(
+                (a.closureStatus && a.closureStatus !== '미종결') ||
+                (a.actionResult && (a.actionResult.includes('등록관리') || a.actionResult.includes('종결')))
+            );
+            const bCompleted = Boolean(
+                (b.closureStatus && b.closureStatus !== '미종결') ||
+                (b.actionResult && (b.actionResult.includes('등록관리') || b.actionResult.includes('종결')))
+            );
+            if (aCompleted !== bCompleted) return aCompleted ? 1 : -1;
+
+            // 3. 접수일자 내림차순
+            const dateA = a.requestDate ? new Date(a.requestDate).getTime() : 0;
+            const dateB = b.requestDate ? new Date(b.requestDate).getTime() : 0;
+            if (dateA !== dateB) return dateB - dateA;
+
+            // 4. 의뢰번호 내림차순
+            return (b.refNo || '').localeCompare(a.refNo || '');
+        });
+
+        // Lightweight summary view for dashboard listing to optimize payload size
+        if (view === 'summary') {
+            const summaryData = referrals.map(r => {
+                const { notes, attachments, ...rest } = r;
+                const safeNotes = Array.isArray(notes) ? notes : [];
+                const safeAttachments = Array.isArray(attachments) ? attachments : [];
+                return {
+                    ...rest,
+                    noteCount: safeNotes.length,
+                    latestNote: r.latestNote || (safeNotes[0] ? safeNotes[0].content : ''),
+                    latestNoteDate: r.latestNoteDate || (safeNotes[0] ? (safeNotes[0].createdAt || safeNotes[0].date) : ''),
+                    attachmentCount: safeAttachments.length,
+                    attachments: safeAttachments.map(a => ({
+                        id: a.id,
+                        name: a.name,
+                        size: a.size,
+                        type: a.type,
+                        uploadedAt: a.uploadedAt
+                    }))
+                };
+            });
+            return res.json(summaryData);
+        }
+
+        res.json(referrals);
+    } catch (err) {
+        console.error('❌ GET /api/referrals error:', err);
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
-app.delete('/api/referrals/:refNo', (req, res) => {
-    const { refNo } = req.params;
-    let referrals = getData('Referrals', []);
-    const index = referrals.findIndex(r => r.refNo === refNo || r.clientId === refNo);
-    if (index !== -1) {
-        const deletedItem = referrals[index];
-        const trash = getData('Trash', []);
-        trash.push({ ...deletedItem, _trashSource: 'Referrals', deletedAt: new Date().toISOString() });
-        referrals.splice(index, 1);
-        saveData('Referrals', referrals);
-        saveData('Trash', trash);
-        res.json({ success: true });
-    } else {
-        res.json({ success: true, alreadyDeleted: true });
+app.post('/api/referrals', async (req, res) => {
+    try {
+        if (!req.body || typeof req.body !== 'object') {
+            return res.status(400).json({ success: false, error: "요청 본문이 올바르지 않습니다." });
+        }
+        if (!req.body.name || !req.body.team) {
+            return res.status(400).json({ success: false, error: "이름과 소속팀은 필수 입력 항목입니다." });
+        }
+
+        const idempotencyKey = req.headers['idempotency-key'];
+        if (idempotencyKey) {
+            const cached = idempotencyStore.get(idempotencyKey);
+            if (cached) {
+                if (cached.reqBodyHash === hashPayload(req.body)) {
+                    console.log(`[API] Returning cached response for idempotency key: ${idempotencyKey}`);
+                    return res.status(cached.statusCode).json(cached.response);
+                } else {
+                    return res.status(409).json({ 
+                        success: false, 
+                        code: 'IDEMPOTENCY_KEY_REUSED',
+                        error: "Idempotency key reused with different request payload" 
+                    });
+                }
+            }
+        }
+
+        const referrals = getData('Referrals', []);
+
+        // Server-Side Atomic Numbering
+        const teamCode = TEAM_CODES[req.body.team] || 'ET';
+        const now = new Date();
+        const yearYY = now.getFullYear().toString().slice(-2);
+        const prefix = `${teamCode}-${yearYY}-`;
+
+        const existingSeqs = referrals
+            .filter(r => r && r.refNo && String(r.refNo).startsWith(prefix))
+            .map(r => {
+                const parts = String(r.refNo).split('-');
+                return parts.length >= 3 ? parseInt(parts[2], 10) : NaN;
+            })
+            .filter(n => !isNaN(n));
+
+        const maxSeq = existingSeqs.length > 0 ? Math.max(...existingSeqs) : 0;
+        const assignedRefNo = `${prefix}${String(maxSeq + 1).padStart(3, '0')}`;
+
+        // Ensure immutable referralId
+        const referralId = req.body.referralId || crypto.randomUUID();
+        const clientId = req.body.clientId || `C${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        const isoNow = now.toISOString();
+
+        const newReferral = {
+            ...req.body,
+            referralId,
+            refNo: assignedRefNo,
+            clientId,
+            version: 1,
+            registrationStatus: req.body.registrationStatus || (req.body.isUnregistered ? '미등록' : '확인중'),
+            createdAt: req.body.createdAt || isoNow,
+            updatedAt: isoNow
+        };
+
+        referrals.push(newReferral);
+        await persistData('Referrals', referrals);
+
+        const responsePayload = { success: true, data: newReferral };
+        if (idempotencyKey) {
+            cleanIdempotencyStore();
+            idempotencyStore.set(idempotencyKey, {
+                statusCode: 201,
+                reqBodyHash: hashPayload(req.body),
+                response: responsePayload
+            });
+        }
+
+        res.status(201).json(responsePayload);
+    } catch (err) {
+        console.error('❌ POST /api/referrals error:', err);
+        res.status(500).json({ success: false, error: `저장 실패: ${err.message}` });
     }
 });
+
+const handleReferralUpdate = async (req, res) => {
+    try {
+        const idempotencyKey = req.headers['idempotency-key'];
+        if (idempotencyKey) {
+            const cached = idempotencyStore.get(idempotencyKey);
+            if (cached) {
+                if (cached.reqBodyHash === hashPayload(req.body)) {
+                    console.log(`[API] Returning cached response for update idempotency key: ${idempotencyKey}`);
+                    return res.status(cached.statusCode).json(cached.response);
+                } else {
+                    return res.status(409).json({ 
+                        success: false, 
+                        code: 'IDEMPOTENCY_KEY_REUSED',
+                        error: "Idempotency key reused with different request payload" 
+                    });
+                }
+            }
+        }
+
+        const referral = req.body;
+        const targetId = req.params.id || referral.referralId || referral.refNo || referral.clientId;
+
+        if (!targetId) {
+            return res.status(400).json({ success: false, error: "Missing identifier (referralId or refNo)" });
+        }
+
+        const referrals = getData('Referrals', []);
+
+        // 1. Try referralId first
+        let index = -1;
+        if (referral.referralId) {
+            index = referrals.findIndex(r => r.referralId === referral.referralId);
+        }
+        // 2. Try targetId matching referralId
+        if (index === -1) {
+            index = referrals.findIndex(r => r.referralId === targetId);
+        }
+        // 3. Fallback: match by refNo, but check for collision ambiguity
+        if (index === -1) {
+            const matchingByRefNo = referrals
+                .map((r, i) => ({ r, i }))
+                .filter(item => item.r.refNo === targetId);
+
+            if (matchingByRefNo.length > 1 && !referral.referralId && !referral.clientId) {
+                return res.status(409).json({
+                    success: false,
+                    code: 'AMBIGUOUS_RECORD',
+                    error: `동일 의뢰번호(${targetId})를 가진 레코드가 ${matchingByRefNo.length}건 존재합니다. referralId 또는 clientId를 지정해야 합니다.`
+                });
+            } else if (matchingByRefNo.length === 1) {
+                index = matchingByRefNo[0].i;
+            } else if (matchingByRefNo.length > 1 && referral.clientId) {
+                index = referrals.findIndex(r => r.clientId === referral.clientId);
+            }
+        }
+        // 4. Fallback: match by clientId
+        if (index === -1) {
+            index = referrals.findIndex(r => r.clientId === targetId);
+        }
+
+        if (index === -1) {
+            return res.status(404).json({ success: false, error: "Referral not found" });
+        }
+
+        const currentRecord = referrals[index];
+
+        // Optimistic Concurrency Control check
+        if (referral.version !== undefined && currentRecord.version !== undefined) {
+            if (Number(referral.version) !== Number(currentRecord.version)) {
+                return res.status(409).json({
+                    success: false,
+                    code: 'VERSION_CONFLICT',
+                    error: "다른 사용자에 의해 데이터가 변경되었습니다. 최신 정보를 불러온 후 다시 시도해주세요.",
+                    currentVersion: currentRecord.version,
+                    latestUpdatedAt: currentRecord.updatedAt
+                });
+            }
+        }
+
+        const nextVersion = (currentRecord.version || 1) + 1;
+        const updatedReferral = {
+            ...currentRecord,
+            ...referral,
+            referralId: currentRecord.referralId || referral.referralId || crypto.randomUUID(),
+            refNo: referral.refNo || currentRecord.refNo,
+            clientId: currentRecord.clientId || referral.clientId,
+            version: nextVersion,
+            createdAt: currentRecord.createdAt || referral.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+
+        referrals[index] = updatedReferral;
+        await persistData('Referrals', referrals);
+
+        const responsePayload = { success: true, data: updatedReferral };
+        if (idempotencyKey) {
+            cleanIdempotencyStore();
+            idempotencyStore.set(idempotencyKey, {
+                statusCode: 200,
+                reqBodyHash: hashPayload(req.body),
+                response: responsePayload
+            });
+        }
+
+        res.json(responsePayload);
+    } catch (err) {
+        console.error('❌ PUT /api/referrals error:', err);
+        res.status(500).json({ success: false, error: `수정 실패: ${err.message}` });
+    }
+};
+
+app.put('/api/referrals', handleReferralUpdate);
+app.put('/api/referrals/:id', handleReferralUpdate);
+
+const handleReferralDelete = async (req, res) => {
+    try {
+        const targetId = req.params.id || req.params.refNo || req.body?.referralId || req.body?.refNo;
+        if (!targetId) {
+            return res.status(400).json({ success: false, error: "Missing referral identifier" });
+        }
+
+        let referrals = getData('Referrals', []);
+
+        // Ambiguity check
+        const matches = referrals
+            .map((r, i) => ({ r, i }))
+            .filter(item => item.r.referralId === targetId || item.r.refNo === targetId || item.r.clientId === targetId);
+
+        if (matches.length > 1) {
+            // Check if exact referralId matches
+            const exactIdMatch = matches.filter(m => m.r.referralId === targetId);
+            if (exactIdMatch.length !== 1) {
+                return res.status(409).json({
+                    success: false,
+                    code: 'AMBIGUOUS_RECORD',
+                    error: `동일 식별자에 해당하는 레코드가 ${matches.length}건 존재합니다. 고유한 referralId로 삭제를 요청하세요.`
+                });
+            }
+        }
+
+        const index = referrals.findIndex(r => r.referralId === targetId || r.refNo === targetId || r.clientId === targetId);
+        if (index !== -1) {
+            const deletedItem = referrals[index];
+            const trash = getData('Trash', []);
+            trash.push({ ...deletedItem, _trashSource: 'Referrals', deletedAt: new Date().toISOString() });
+            referrals.splice(index, 1);
+            
+            await persistData('Referrals', referrals);
+            await persistData('Trash', trash);
+            res.json({ success: true, deletedRefNo: deletedItem.refNo, referralId: deletedItem.referralId });
+        } else {
+            res.json({ success: true, alreadyDeleted: true });
+        }
+    } catch (err) {
+        console.error('❌ DELETE /api/referrals error:', err);
+        res.status(500).json({ success: false, error: `삭제 실패: ${err.message}` });
+    }
+};
+
+app.delete('/api/referrals/:refNo', handleReferralDelete);
+app.delete('/api/referrals', handleReferralDelete);
 
 // SUICIDE ATTEMPTERS
 app.get('/api/suicideattempters', (req, res) => {
@@ -871,7 +1227,56 @@ app.get('/api/analysis/isp-achievement-yearly', (req, res) => {
 
 // CASE ANALYSIS STATE
 app.get('/api/analysis/current', (req, res) => {
-    res.json({ success: true, data: getData('GlobalCaseAnalysis', null) });
+    try {
+        let data = getData('GlobalCaseAnalysis', null);
+        if (!data) return res.json({ success: true, data: null });
+
+        const reqUserId = req.headers['x-user-id'] || req.query.userId;
+        const reqUserRole = req.headers['x-user-role'] || req.query.userRole;
+        let reqUserTeam = req.headers['x-user-team'] || req.query.userTeam;
+        if (reqUserTeam) {
+            try { reqUserTeam = decodeURIComponent(reqUserTeam); } catch {}
+        }
+
+        const users = getData('Users', []);
+        const user = users.find(u => u.id === reqUserId || u.username === reqUserId);
+        const role = user?.role || reqUserRole || 'user';
+        const userTeam = user?.team || reqUserTeam;
+
+        if (role === 'user' && userTeam) {
+            const teamMap = {
+                '자살예방센터': ['자살팀', '자살예방센터'],
+                '증진팀': ['증진팀'],
+                '회복팀': ['회복팀'],
+                '남부분소': ['남부분소'],
+                '아동청소년': ['아동청소년', '아청팀']
+            };
+            const allowedDepts = teamMap[userTeam] || [userTeam];
+            const counselorPerf = Array.isArray(data.counselorPerformance) ? data.counselorPerformance : [];
+            const filteredCounselors = counselorPerf.filter(c => allowedDepts.includes(c.department));
+            const allowedCounselorNames = new Set(filteredCounselors.map(c => c.counselorName));
+
+            const filteredMemberPerf = Array.isArray(data.memberPerformance)
+                ? data.memberPerformance.filter(m => allowedCounselorNames.has(m.counselorName) || allowedCounselorNames.has(m.mainCounselor) || allowedCounselorNames.has(m.registrant))
+                : [];
+
+            const filteredISP = Array.isArray(data.ispExpiringMembers)
+                ? data.ispExpiringMembers.filter(m => allowedCounselorNames.has(m.counselorName) || allowedCounselorNames.has(m.mainCounselor) || allowedCounselorNames.has(m.registrant))
+                : [];
+
+            data = {
+                ...data,
+                counselorPerformance: filteredCounselors,
+                memberPerformance: filteredMemberPerf,
+                ispExpiringMembers: filteredISP
+            };
+        }
+
+        res.json({ success: true, data });
+    } catch (err) {
+        console.error('❌ GET /api/analysis/current error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
 });
 
 app.post('/api/analysis/current', (req, res) => {
@@ -885,6 +1290,9 @@ app.get('/api/pending-referrals', (req, res) => {
     const referrals = getData('Referrals', []);
     let list = getData('PendingReferrals', []);
     const normalizePhone = (num) => num ? num.replace(/[^0-9]/g, '') : '';
+    
+    // Filter out scanner probes / spam
+    list = list.filter(p => !/sparrow|dast|<script|alert\(/i.test(`${p.name} ${p.phone} ${p.problem} ${p.reason}`));
     
     const beforeCount = list.length;
     list = list.filter(p => {
@@ -1253,40 +1661,50 @@ app.get('/api/trash', (req, res) => {
     res.json(getData('Trash', []));
 });
 
-app.post('/api/trash/restore', (req, res) => {
-    const { id } = req.body;
-    if (!id) {
-        return res.status(400).json({ success: false, error: "Missing id" });
+app.post('/api/trash/restore', async (req, res) => {
+    try {
+        const { id } = req.body;
+        if (!id) {
+            return res.status(400).json({ success: false, error: "Missing id" });
+        }
+        let trash = getData('Trash', []);
+        const item = trash.find(t => t.referralId === id || t.refNo === id || t.clientId === id || t.uid === id);
+        if (!item) {
+            return res.status(404).json({ success: false, error: "Item not found in trash" });
+        }
+
+        // Determine original collection
+        const collection = item._trashSource || 'Referrals';
+        const data = getData(collection, []);
+
+        // Remove from trash
+        trash = trash.filter(t => t !== item);
+
+        // Restore to original collection
+        delete item._trashSource;
+        delete item.deletedAt;
+        data.push(item);
+
+        await persistData('Trash', trash);
+        await persistData(collection, data);
+        res.json({ success: true, restored: item });
+    } catch (err) {
+        console.error('❌ /api/trash/restore error:', err);
+        res.status(500).json({ success: false, error: err.message });
     }
-    let trash = getData('Trash', []);
-    const item = trash.find(t => t.refNo === id || t.clientId === id || t.uid === id);
-    if (!item) {
-        return res.status(404).json({ success: false, error: "Item not found in trash" });
-    }
-
-    // Determine original collection
-    const collection = item._trashSource || 'Referrals';
-    const data = getData(collection, []);
-
-    // Remove from trash
-    trash = trash.filter(t => t !== item);
-
-    // Restore to original collection
-    delete item._trashSource;
-    delete item.deletedAt;
-    data.push(item);
-
-    saveData('Trash', trash);
-    saveData(collection, data);
-    res.json({ success: true, restored: item });
 });
 
-app.delete('/api/trash/:id', (req, res) => {
-    const { id } = req.params;
-    let trash = getData('Trash', []);
-    trash = trash.filter(t => t.refNo !== id && t.clientId !== id && t.uid !== id);
-    saveData('Trash', trash);
-    res.json({ success: true });
+app.delete('/api/trash/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        let trash = getData('Trash', []);
+        trash = trash.filter(t => t.referralId !== id && t.refNo !== id && t.clientId !== id && t.uid !== id);
+        await persistData('Trash', trash);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ DELETE /api/trash/:id error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
 });
 
 app.get('/api/pcassets', (req, res) => {
@@ -1470,20 +1888,25 @@ app.put('/api/logs', (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/activity', (req, res) => {
-    const { user, action, details } = req.body;
-    const activityLogs = getData('ActivityLogs', []);
-    activityLogs.push({
-        id: `act_${Date.now()}`,
-        user: user || 'Unknown',
-        action: action || '',
-        details: details || '',
-        timestamp: new Date().toLocaleString('ko-KR')
-    });
-    // 최대 5000개 유지
-    if (activityLogs.length > 5000) activityLogs.splice(0, activityLogs.length - 5000);
-    saveData('ActivityLogs', activityLogs);
-    res.json({ success: true });
+app.post('/api/activity', async (req, res) => {
+    try {
+        const { user, action, details } = req.body;
+        const activityLogs = getData('ActivityLogs', []);
+        activityLogs.push({
+            id: `act_${Date.now()}`,
+            user: user || 'Unknown',
+            action: action || '',
+            details: details || '',
+            timestamp: new Date().toLocaleString('ko-KR')
+        });
+        // 최대 5000개 유지
+        if (activityLogs.length > 5000) activityLogs.splice(0, activityLogs.length - 5000);
+        await persistData('ActivityLogs', activityLogs);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ POST /api/activity error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
 });
 
 // ─── 📎 FILE UPLOAD ────────────────────────────────────────────────────────
@@ -1660,16 +2083,100 @@ app.get('/api/analysis/isp-achievement', (req, res) => {
     res.json({ success: true, data: result });
 });
 
-app.post('/api/saveNotes', (req, res) => {
-    const { refNo, notes } = req.body;
-    const referrals = getData('Referrals', []);
-    const index = referrals.findIndex(r => r.refNo === refNo);
-    if (index !== -1) {
-        referrals[index].notes = notes;
-        saveData('Referrals', referrals);
-        res.json({ success: true });
-    } else {
-        res.status(404).json({ success: false, error: "Referral not found" });
+app.post('/api/saveNotes', async (req, res) => {
+    try {
+        const idempotencyKey = req.headers['idempotency-key'];
+        if (idempotencyKey) {
+            const cached = idempotencyStore.get(idempotencyKey);
+            if (cached) {
+                if (cached.reqBodyHash === hashPayload(req.body)) {
+                    console.log(`[API] Returning cached response for saveNotes idempotency key: ${idempotencyKey}`);
+                    return res.status(cached.statusCode).json(cached.response);
+                } else {
+                    return res.status(409).json({ 
+                        success: false, 
+                        code: 'IDEMPOTENCY_KEY_REUSED',
+                        error: "Idempotency key reused with different request payload" 
+                    });
+                }
+            }
+        }
+
+        const { refNo, notes, referralId, version } = req.body;
+        const referrals = getData('Referrals', []);
+        
+        let index = -1;
+        if (referralId) {
+            index = referrals.findIndex(r => r.referralId === referralId);
+        }
+        if (index === -1 && refNo) {
+            index = referrals.findIndex(r => r.refNo === refNo || r.clientId === refNo);
+        }
+
+        if (index === -1) {
+            return res.status(404).json({ success: false, error: "Referral not found" });
+        }
+
+        const target = referrals[index];
+
+        // Optimistic Concurrency Control check
+        if (version !== undefined && target.version !== undefined) {
+            if (Number(version) !== Number(target.version)) {
+                return res.status(409).json({
+                    success: false,
+                    code: 'VERSION_CONFLICT',
+                    error: "다른 사용자에 의해 데이터가 변경되었습니다. 최신 정보를 불러온 후 다시 시도해주세요.",
+                    currentVersion: target.version,
+                    latestUpdatedAt: target.updatedAt
+                });
+            }
+        }
+
+        const newNotes = Array.isArray(notes) ? notes : [];
+        const currentNotes = Array.isArray(target.notes) ? target.notes : [];
+
+        // Safety check: prevent accidental truncation if current has notes but new is empty without explicit clear flag
+        if (currentNotes.length > 0 && newNotes.length === 0 && !req.body.allowEmptyNotes) {
+            return res.status(400).json({
+                success: false,
+                code: 'EMPTY_NOTES_REJECTED',
+                error: "기존 상담메모가 존재하는데 빈 목록이 전송되었습니다. 삭제 시 명시적 플래그가 필요합니다."
+            });
+        }
+
+        // Assign note ID if missing
+        newNotes.forEach((n, idx) => {
+            if (!n.id) n.id = `note_${Date.now()}_${idx}`;
+        });
+
+        target.notes = newNotes;
+        if (newNotes.length > 0) {
+            target.latestNote = newNotes[0].content || '';
+            target.latestNoteDate = newNotes[0].createdAt || newNotes[0].date || new Date().toLocaleString('ko-KR');
+        } else {
+            target.latestNote = '';
+            target.latestNoteDate = '';
+        }
+
+        target.version = (target.version || 1) + 1;
+        target.updatedAt = new Date().toISOString();
+
+        await persistData('Referrals', referrals);
+
+        const responsePayload = { success: true, data: target };
+        if (idempotencyKey) {
+            cleanIdempotencyStore();
+            idempotencyStore.set(idempotencyKey, {
+                statusCode: 200,
+                reqBodyHash: hashPayload(req.body),
+                response: responsePayload
+            });
+        }
+
+        res.json(responsePayload);
+    } catch (err) {
+        console.error('❌ POST /api/saveNotes error:', err);
+        res.status(500).json({ success: false, error: `메모 저장 실패: ${err.message}` });
     }
 });
 
@@ -1934,6 +2441,20 @@ async function fetchExternalReferrals() {
                 status: 'pending'
             };
 
+            // [Security] Quarantine check for automated scanner probes / test spam
+            const isSpamProbe = /sparrow|dast|<script|onload=|javascript:|alert\(/i.test(
+                `${item.name} ${item.phone} ${item.problem} ${item.reason} ${item.requesterName}`
+            );
+            if (isSpamProbe) {
+                console.warn(`🛡️ [SCRAPER QUARANTINE] Quarantined security probe/spam: ${item.name} (${currentExtId})`);
+                const quarantined = getData('QuarantinedReferrals', []);
+                quarantined.push({ ...item, quarantinedAt: new Date().toISOString(), reason: 'Automated scanner probe detected' });
+                saveData('QuarantinedReferrals', quarantined);
+                scrapedIds.add(currentExtId);
+                saveData('ScrapedExternalIds', Array.from(scrapedIds));
+                continue;
+            }
+
             if (item.name) {
                 const isAlreadyRegistered = referrals.some(r => {
                     const nameMatch = r.name && r.name.trim() === item.name.trim();
@@ -1978,13 +2499,79 @@ async function fetchExternalReferrals() {
     }
 }
 
+// [Auto-Migration] Ensure NAS Referrals.json has zero duplicate or missing refNos on startup
+const sanitizeReferralsOnStartup = async () => {
+    try {
+        const referrals = getData('Referrals', []);
+        if (!Array.isArray(referrals) || referrals.length === 0) return;
+
+        const refNoRegex = /^([A-Z]{2})-26-(\d{3,})$/;
+        const teamMaxSeq = { 'JJ': 0, 'HB': 0, 'JY': 0, 'AC': 0, 'NB': 0, 'ET': 0 };
+
+        referrals.forEach(r => {
+            if (r && r.refNo && typeof r.refNo === 'string') {
+                const match = r.refNo.match(refNoRegex);
+                if (match) {
+                    const code = match[1];
+                    const seq = parseInt(match[2], 10);
+                    if (seq < 900) {
+                        if (teamMaxSeq[code] !== undefined) {
+                            if (seq > teamMaxSeq[code]) teamMaxSeq[code] = seq;
+                        } else {
+                            if (seq > teamMaxSeq['ET']) teamMaxSeq['ET'] = seq;
+                        }
+                    }
+                }
+            }
+        });
+
+        const seenRefNos = new Set();
+        let fixCount = 0;
+
+        referrals.forEach(r => {
+            if (!r) return;
+            if (!r.referralId) r.referralId = crypto.randomUUID();
+            if (!r.clientId) r.clientId = `C${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+            if (!r.version) r.version = 1;
+
+            const currentRefNo = r.refNo;
+            const isMatch = currentRefNo && typeof currentRefNo === 'string' && refNoRegex.test(currentRefNo);
+            const isDup = currentRefNo && seenRefNos.has(currentRefNo);
+
+            if (!currentRefNo || !isMatch || isDup) {
+                const team = r.team;
+                const teamCode = TEAM_CODES[team] || 'ET';
+                teamMaxSeq[teamCode] = (teamMaxSeq[teamCode] || 0) + 1;
+                const newRefNo = `${teamCode}-26-${String(teamMaxSeq[teamCode]).padStart(3, '0')}`;
+                
+                if (currentRefNo && !r.originalRefNo) r.originalRefNo = currentRefNo;
+                r.refNo = newRefNo;
+                r.updatedAt = new Date().toISOString();
+                seenRefNos.add(newRefNo);
+                fixCount++;
+            } else {
+                seenRefNos.add(currentRefNo);
+            }
+        });
+
+        if (fixCount > 0) {
+            console.log(`🧹 [STARTUP] Found ${fixCount} duplicate/missing refNos. Auto-healing Referrals.json...`);
+            await persistData('Referrals', referrals);
+            console.log(`✅ [STARTUP] Auto-healing complete. Referrals.json is now 100% unique.`);
+        }
+    } catch (e) {
+        console.warn('⚠️ [STARTUP] Notice in sanitizeReferralsOnStartup:', e.message);
+    }
+};
+
 // Initial check and set interval
 setTimeout(fetchExternalReferrals, 5000); // 5초 후 최초 1회 실행
 setInterval(fetchExternalReferrals, EXTERNAL_CONFIG.pollInterval); // 30분 주기
 
 // START SERVER
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`🚀 이천센터 의뢰관리시스템 v${SERVER_VERSION} 서버 실행 중 (포트: ${PORT})`);
+    await sanitizeReferralsOnStartup();
 });
 
 // Catch-all for Frontend
