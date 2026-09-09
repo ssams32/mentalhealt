@@ -23,6 +23,19 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TZ=Asia/Seoul
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_SCHEDULE="0 0 0 * * *"
+      - REPO_USER=ssams32
+      - REPO_PASS=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
+    restart: always
+
 networks:
   default:
     name: imhc-network

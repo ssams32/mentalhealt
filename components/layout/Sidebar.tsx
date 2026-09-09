@@ -84,7 +84,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                     <nav className="flex-1 px-3 space-y-1 overflow-y-auto custom-scrollbar">
                         {(['home', 'referrals', 'suicideAttempters', 'caseAnalysis', 'data', 'reports', 'budget', 'accounts'] as Page[]).filter(p => {
                             if (p === 'accounts') return true;
-                            if (p === 'caseAnalysis') return currentUser.role === 'admin' || currentUser.role === 'manager' || currentUser.permissions?.caseAnalysis?.read === true;
+                            if (p === 'caseAnalysis') return true; // 모든 실무 직원이 사례분석시스템 메뉴 접근 가능
                             if (p === 'data') return currentUser.role === 'admin';
                             return true;
                         }).map((page) => {

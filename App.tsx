@@ -79,6 +79,7 @@ function App() {
     const [logs, setLogs] = useState<AnyLog[]>([]);
 
     const [isLoadingData, setIsLoadingData] = useState(true);
+    const [isReferralsLoading, setIsReferralsLoading] = useState(true);
 
     const [activePage, setActivePage] = useState<Page>('home');
     const [selectedTeam, setSelectedTeam] = useState<Team | 'all'>('all');
@@ -130,54 +131,59 @@ function App() {
                     }
                     setIsLoadingData(false); // Unblock UI!
 
-                    // 2. Background Data: Logs, Referrals, etc. (Heavy)
-                    console.log("Stage 2: Fetching heavy data in background...");
-                    const [loadedLogs, loadedReferrals, loadedSAs, loadedUnregistered] = await Promise.all([
-                        apiClient.getLogs().catch(e => { console.error("Logs fetch failed", e); return null; }),
-                        apiClient.getReferrals().catch(e => { console.error("Referrals fetch failed", e); return null; }),
-                        apiClient.getSuicideAttempters().catch(e => { console.error("SAs fetch failed", e); return null; }),
-                        apiClient.getUnregistered().catch(e => { console.error("Unregistered fetch failed", e); return null; })
-                    ]);
-
-                    if (Array.isArray(loadedLogs)) {
-                        setLogs(loadedLogs);
-                        safeLocalStorage.setItem('logs', JSON.stringify(loadedLogs));
-                    }
-                    if (Array.isArray(loadedReferrals)) {
-                        const referralsToSet = loadedReferrals.length > 0 ? loadedReferrals : initialReferrals;
-                        setReferrals(referralsToSet);
-                        safeLocalStorage.setItem('referrals', JSON.stringify(referralsToSet));
-                        setIsOfflineFallback(false);
-                        console.log(`[App] Server referrals (${referralsToSet.length} items) successfully synced.`);
-                    } else if (loadedReferrals === null) {
+                    // 2. High Priority: Referrals (화면 즉시 표시를 위해 최우선 비동기 로드)
+                    console.log("Stage 2: Fetching referrals with top priority...");
+                    apiClient.getReferrals().then(loadedReferrals => {
+                        if (Array.isArray(loadedReferrals)) {
+                            const referralsToSet = loadedReferrals.length > 0 ? loadedReferrals : initialReferrals;
+                            setReferrals(referralsToSet);
+                            safeLocalStorage.setItem('referrals', JSON.stringify(referralsToSet));
+                            setIsOfflineFallback(false);
+                            console.log(`[App] Server referrals (${referralsToSet.length} items) successfully synced.`);
+                        } else if (loadedReferrals === null) {
+                            setIsOfflineFallback(true);
+                        }
+                    }).catch(e => {
+                        console.error("Referrals fetch failed", e);
                         setIsOfflineFallback(true);
-                    }
-                    
-                    if (Array.isArray(loadedSAs)) {
-                        // Ultra-Robust Numeric Sorting: Handle mixed year formats perfectly
-                        const parseUid = (uid: string) => {
-                            if (!uid) return { year: 0, num: 0 };
-                            const parts = uid.split('-');
-                            if (parts.length < 2) return { year: 0, num: 0 };
-                            let year = parseInt(parts[0]);
-                            if (year < 100) year += 2000; // Handle "26" as 2026
-                            const num = parseInt(parts[1]);
-                            return { year, num };
-                        };
+                    }).finally(() => {
+                        setIsReferralsLoading(false);
+                    });
 
-                        const sortedSAs = [...loadedSAs].sort((a, b) => {
-                            const valA = parseUid(a.uid || "");
-                            const valB = parseUid(b.uid || "");
-                            if (valB.year !== valA.year) return valB.year - valA.year;
-                            return valB.num - valA.num;
-                        });
-                        setSuicideAttempterReferrals(sortedSAs.length > 0 ? sortedSAs : initialSuicideAttempterReferrals);
-                    } else {
-                        setSuicideAttempterReferrals(initialSuicideAttempterReferrals);
-                    }
-                    if (Array.isArray(loadedUnregistered)) setUnregisteredCandidates(loadedUnregistered);
+                    // 3. Background Data: Logs, SAs, Unregistered (독립적 병렬 로드 - 서로 블로킹 없음)
+                    apiClient.getLogs().then(loadedLogs => {
+                        if (Array.isArray(loadedLogs)) {
+                            setLogs(loadedLogs);
+                            safeLocalStorage.setItem('logs', JSON.stringify(loadedLogs));
+                        }
+                    }).catch(e => console.error("Logs fetch failed", e));
 
-                    console.log("Stage 3: Background data load complete.");
+                    apiClient.getSuicideAttempters().then(loadedSAs => {
+                        if (Array.isArray(loadedSAs)) {
+                            const parseUid = (uid: string) => {
+                                if (!uid) return { year: 0, num: 0 };
+                                const parts = uid.split('-');
+                                if (parts.length < 2) return { year: 0, num: 0 };
+                                let year = parseInt(parts[0]);
+                                if (year < 100) year += 2000;
+                                const num = parseInt(parts[1]);
+                                return { year, num };
+                            };
+                            const sortedSAs = [...loadedSAs].sort((a, b) => {
+                                const valA = parseUid(a.uid || "");
+                                const valB = parseUid(b.uid || "");
+                                if (valB.year !== valA.year) return valB.year - valA.year;
+                                return valB.num - valA.num;
+                            });
+                            setSuicideAttempterReferrals(sortedSAs.length > 0 ? sortedSAs : initialSuicideAttempterReferrals);
+                        }
+                    }).catch(e => console.error("SAs fetch failed", e));
+
+                    apiClient.getUnregistered().then(loadedUnregistered => {
+                        if (Array.isArray(loadedUnregistered)) setUnregisteredCandidates(loadedUnregistered);
+                    }).catch(e => console.error("Unregistered fetch failed", e));
+
+                    console.log("Stage 3: Background data pipelines initialized.");
                 } else {
                     // Fallback to localStorage
                     const saved = safeLocalStorage.getItem('users');
@@ -311,7 +317,7 @@ function App() {
     const handleLogin = async (user: User) => {
         safeSessionStorage.setItem('currentUser', JSON.stringify(user));
         setCurrentUser(user);
-        setSelectedTeam(user.team || 'all');
+        setSelectedTeam('all'); // 로그인 시 전체팀 의뢰가 기본으로 한눈에 보이도록 설정
         const newLog: Log = { logId: `log_${Date.now()}`, userId: user.id, loginTime: new Date().toLocaleString('ko-KR'), logoutTime: null };
         setLogs(prevLogs => [newLog, ...prevLogs]);
 
@@ -662,6 +668,7 @@ function App() {
                     onAddNewReferral={handleAddNewReferral}
                     initialFormData={pendingTransfer}
                     onInitialFormConsumed={handleInitialFormConsumed}
+                    isLoading={isReferralsLoading}
                 />;
             case 'suicideAttempters':
                 return <SuicideAttemptersPage
@@ -676,7 +683,7 @@ function App() {
                     onTransferToReferral={handleTransferToReferral}
                 />;
             case 'caseAnalysis':
-                return (currentUser.role === 'admin' || currentUser.role === 'manager' || currentUser.permissions?.caseAnalysis?.read === true) ? <CaseAnalysisSystem currentUser={currentUser} /> : null;
+                return <CaseAnalysisSystem currentUser={currentUser} />;
             case 'data':
                 return <DataManagementPage
                     referrals={referrals}

@@ -62,6 +62,7 @@ interface ReferralDashboardV2Props {
     // Pre-filled data to auto-open the new referral form (from SA transfer)
     initialFormData?: Partial<Omit<Referral, 'refNo' | 'clientId'>> | null;
     onInitialFormConsumed?: () => void;
+    isLoading?: boolean;
 }
 
 const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
@@ -77,6 +78,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
     onAddNewReferral,
     initialFormData,
     onInitialFormConsumed,
+    isLoading = false,
 }) => {
     // --- State: Filters ---
     const [searchTerm, setSearchTerm] = useState('');
@@ -89,24 +91,8 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
     const [viewMode, setViewMode] = useState<'standard' | 'unregistered' | 'trash'>('standard');
     const [selectedRefNos, setSelectedRefNos] = useState<Set<string>>(new Set());
 
-    // [Track B] User.team 및 Permission 기반 부서 선택 권한 판정
-    const canSelectTeam = useMemo(() => {
-        if (!currentUser) return false;
-        if (currentUser.role === 'admin') return true;
-        if (currentUser.role === 'manager') {
-            return currentUser.permissions?.referrals?.read !== false;
-        }
-        return false;
-    }, [currentUser]);
-
-    // 일반 사용자이거나 부서 권한이 없는 경우 본인 소속팀으로 자동 고정
-    useEffect(() => {
-        if (!canSelectTeam && currentUser?.team) {
-            if (selectedTeam !== currentUser.team) {
-                setSelectedTeam(currentUser.team as any);
-            }
-        }
-    }, [canSelectTeam, currentUser?.team, selectedTeam, setSelectedTeam]);
+    // [의뢰관리 정책] 모든 실무 직원이 전체팀 및 타 부서 필터를 자유롭게 선택하여 조회 가능
+    const canSelectTeam = true;
 
     // [New] South Branch Filter Toggle
     const [showNambu, setShowNambu] = useState(true);
@@ -222,14 +208,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                 return teamMatch && searchMatch && assigneeMatch && criMatch && statusMatch && dateMatch && pathMatch;
             })
             .sort((a, b) => {
-                // 1. 미등록 의뢰 최우선 정렬
-                const isUnregA = (a.registrationStatus === '미등록' || a.isUnregistered === true);
-                const isUnregB = (b.registrationStatus === '미등록' || b.isUnregistered === true);
-                if (isUnregA !== isUnregB) {
-                    return isUnregA ? -1 : 1;
-                }
-
-                // 2. 미종결(진행중) 우선 정렬 (종결/등록관리 건은 후순위)
+                // 1. 종결 및 등록관리 완료 여부 최우선 판정 (완료된 건은 무조건 뒤로)
                 const aCompleted = Boolean(
                     (a.closureStatus && a.closureStatus !== '미종결') ||
                     (a.actionResult && (a.actionResult.includes('등록관리') || a.actionResult.includes('종결')))
@@ -241,6 +220,15 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
 
                 if (aCompleted !== bCompleted) {
                     return aCompleted ? 1 : -1;
+                }
+
+                // 2. 미완료(진행중) 건들 중에서만: 미등록 의뢰 최우선 정렬
+                if (!aCompleted) {
+                    const isUnregA = Boolean(a.registrationStatus === '미등록' || a.isUnregistered === true);
+                    const isUnregB = Boolean(b.registrationStatus === '미등록' || b.isUnregistered === true);
+                    if (isUnregA !== isUnregB) {
+                        return isUnregA ? -1 : 1;
+                    }
                 }
 
                 // 3. 동일 그룹 내에서는 최신 의뢰 접수일자 순 (내림차순)
@@ -718,58 +706,43 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                     </button>
 
                 </div>
-                {/* [Track B] 엑셀 다운로드: 선택 항목 및 필터 전체 항목 지원 */}
-                <div className="flex w-full mt-2 gap-2">
-                    {selectedRefNos.size > 0 ? (
-                        <>
-                            <button
-                                onClick={() => {
-                                    const selected = filteredReferrals.filter(r => selectedRefNos.has(getReferralKey(r)));
-                                    handleExportReplyForm(selected, '선택');
-                                }}
-                                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl border text-xs font-bold bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm hover:bg-emerald-100 transition-all"
-                                title="선택된 항목만 엑셀 다운로드"
-                            >
-                                <Download size={14} />
-                                선택 엑셀 ({selectedRefNos.size})
-                            </button>
-                            <button
-                                onClick={() => handleExportReplyForm(filteredReferrals, '필터 전체')}
-                                disabled={filteredReferrals.length === 0}
-                                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl border text-xs font-bold bg-white border-slate-200 text-slate-700 shadow-sm hover:bg-slate-50 transition-all"
-                                title="현재 필터 조건에 해당하는 전체 항목 엑셀 다운로드"
-                            >
-                                <Download size={14} />
-                                전체 ({filteredReferrals.length})
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setIsPrintModalOpen(true)}
-                                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-xs font-bold transition-all shadow-sm hover:bg-indigo-100"
-                            >
-                                <Printer size={14} />
-                                출력 ({selectedRefNos.size})
-                            </button>
-                        </>
-                    ) : (
+                {/* [회신서 엑셀 다운로드: 선택한 대상자만 다운로드 가능하도록 제한] */}
+                {selectedRefNos.size > 0 && (
+                    <div className="flex w-full mt-2 gap-2">
                         <button
-                            onClick={() => handleExportReplyForm(filteredReferrals, '필터 전체')}
-                            disabled={filteredReferrals.length === 0}
-                            className={`w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${filteredReferrals.length > 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm hover:bg-emerald-100' : 'bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed'}`}
-                            title="현재 필터 조건에 부합하는 모든 항목 엑셀 다운로드"
+                            onClick={() => {
+                                const selected = filteredReferrals.filter(r => selectedRefNos.has(getReferralKey(r)));
+                                handleExportReplyForm(selected, '선택');
+                            }}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl border text-xs font-bold bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm hover:bg-emerald-100 transition-all"
+                            title="선택된 대상자만 회신서 엑셀 다운로드"
                         >
                             <Download size={14} />
-                            필터 전체 엑셀 ({filteredReferrals.length}건)
+                            선택 회신서 엑셀 ({selectedRefNos.size}건)
                         </button>
-                    )}
-                </div>
+                        <button
+                            type="button"
+                            onClick={() => setIsPrintModalOpen(true)}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-xs font-bold transition-all shadow-sm hover:bg-indigo-100"
+                            title="선택된 대상자 의뢰대장 출력"
+                        >
+                            <Printer size={14} />
+                            선택 출력 ({selectedRefNos.size}건)
+                        </button>
+                    </div>
+                )}
             </div>
 
 
 
             {/* List Content */}
             <div className="flex-1 overflow-y-auto px-4 py-2 space-y-3 bg-slate-50/30 custom-scrollbar">
-                {filteredReferrals.length === 0 ? (
+                {isLoading && uniqueAllReferrals.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-48 text-slate-400 gap-2.5">
+                        <div className="w-7 h-7 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                        <span className="text-xs font-semibold text-slate-500">의뢰 데이터를 불러오는 중입니다...</span>
+                    </div>
+                ) : filteredReferrals.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-48 text-slate-400">
                         <Search size={32} className="mb-2 opacity-20" />
                         <span className="text-xs font-medium">검색 결과가 없습니다</span>

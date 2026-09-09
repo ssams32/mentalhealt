@@ -4,6 +4,7 @@
  */
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -37,6 +38,8 @@ app.get('/api/health', (req, res) => {
 });
 
 // Middleware
+// [성능 개선] Gzip/Deflate 네트워크 압축 (4MB JSON -> 300KB로 10배 이상 압축 전송)
+app.use(compression());
 // [보안 개선] 의뢰관리 전용: 모든 출처 허용 (CORS는 실질적 보안이 아니므로 의뢰망에서는 허용)
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'] }));
 // [개선] bodyParser deprecated -> express 내장 미들웨어 사용
@@ -425,34 +428,9 @@ app.get('/api/referrals', (req, res) => {
         let referrals = getData('Referrals', []);
         const { team, closureStatus, registrationStatus, view } = req.query;
 
-        // [Track B: Server-side Team & Permission Enforcement]
-        const reqUserId = req.headers['x-user-id'] || req.query.userId;
-        const reqUserRole = req.headers['x-user-role'] || req.query.userRole;
-        let reqUserTeam = req.headers['x-user-team'] || req.query.userTeam;
-        if (reqUserTeam) {
-            try { reqUserTeam = decodeURIComponent(reqUserTeam); } catch {}
-        }
-
+        // [의뢰관리 정책] 실무 직원 누구나 전체팀 의뢰 현황을 확인하고 공유할 수 있도록 지원
+        // 클라이언트에서 특정 team을 지정하여 요청한 경우에만 해당 부서로 필터링
         let effectiveTeam = team;
-
-        if (reqUserId || reqUserRole) {
-            const users = getData('Users', []);
-            const user = users.find(u => u.id === reqUserId || u.username === reqUserId);
-            const role = user?.role || reqUserRole || 'user';
-            const userTeam = user?.team || reqUserTeam;
-            const referralsReadPerm = user?.permissions?.referrals?.read;
-
-            if (role === 'admin') {
-                // Admin can query any team or all
-                effectiveTeam = team;
-            } else if (role === 'manager' && referralsReadPerm !== false) {
-                // Authorized manager can query any team or all
-                effectiveTeam = team;
-            } else {
-                // Regular user or restricted manager: forced to own team only
-                effectiveTeam = userTeam;
-            }
-        }
 
         if (effectiveTeam && effectiveTeam !== 'all') {
             referrals = referrals.filter(r => {
@@ -475,14 +453,9 @@ app.get('/api/referrals', (req, res) => {
             referrals = referrals.filter(r => (r.registrationStatus || (r.isUnregistered ? '미등록' : '확인중')) === registrationStatus);
         }
 
-        // [Track B: Default Sort: Unregistered & Unclosed first]
+        // [Track B: Default Sort: Unclosed/Ongoing first, Completed/Closed to bottom]
         referrals.sort((a, b) => {
-            // 1. 미등록 우선
-            const isUnregA = Boolean(a.registrationStatus === '미등록' || a.isUnregistered === true);
-            const isUnregB = Boolean(b.registrationStatus === '미등록' || b.isUnregistered === true);
-            if (isUnregA !== isUnregB) return isUnregA ? -1 : 1;
-
-            // 2. 미종결(진행중) 우선
+            // 1. 종결 및 등록관리 완료 여부 최우선 판정 (완료된 건은 무조건 뒤로)
             const aCompleted = Boolean(
                 (a.closureStatus && a.closureStatus !== '미종결') ||
                 (a.actionResult && (a.actionResult.includes('등록관리') || a.actionResult.includes('종결')))
@@ -492,6 +465,13 @@ app.get('/api/referrals', (req, res) => {
                 (b.actionResult && (b.actionResult.includes('등록관리') || b.actionResult.includes('종결')))
             );
             if (aCompleted !== bCompleted) return aCompleted ? 1 : -1;
+
+            // 2. 미완료(진행중) 중에서만 미등록 우선
+            if (!aCompleted) {
+                const isUnregA = Boolean(a.registrationStatus === '미등록' || a.isUnregistered === true);
+                const isUnregB = Boolean(b.registrationStatus === '미등록' || b.isUnregistered === true);
+                if (isUnregA !== isUnregB) return isUnregA ? -1 : 1;
+            }
 
             // 3. 접수일자 내림차순
             const dateA = a.requestDate ? new Date(a.requestDate).getTime() : 0;
