@@ -35,6 +35,7 @@ const getAssigneeColor = (name: string) => {
     for (let i = 0; i < name.length; i++) {
         hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
+    return colors[Math.abs(hash) % colors.length];
 };
 
 // [Track B] CWE-1236: CSV/Excel Formula Injection 방어 함수
@@ -57,7 +58,7 @@ interface ReferralDashboardV2Props {
     selectedTeam: Team | 'all';
     setSelectedTeam: (team: Team | 'all') => void;
     users: User[];
-    onUpdateReferral: (updatedReferral: Referral) => void;
+    onUpdateReferral: (updatedReferral: Referral, originalRefNo?: string) => Promise<Referral | void> | void;
     onAddNewReferral: (newReferral: Omit<Referral, 'refNo' | 'clientId'>) => Promise<Referral>;
     // Pre-filled data to auto-open the new referral form (from SA transfer)
     initialFormData?: Partial<Omit<Referral, 'refNo' | 'clientId'>> | null;
@@ -917,10 +918,11 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                     onSubmit={async (data, originalRefNo) => {
                         try {
                             const payload = originalRefNo ? { ...data, originalRefNo } : data;
-                            await onUpdateReferral(payload);
+                            const result = await onUpdateReferral(payload, originalRefNo);
+                            return result;
                         } catch (e) {
-                            console.error(e);
-                            alert('저장 중 오류가 발생했습니다.');
+                            console.error('ReferralEditor onSubmit error:', e);
+                            throw e;
                         }
                     }}
                     onDelete={(id) => handleDeleteReferral(id, activeReferral)}

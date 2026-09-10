@@ -1,5 +1,10 @@
 # Project Guidelines & Constraints
 
+## 0. 배포 및 안전 절대 원칙 (STRICT SAFETY RULES)
+- **사용자 승인 없는 Git Push 절대 금지:** 사용자가 명시적으로 "푸시해줘" 또는 "깃허브에 올려줘"라고 요청하기 전에는 어떠한 경우에도 `git push`를 실행하지 않는다. (GitHub 푸시 시 NAS 실서버로 즉시 자동 배포되기 때문)
+- **로컬 선검증 필수:** 모든 변경 사항은 로컬 브라우저/서버에서 먼저 검증하고 사용자 확인을 거친다.
+- **수정 전 사전 설명:** 코드 수정 전 어느 파일의 어떤 부분을 왜 고치는지 사용자에게 설명한다.
+
 ## 1. Core Logic
 - **Client Identification:** Use a composite key consisting of [Name (이름), Age (연령), Contact (연락처)] to identify unique clients.
 - **Data Deduplication:** When synchronizing data, compare the composite key and the 'Referral Date' (의뢰날짜).

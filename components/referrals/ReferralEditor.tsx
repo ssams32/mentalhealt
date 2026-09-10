@@ -20,7 +20,7 @@ declare var _: any;
 interface ReferralEditorProps {
     referralData?: Referral | null;
     currentUser: User;
-    onSubmit: (referral: any, originalRefNo?: string) => void;
+    onSubmit: (referral: any, originalRefNo?: string) => Promise<any> | void;
     onDelete?: (refNo: string) => void;
     onCancel?: () => void;
     users: User[];
@@ -148,6 +148,8 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
 
     // Debounced Auto-Save
     const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+    // In-flight save guard to prevent concurrent race conditions between auto-save & manual save
+    const isSavingRef = useRef<boolean>(false);
 
     // Ref to track the last referralData we initialized from (prevents re-init on every render)
     const lastInitializedRef = useRef<string | null>(null);
@@ -162,7 +164,25 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
     useEffect(() => {
         // [MODIFIED] Use ID-based check to ensure fresh initialization for every new external referral import
         const initId = referralData?.externalIdx || referralData?.refNo || 'new';
-        if (lastInitializedRef.current === initId) return;
+        if (lastInitializedRef.current === initId) {
+            // [CRITICAL] 같은 의뢰이지만 부모/서버에서 version 또는 notes가 갱신된 경우:
+            // 사용자가 타이핑 중인 입력값(formData)은 보존하고 version과 서버 필드만 안전하게 동기화!
+            if (referralData && referralData.version !== undefined && referralData.version !== formData.version) {
+                setFormData(prev => ({
+                    ...prev,
+                    version: referralData.version,
+                    notes: (referralData.notes && referralData.notes.length > (prev.notes?.length || 0)) ? referralData.notes : prev.notes,
+                    updatedAt: referralData.updatedAt
+                }));
+                latestFormDataRef.current = {
+                    ...latestFormDataRef.current,
+                    version: referralData.version,
+                    notes: (referralData.notes && referralData.notes.length > (latestFormDataRef.current.notes?.length || 0)) ? referralData.notes : latestFormDataRef.current.notes,
+                    updatedAt: referralData.updatedAt
+                };
+            }
+            return;
+        }
         lastInitializedRef.current = initId;
         
         setError('');
@@ -308,15 +328,42 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
             autoSaveTimerRef.current = null;
         }
 
+        if (isSavingRef.current) {
+            // 이미 저장 진행 중이면 잠시 후 재시도
+            autoSaveTimerRef.current = setTimeout(() => performSave(latestFormDataRef.current), 500);
+            return;
+        }
+
+        isSavingRef.current = true;
         setSaveStatus('saving');
         try {
             // Call the onSubmit function strictly for background syncing
-            await onSubmit(dataToSave, dataToSave.refNo);
+            const saved = await onSubmit(dataToSave, dataToSave.refNo);
+            
+            // [CRITICAL] 최신 버전 및 서버 상태 즉각 동기화
+            if (saved && saved.version !== undefined) {
+                setFormData(prev => ({
+                    ...prev,
+                    version: saved.version,
+                    notes: saved.notes || prev.notes,
+                    updatedAt: saved.updatedAt
+                }));
+                latestFormDataRef.current = {
+                    ...latestFormDataRef.current,
+                    version: saved.version,
+                    notes: saved.notes || latestFormDataRef.current.notes,
+                    updatedAt: saved.updatedAt
+                };
+            }
+
             setSaveStatus('saved');
             setTimeout(() => setSaveStatus('idle'), 2500);
+            return saved;
         } catch (err) {
             console.error("Auto-save failed", err);
             setSaveStatus('error');
+        } finally {
+            isSavingRef.current = false;
         }
     };
 
@@ -558,6 +605,12 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
         setIsSubmitting(true);
 
         try {
+            // 진행 중인 디바운스 자동저장 타이머 즉시 취소
+            if (autoSaveTimerRef.current) {
+                clearTimeout(autoSaveTimerRef.current);
+                autoSaveTimerRef.current = null;
+            }
+
             const submissionData: Partial<Referral> = { ...formData };
             if (currentNote.trim()) {
                 const timestamp = new Date().toLocaleString('ko-KR');
@@ -576,8 +629,30 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                 ? referralData.refNo
                 : undefined;
 
-            await onSubmit(submissionData, originalRefNo);
+            isSavingRef.current = true;
+            const saved = await onSubmit(submissionData, originalRefNo);
+            
+            // [CRITICAL] 수동 저장 성공 후에도 최신 version 및 갱신 상태 즉시 반영
+            if (saved && saved.version !== undefined) {
+                setFormData(prev => ({
+                    ...prev,
+                    ...submissionData,
+                    version: saved.version,
+                    notes: saved.notes || submissionData.notes,
+                    updatedAt: saved.updatedAt
+                }));
+                latestFormDataRef.current = {
+                    ...latestFormDataRef.current,
+                    ...submissionData,
+                    version: saved.version,
+                    notes: saved.notes || submissionData.notes,
+                    updatedAt: saved.updatedAt
+                };
+            }
+
             setCurrentNote(''); // Clear note after manual save
+            setSaveStatus('saved');
+            setTimeout(() => setSaveStatus('idle'), 2500);
 
             if (!isEditing) {
                 // PDF background generation if needed
@@ -590,8 +665,10 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
             }
         } catch (err: any) {
             console.error('Submit error in editor:', err);
+            setSaveStatus('error');
             setError(err?.message || '저장 중 오류가 발생했습니다. 다시 시도해주세요.');
         } finally {
+            isSavingRef.current = false;
             setIsSubmitting(false);
         }
     };

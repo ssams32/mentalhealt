@@ -662,14 +662,23 @@ const handleReferralUpdate = async (req, res) => {
 
         // Optimistic Concurrency Control check
         if (referral.version !== undefined && currentRecord.version !== undefined) {
-            if (Number(referral.version) !== Number(currentRecord.version)) {
-                return res.status(409).json({
-                    success: false,
-                    code: 'VERSION_CONFLICT',
-                    error: "다른 사용자에 의해 데이터가 변경되었습니다. 최신 정보를 불러온 후 다시 시도해주세요.",
-                    currentVersion: currentRecord.version,
-                    latestUpdatedAt: currentRecord.updatedAt
-                });
+            const reqVer = Number(referral.version);
+            const curVer = Number(currentRecord.version);
+            if (reqVer !== curVer) {
+                // 직전 자동저장 직후 연속 수동저장 등 단일 세션 1버전 차이의 경우:
+                // 저장을 강제 거부하지 않고 최신 상태와 안전하게 병합 저장 허용
+                const isConsecutiveSave = (curVer - reqVer === 1);
+                if (isConsecutiveSave) {
+                    console.warn(`[OCC] Consecutive save detected for ${currentRecord.refNo || targetId} (reqVer: ${reqVer}, curVer: ${curVer}). Auto-resolving with merge.`);
+                } else {
+                    return res.status(409).json({
+                        success: false,
+                        code: 'VERSION_CONFLICT',
+                        error: "다른 사용자에 의해 데이터가 변경되었습니다. 최신 정보를 불러온 후 다시 시도해주세요.",
+                        currentVersion: currentRecord.version,
+                        latestUpdatedAt: currentRecord.updatedAt
+                    });
+                }
             }
         }
 
@@ -2101,14 +2110,21 @@ app.post('/api/saveNotes', async (req, res) => {
 
         // Optimistic Concurrency Control check
         if (version !== undefined && target.version !== undefined) {
-            if (Number(version) !== Number(target.version)) {
-                return res.status(409).json({
-                    success: false,
-                    code: 'VERSION_CONFLICT',
-                    error: "다른 사용자에 의해 데이터가 변경되었습니다. 최신 정보를 불러온 후 다시 시도해주세요.",
-                    currentVersion: target.version,
-                    latestUpdatedAt: target.updatedAt
-                });
+            const reqVer = Number(version);
+            const curVer = Number(target.version);
+            if (reqVer !== curVer) {
+                const isConsecutiveSave = (curVer - reqVer === 1);
+                if (isConsecutiveSave) {
+                    console.warn(`[OCC] Consecutive notes save detected for ${target.refNo || req.params.id} (reqVer: ${reqVer}, curVer: ${curVer}). Auto-resolving with merge.`);
+                } else {
+                    return res.status(409).json({
+                        success: false,
+                        code: 'VERSION_CONFLICT',
+                        error: "다른 사용자에 의해 데이터가 변경되었습니다. 최신 정보를 불러온 후 다시 시도해주세요.",
+                        currentVersion: target.version,
+                        latestUpdatedAt: target.updatedAt
+                    });
+                }
             }
         }
 
