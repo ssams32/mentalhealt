@@ -1,12 +1,12 @@
-import { User, Log, Referral, SuicideAttempterReferral, ToDo, CalendarEvent, Note, ActivityLog } from '../types';
+import { User, Log, Referral, SuicideAttempterReferral, ToDo, CalendarEvent, Note, ActivityLog, WebsiteReferralSummary } from '../types';
 
-import { 
-    IspAchievementYearlyResponse, 
-    IspDetailLevel 
+import {
+    IspAchievementYearlyResponse,
+    IspDetailLevel
 } from '../components/caseAnalysis/types';
 
 /**
- * [ApiClient] 
+ * [ApiClient]
  * GAS 레거시를 탈피하고 시놀로지 나스(Port 8888) REST API와 직접 통신하는 현대적인 통신 모듈입니다.
  * 408 타임아웃 방지를 위한 지수 백오프 재시도 로직과 중앙집중형 에러 핸들링을 포함합니다.
  */
@@ -57,12 +57,13 @@ class ApiClient {
 
         let response: Response | null = null;
         const fullUrl = `${this.baseUrl}${url}`;
-        
+
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s 기본 타임아웃
-            
+
             response = await fetch(fullUrl, {
+                credentials: 'include',
                 ...options,
                 headers: {
                     'Content-Type': 'application/json',
@@ -71,10 +72,10 @@ class ApiClient {
                 },
                 signal: controller.signal
             });
-            
+
             clearTimeout(timeoutId);
 
-            // 408 Request Timeout 처리: 
+            // 408 Request Timeout 처리:
             // GET 요청이거나 Idempotency-Key 헤더가 명시된 경우에만 안전하게 재시도 (최대 3회)
             const isIdempotent = !options.method || options.method === 'GET' || (options.headers && (options.headers as any)['Idempotency-Key']);
             if (response.status === 408 && isIdempotent && retryCount < 3) {
@@ -105,12 +106,12 @@ class ApiClient {
 
         } catch (error: any) {
             console.error(`[API Error] ${options.method || 'GET'} ${fullUrl}:`, error);
-            
+
             // "Failed to fetch" (서버 오프라인) 처리
             if (error instanceof TypeError && error.message === 'Failed to fetch') {
                 throw new Error('서버 연결 실패: 백엔드 서버(Port 8889)가 실행 중인지 확인해주세요.');
             }
-            
+
             throw error;
         } finally {
             this.activeRequests--;
@@ -131,8 +132,8 @@ class ApiClient {
     async resetUserPassword(adminId: string, targetId: string, newPassword: string): Promise<any> {
         return this.request('/users/reset-password', { method: 'POST', body: JSON.stringify({ adminId, targetId, newPassword }) });
     }
-    async importUsers(users: any[]): Promise<any> { 
-        return this.request('/users/import', { method: 'POST', body: JSON.stringify(users) }); 
+    async importUsers(users: any[]): Promise<any> {
+        return this.request('/users/import', { method: 'POST', body: JSON.stringify(users) });
     }
 
     // Referrals
@@ -216,6 +217,24 @@ class ApiClient {
         }));
     }
 
+    // Website Referrals (External imhc.co.kr sync & 9월 notification)
+    async getWebsiteReferralsSummary(): Promise<WebsiteReferralSummary> {
+        return this.request<WebsiteReferralSummary>('/website-referrals/summary');
+    }
+
+    async syncWebsiteReferrals(): Promise<WebsiteReferralSummary> {
+        return this.request<WebsiteReferralSummary>('/website-referrals/sync', {
+            method: 'POST'
+        });
+    }
+
+    async markWebsiteReferralsSeen(ids?: string[]): Promise<WebsiteReferralSummary> {
+        return this.request<WebsiteReferralSummary>('/website-referrals/mark-seen', {
+            method: 'POST',
+            body: JSON.stringify({ ids })
+        });
+    }
+
     // Budget
     async getBudgetHierarchy(): Promise<any[]> { return this.request<any[]>('/budget/hierarchy'); }
     async saveBudgetHierarchy(hierarchy: any[]): Promise<any> { return this.request('/budget/hierarchy', { method: 'POST', body: JSON.stringify(hierarchy) }); }
@@ -261,8 +280,8 @@ class ApiClient {
     // Misc
     async getAnalysisCurrent(): Promise<any> { try { return await this.request('/analysis/current'); } catch { return null; } }
     async saveAnalysisCurrent(data: any): Promise<any> { return this.request('/analysis/current', { method: 'POST', body: JSON.stringify({ data }) }); }
-    async getISPAchievement(month: string): Promise<any> { 
-        return this.request(`/analysis/isp-achievement?month=${encodeURIComponent(month)}`); 
+    async getISPAchievement(month: string): Promise<any> {
+        return this.request(`/analysis/isp-achievement?month=${encodeURIComponent(month)}`);
     }
 
     async getISPAchievementYearly(
@@ -282,23 +301,23 @@ class ApiClient {
             signal: options?.signal
         });
     }
-    
+
     // ToDos & Calendar
     async getTodos(): Promise<ToDo[]> { return this.request<ToDo[]>('/todos'); }
     async createTodo(todo: ToDo): Promise<any> { return this.request('/todos', { method: 'POST', body: JSON.stringify(todo) }); }
     async updateTodo(todo: ToDo): Promise<any> { return this.request('/todos', { method: 'PUT', body: JSON.stringify(todo) }); }
     async deleteTodo(id: string): Promise<any> { return this.request(`/todos/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
-    
-    async getCalendarEvents(start: string, end: string): Promise<CalendarEvent[]> { 
-        return this.request<CalendarEvent[]>(`/calendar?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`); 
+
+    async getCalendarEvents(start: string, end: string): Promise<CalendarEvent[]> {
+        return this.request<CalendarEvent[]>(`/calendar?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
     }
     async createCalendarEvent(event: any): Promise<any> { return this.request('/calendar', { method: 'POST', body: JSON.stringify(event) }); }
     async deleteCalendarEvent(id: string): Promise<any> { return this.request(`/calendar/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
 
     // Files
     async uploadFile(data: any): Promise<any> { return this.request('/upload', { method: 'POST', body: JSON.stringify(data) }); }
-    async deleteFile(folder: string, fileId: string): Promise<any> { 
-        return this.request(`/deleteFile/${encodeURIComponent(folder)}/${encodeURIComponent(fileId)}`, { method: 'DELETE' }); 
+    async deleteFile(folder: string, fileId: string): Promise<any> {
+        return this.request(`/deleteFile/${encodeURIComponent(folder)}/${encodeURIComponent(fileId)}`, { method: 'DELETE' });
     }
 
     // Official Documents
@@ -320,13 +339,13 @@ class ApiClient {
 
     // AI
     async callGeminiApi(prompt: string): Promise<string> {
-        const result = await this.request<{ response: string }>('/ai/gemini', { 
-            method: 'POST', 
-            body: JSON.stringify({ prompt }) 
+        const result = await this.request<{ response: string }>('/ai/gemini', {
+            method: 'POST',
+            body: JSON.stringify({ prompt })
         });
         return result.response;
     }
-    
+
     /**
      * Stage 2: Data Synchronization & Comparison Logic
      * 홈페이지 인입 데이터와 기존 의뢰대장을 비교하여 동기화합니다.
@@ -346,8 +365,8 @@ class ApiClient {
 
             // 1. 이름과 나이가 일치하는 기존 의뢰대장 기록 찾기 (나이/이름 대조)
             // 나이가 0인 유효하지 않은 항목은 대조군에서 제외하여 중복 스킵 버그 방지
-            const samePersonMatches = existingReferrals.filter(r => 
-                r.name.trim() === incomingName && 
+            const samePersonMatches = existingReferrals.filter(r =>
+                r.name.trim() === incomingName &&
                 (incomingAge > 0 ? Number(r.age) === incomingAge : true)
             );
 
@@ -389,6 +408,30 @@ class ApiClient {
             // 에러 시 동기화를 차단하지 않고 무조건 알림창에 렌더링되도록 true 반환
             return { updated: false, alert: true, error: String(error) };
         }
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // [Track A1 & A2] Authentication & Capability API
+    // ──────────────────────────────────────────────────────────
+    async login(username: string, password: string): Promise<{ success: boolean; user: User }> {
+        return this.request<{ success: boolean; user: User }>('/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ username, password })
+        });
+    }
+
+    async logout(): Promise<{ success: boolean; message: string }> {
+        return this.request<{ success: boolean; message: string }>('/auth/logout', {
+            method: 'POST'
+        });
+    }
+
+    async getMe(): Promise<{ success: boolean; user: User }> {
+        return this.request<{ success: boolean; user: User }>('/auth/me');
+    }
+
+    async getVoiceCapabilities(): Promise<{ success: boolean; user: User; capabilities: string[] }> {
+        return this.request<{ success: boolean; user: User; capabilities: string[] }>('/auth/capabilities');
     }
 
     // 호환성 유지용 빈 함수

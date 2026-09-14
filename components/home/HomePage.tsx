@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { ChevronDown } from 'lucide-react';
 import ReferralInbox from './ReferralInbox';
+import SeptemberWebsiteReferralBanner from './SeptemberWebsiteReferralBanner';
 
 interface HomePageProps {
     referrals: Referral[];
@@ -24,6 +25,7 @@ interface HomePageProps {
     setPendingReferrals: React.Dispatch<React.SetStateAction<any[]>>;
     selectedTeam: Team | 'all';
     setSelectedTeam: (team: Team | 'all') => void;
+    showToast?: (msg: string) => void;
 }
 
 const HomePage: React.FC<HomePageProps> = ({
@@ -39,7 +41,8 @@ const HomePage: React.FC<HomePageProps> = ({
     pendingReferrals,
     setPendingReferrals,
     selectedTeam,
-    setSelectedTeam
+    setSelectedTeam,
+    showToast
 }) => {
     // [Removed] Local state lifted to App.tsx
     // const [pendingReferrals, setPendingReferrals] = useState<any[]>([]);
@@ -179,6 +182,21 @@ const HomePage: React.FC<HomePageProps> = ({
                     </div>
                 </div>
             </div>
+
+            {/* 🌐 2026년 9월 홈페이지 의뢰 알림 배너 */}
+            <SeptemberWebsiteReferralBanner
+                onImportReferral={handleImportReferral}
+                onNavigate={onNavigate}
+                onSyncComplete={async () => {
+                    try {
+                        const raw = await apiClient.getPendingReferrals();
+                        setPendingReferrals(raw);
+                    } catch (e) {
+                        console.error('Failed to reload pending after sync', e);
+                    }
+                }}
+                showToast={showToast}
+            />
 
             {/* Pending Referrals Inbox */}
             <ReferralInbox

@@ -2,9 +2,11 @@
 import React, { useState } from 'react';
 import { User } from '../../types';
 
+import { apiClient } from '../../services/apiClient';
+
 interface LoginScreenProps {
     onLogin: (user: User) => void;
-    users: User[]; // Loaded from App.tsx (via Google Sheets)
+    users?: User[]; // Optional for backward compatibility
 }
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, users }) => {
@@ -19,32 +21,26 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, users }) => {
         setLoginError('');
 
         try {
-            // Local Validation Logic for GAS Deployment
-            // 1. Find user by "Email" (Username matching)
             const normalizedEmail = email.trim();
             const usernameInput = normalizedEmail.includes('@') ? normalizedEmail.split('@')[0] : normalizedEmail;
 
-            const foundUser = users.find(u => u.username === usernameInput || u.id === usernameInput);
-
-            if (!foundUser) {
-                setLoginError('등록되지 않은 사용자입니다.');
+            if (!usernameInput || !password) {
+                setLoginError('아이디와 비밀번호를 모두 입력해 주세요.');
                 setLoading(false);
                 return;
             }
 
-            // 2. Validate Password (Simple check for now, matching GAS implementation)
-            // In a real simplified GAS app, we might compare against loaded password
-            if (foundUser.password !== password) {
-                setLoginError('비밀번호가 올바르지 않습니다.');
-                setLoading(false);
-                return;
+            // [Track A1] Server-side Authentication with HttpOnly Session Cookie
+            const res = await apiClient.login(usernameInput, password);
+            if (res && res.success && res.user) {
+                onLogin(res.user);
+            } else {
+                setLoginError('아이디 또는 비밀번호를 확인해 주세요.');
             }
-
-            // 3. Success
-            onLogin(foundUser);
-
-        } catch (err) {
-            setLoginError('로그인 중 오류가 발생했습니다.');
+        } catch (err: any) {
+            console.error('[Login Error]:', err);
+            const msg = err.message || '로그인 중 오류가 발생했습니다. 아이디 또는 비밀번호를 확인해 주세요.';
+            setLoginError(msg);
         } finally {
             setLoading(false);
         }

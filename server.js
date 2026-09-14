@@ -10,6 +10,32 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
+// --- Track A1 & A2: Authentication & Authorization Modules ---
+import { SessionRepository } from './server/auth/sessionRepository.js';
+import { AuthService } from './server/auth/authService.js';
+import { createAuthMiddleware } from './server/auth/authMiddleware.js';
+import { createAuthRouter } from './server/auth/authRouter.js';
+import { createCorsOptions } from './server/config/corsPolicy.js';
+import { getEffectiveVoiceCapabilities } from './server/permissions/voiceCapabilities.js';
+import { requireVoiceCapability, requireRole } from './server/permissions/permissionMiddleware.js';
+
+// --- Track A7: Authenticated Audio Streaming ---
+import { VoiceCallRepository } from './server/voice-calls/voiceCallRepository.js';
+import {
+    PrivateAudioAccessService,
+    AuditEventSink,
+    createAudioStreamingRouter
+} from './server/audio-streaming/index.js';
+
+// --- Track A10.5: Restricted Voice Access Gate ---
+import {
+    parseVoiceAccessConfig,
+    validateVoiceAccessConfig,
+    VoiceAccessRepository,
+    VoiceAccessAuthorizer
+} from './server/voice-access/index.js';
+
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -39,9 +65,21 @@ app.get('/api/health', (req, res) => {
 
 // Middleware
 // [성능 개선] Gzip/Deflate 네트워크 압축 (4MB JSON -> 300KB로 10배 이상 압축 전송)
-app.use(compression());
-// [보안 개선] 의뢰관리 전용: 모든 출처 허용 (CORS는 실질적 보안이 아니므로 의뢰망에서는 허용)
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'] }));
+// [무결성 하드닝] A7: Range 스트리밍 및 바이너리 오디오는 압축(Content-Encoding 변조) 제외
+app.use(compression({
+    filter: (req, res) => {
+        if (req.path && req.path.includes('/audio')) {
+            return false;
+        }
+        const cacheControl = res.getHeader('Cache-Control');
+        if (typeof cacheControl === 'string' && /no-transform/i.test(cacheControl)) {
+            return false;
+        }
+        return compression.filter(req, res);
+    }
+}));
+// [보안 하드닝] Track A1: 명시적 Origin Allowlist 기반 CORS 정책 (임의 origin 반사 제거)
+app.use(cors(createCorsOptions()));
 // [개선] bodyParser deprecated -> express 내장 미들웨어 사용
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -68,7 +106,12 @@ app.use((req, res, next) => {
 app.use((err, req, res, next) => {
     if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
         console.error('❌ [JSON PARSE ERROR]:', err.message);
-        return res.status(400).json({ success: false, error: "Invalid JSON payload", details: err.message });
+        return res.status(400).json({
+            error: {
+                code: 'INVALID_JSON',
+                message: '잘못된 JSON 형식입니다.'
+            }
+        });
     }
     console.error('❌ [SERVER ERROR]:', err.stack);
     res.status(500).json({ success: false, error: "Internal Server Error", message: err.message });
@@ -263,6 +306,81 @@ const saveData = (filename, data) => {
     return true;
 };
 
+// ==========================================
+// 🔐 TRACK A1/A2: AUTHENTICATION & SESSIONS
+// ==========================================
+const sessionRepository = new SessionRepository(getData, persistData);
+const authService = new AuthService(sessionRepository, () => getData('Users', []));
+const { requireAuth, optionalAuth } = createAuthMiddleware(authService);
+const authRouter = createAuthRouter(authService, requireAuth);
+
+app.use('/api/auth', authRouter);
+
+// Capability inspection endpoint (Minimal UI helper only; server enforces checks per request)
+app.get('/api/auth/capabilities', requireAuth, (req, res) => {
+    const caps = getEffectiveVoiceCapabilities(req.auth);
+    res.json({ capabilities: caps });
+});
+
+// Periodic session cleanup (every 6 hours)
+setInterval(() => {
+    sessionRepository.cleanupExpiredSessions().catch(err => {
+        console.error('Session cleanup error:', err);
+    });
+}, 6 * 60 * 60 * 1000);
+
+// ==========================================
+// 🎧 TRACK A7: AUTHENTICATED AUDIO STREAMING
+// ==========================================
+const isProduction = process.env.NODE_ENV === 'production';
+let privateAudioDir = process.env.PRIVATE_AUDIO_DIR;
+
+if (!privateAudioDir) {
+    if (isProduction) {
+        console.error('⚠️ [OPERATIONAL WARNING] PRIVATE_AUDIO_DIR is not configured in production. Audio streaming subsystem is DISABLED.');
+        privateAudioDir = null;
+    } else {
+        privateAudioDir = path.resolve(DATA_DIR, '..', 'private-audio');
+        if (!fs.existsSync(privateAudioDir)) {
+            fs.mkdirSync(privateAudioDir, { recursive: true });
+        }
+    }
+}
+
+const voiceCallRepository = new VoiceCallRepository(getData, persistData);
+const privateAudioAccessService = new PrivateAudioAccessService({
+    privateAudioRoot: privateAudioDir
+});
+const audioStreamingAuditSink = new AuditEventSink();
+
+// ==========================================
+// 🔒 TRACK A10.5: RESTRICTED VOICE ACCESS GATE
+// ==========================================
+const voiceAccessConfig = parseVoiceAccessConfig(process.env);
+const voiceAccessValidation = validateVoiceAccessConfig(voiceAccessConfig);
+
+let voiceAccessAuthorizer = null;
+if (voiceAccessConfig.enabled && voiceAccessValidation.valid) {
+    const voiceAccessRepo = new VoiceAccessRepository({
+        dataDir: voiceAccessConfig.dataDir
+    });
+    voiceAccessAuthorizer = new VoiceAccessAuthorizer({
+        repository: voiceAccessRepo,
+        mode: voiceAccessConfig.mode
+    });
+}
+
+const audioStreamingRouter = createAudioStreamingRouter({
+    requireAuth,
+    voiceCallRepository,
+    privateAudioAccessService,
+    auditEventSink: audioStreamingAuditSink,
+    voiceAccessAuthorizer
+});
+
+app.use('/api/voice-calls', audioStreamingRouter);
+
+
 // --- UTILITIES ---
 const normalizeMemberRegistrationNo = (raw) => {
     if (raw == null) return '';
@@ -378,9 +496,11 @@ app.get('/api/users', (req, res) => {
         };
         saveData('Users', [adminUser]);
         const { password, ...safeAdmin } = adminUser;
-        return res.json([{ ...safeAdmin, password: adminUser.password }]);
+        return res.json([safeAdmin]);
     }
-    res.json(users);
+    // [Track A1 Security] Strip password before returning user list to clients
+    const safeUsers = users.map(({ password, ...u }) => u);
+    res.json(safeUsers);
 });
 
 app.post('/api/users', (req, res) => {
@@ -2273,9 +2393,9 @@ app.get('/api/unregistered', (req, res) => {
 // ==========================================
 
 const EXTERNAL_CONFIG = {
-    loginUrl: 'http://www.imhc.co.kr/sa/login/login_pro.php',
-    listUrl: 'http://www.imhc.co.kr/sa/community/reqask_list.php',
-    viewUrl: 'http://www.imhc.co.kr/sa/community/reqask_view.php',
+    loginUrl: 'https://www.imhc.co.kr/sa/login/login_pro.php',
+    listUrl: 'https://www.imhc.co.kr/sa/community/reqask_list.php',
+    viewUrl: 'https://www.imhc.co.kr/sa/community/reqask_view.php',
     credentials: {
         login_id: 'Admin',
         login_pw: 'dlcjstl!@#$'
@@ -2283,57 +2403,110 @@ const EXTERNAL_CONFIG = {
     pollInterval: 30 * 60 * 1000 // 30 mins
 };
 
-async function fetchExternalReferrals() {
-    console.log('🔄 [Scraper] Starting external referral check...');
+const DEFAULT_SYNC_METADATA = {
+    lastSuccessfulSyncAt: null,
+    lastAttemptedSyncAt: null,
+    lastSyncStatus: 'idle',
+    lastSyncError: null,
+    failedDetailCount: 0,
+    seenExternalIds: {}
+};
+
+function getWebsiteSyncMetadata() {
+    const data = getData('WebsiteSyncMetadata', { ...DEFAULT_SYNC_METADATA });
+    if (!data.seenExternalIds) data.seenExternalIds = {};
+    return data;
+}
+
+async function saveWebsiteSyncMetadata(meta) {
+    await persistData('WebsiteSyncMetadata', meta);
+}
+
+// Asia/Seoul September 2026 date validator (boundary: 2026-09-01 00:00:00 KST)
+function isSeptember2026InSeoul(dateStr) {
+    if (!dateStr || typeof dateStr !== 'string') return false;
+    const trimmed = dateStr.trim();
+    if (/^2026-09(-\d{2})?/.test(trimmed)) return true;
     try {
-        // 1. Login to get session cookie
+        const d = new Date(trimmed);
+        if (isNaN(d.getTime())) return false;
+        const seoulFormatter = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Seoul',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        });
+        const parts = seoulFormatter.format(d);
+        return parts.startsWith('2026-09');
+    } catch {
+        return false;
+    }
+}
+
+let isWebsiteSyncing = false;
+
+async function fetchExternalReferrals(options = {}) {
+    if (isWebsiteSyncing) {
+        console.log('⏳ [Scraper] Sync already in progress, skipping duplicate invocation.');
+        return { success: false, inProgress: true };
+    }
+    isWebsiteSyncing = true;
+    console.log('🔄 [Scraper] Starting external referral check (HTTPS)...');
+    const meta = getWebsiteSyncMetadata();
+    meta.lastAttemptedSyncAt = new Date().toISOString();
+
+    try {
+        // 1. Login to get session cookie via HTTPS
         const loginFormData = new URLSearchParams();
         Object.entries(EXTERNAL_CONFIG.credentials).forEach(([k, v]) => loginFormData.append(k, v));
 
         const loginRes = await fetch(EXTERNAL_CONFIG.loginUrl, {
             method: 'POST',
             body: loginFormData,
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+            },
             redirect: 'manual'
         });
 
         const cookieHeader = loginRes.headers.get('set-cookie');
         if (!cookieHeader) {
             console.error('❌ [Scraper] Login failed: No cookies received');
-            return;
+            meta.lastSyncStatus = 'failed';
+            meta.lastSyncError = 'No session cookie received from login';
+            saveWebsiteSyncMetadata(meta);
+            isWebsiteSyncing = false;
+            return { success: false, error: meta.lastSyncError };
         }
 
         const sessionCookie = cookieHeader.split(';')[0];
 
-        // 2. Fetch the list page
-        const listRes = await fetch(EXTERNAL_CONFIG.listUrl, {
-            headers: { 'Cookie': sessionCookie }
-        });
-        const listHtml = await listRes.text();
-
-        // 3. Parse IDs (idx) from the list
-        const idxMatches = [...listHtml.matchAll(/reqask_view\.php\?idx=([0-9]+)/g)];
-        const indices = [...new Set(idxMatches.map(m => m[1]))].slice(0, 30);
-
-        if (indices.length === 0) {
-            console.log('ℹ️ [Scraper] No referrals found in list');
-            return;
-        }
-
         const referrals = getData('Referrals', []);
         let existingPending = getData('PendingReferrals', []);
-
-        // Load persistent tracking of scraped IDs
         const scrapedIdsArray = getData('ScrapedExternalIds', []);
         const scrapedIds = new Set(scrapedIdsArray);
 
-        const normalizePhone = (num) => num ? num.replace(/[^0-9]/g, '') : '';
-
-        // Auto-cleanup: remove already registered clients from existingPending
+        // Auto-cleanup:
+        // 1. Enforce September 2026-only for website referrals: remove past months (June/July/August)
+        // 2. Remove already registered clients from existingPending
+        const normalizePhone = (num) => num ? String(num).replace(/[^0-9]/g, '') : '';
         const beforeCleanupCount = existingPending.length;
         existingPending = existingPending.filter(p => {
+            const extId = p.externalIdx || (p.id && String(p.id).startsWith('ext_') ? p.id : null);
+            const isWeb = !!extId || !!p.isWebsiteReferral;
+            const receivedAt = p.externalReceivedAt || p.registrationDate || p.createdAt || '';
+
+            // [Constraint] Only 2026-09 website referrals are allowed in PendingReferrals
+            if (isWeb && !isSeptember2026InSeoul(receivedAt)) {
+                console.log(`🧹 [Scraper Cleanup] Purging non-September website referral: ${p.name} (${receivedAt})`);
+                if (p.externalIdx) scrapedIds.add(p.externalIdx);
+                if (p.id) scrapedIds.add(p.id);
+                return false;
+            }
+
             const isRegistered = referrals.some(r => {
-                const nameMatch = r.name && r.name.trim() === p.name.trim();
+                const nameMatch = r.name && p.name && r.name.trim() === p.name.trim();
                 if (!nameMatch) return false;
 
                 const rPhone = normalizePhone(r.phone);
@@ -2355,8 +2528,8 @@ async function fetchExternalReferrals() {
         });
 
         if (existingPending.length !== beforeCleanupCount) {
-            saveData('PendingReferrals', existingPending);
-            saveData('ScrapedExternalIds', Array.from(scrapedIds));
+            await persistData('PendingReferrals', existingPending);
+            await persistData('ScrapedExternalIds', Array.from(scrapedIds));
         }
 
         existingPending.forEach(p => {
@@ -2364,136 +2537,408 @@ async function fetchExternalReferrals() {
             if (p.id) scrapedIds.add(p.id);
         });
 
-        const newItems = [];
+        // 2. Multi-page traversal (up to 5 pages) to recover accumulated referrals
+        const discoveredIndices = [];
+        const maxPages = 5;
+        for (let page = 1; page <= maxPages; page++) {
+            const pageUrl = page === 1
+                ? EXTERNAL_CONFIG.listUrl
+                : `${EXTERNAL_CONFIG.listUrl}?page=${page}`;
 
-        // 4. Fetch details
-        for (const idx of indices) {
+            const listRes = await fetch(pageUrl, {
+                headers: {
+                    'Cookie': sessionCookie,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+                }
+            });
+            if (!listRes.ok) break;
+
+            const listHtml = await listRes.text();
+            const idxMatches = [...listHtml.matchAll(/reqask_view\.php\?idx=([0-9]+)/g)];
+            const pageIndices = [...new Set(idxMatches.map(m => m[1]))];
+            if (pageIndices.length === 0) break;
+
+            for (const idx of pageIndices) {
+                if (!discoveredIndices.includes(idx)) {
+                    discoveredIndices.push(idx);
+                }
+            }
+
+            // If any item on this page is already known/scraped, stop crawling older pages
+            const hasKnown = pageIndices.some(idx => scrapedIds.has(`ext_${idx}`));
+            if (hasKnown && !options.forceAllPages) {
+                break;
+            }
+        }
+
+        if (discoveredIndices.length === 0) {
+            console.log('ℹ️ [Scraper] No referrals found on list pages');
+            meta.lastSuccessfulSyncAt = new Date().toISOString();
+            meta.lastSyncStatus = 'success';
+            meta.lastSyncError = null;
+            saveWebsiteSyncMetadata(meta);
+            isWebsiteSyncing = false;
+            return { success: true, added: 0 };
+        }
+
+        // 3. Fetch details for each unscraped index
+        const newItems = [];
+        let failedCount = 0;
+
+        for (const idx of discoveredIndices) {
             const currentExtId = `ext_${idx}`;
             if (scrapedIds.has(currentExtId)) continue;
 
-            console.log(`📥 [Scraper] Fetching details for idx: ${idx}`);
-            const viewRes = await fetch(`${EXTERNAL_CONFIG.viewUrl}?idx=${idx}`, {
-                headers: { 'Cookie': sessionCookie }
-            });
-            const viewHtml = await viewRes.text();
-
-            const extractField = (label) => {
-                const regex = new RegExp(`<label>${label}<\/label>\\s*<div><strong>(.*?)<\/strong><\/div>`, 's');
-                const match = viewHtml.match(regex);
-                return match ? match[1].replace(/<br\s*\/?>/gi, '\n').trim() : '';
-            };
-
-            const registrationDateLine = viewHtml.match(/<div><strong>(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})<\/strong><\/div>/);
-            const registrationDate = registrationDateLine ? registrationDateLine[1] : new Date().toISOString();
-
-            const birthDate = extractField('생년월일');
-            const genderRaw = extractField('성별');
-            const gender = genderRaw.includes('남') ? '남성' : (genderRaw.includes('여') ? '여성' : '기타');
-
-            let age = 0;
-            if (birthDate && birthDate.match(/^\d{4}/)) {
-                const birthYear = parseInt(birthDate.substring(0, 4));
-                age = new Date().getFullYear() - birthYear;
-            }
-
-            const agency = extractField('의뢰인기관명');
-            let referralPath = '기타';
-            if (agency.includes('행정복지센터') || agency.includes('동사무소') || agency.includes('면사무소')) referralPath = '읍면동 행정복지센터';
-            else if (agency.includes('경찰')) referralPath = '경찰서';
-            else if (agency.includes('소방') || agency.includes('119')) referralPath = '소방';
-            else if (agency.includes('보건소')) referralPath = '보건소';
-            else if (agency.includes('병원') || agency.includes('의료원') || agency.includes('의원')) referralPath = '의료기관';
-            else if (agency) referralPath = '의뢰기관';
-
-            const item = {
-                id: `ext_${idx}`,
-                externalIdx: `ext_${idx}`,
-                name: extractField('이름'),
-                phone: extractField('연락처'),
-                gender: gender,
-                age: age,
-                birthDate: birthDate,
-                address: extractField('주소'),
-                medicalInsurance: extractField('의료보장'),
-                disabilityStatus: extractField('장애등록여부'),
-                problem: extractField('주문제'),
-                guardianPresence: extractField('보호자유무'),
-                guardianName: extractField('보호자성명'),
-                guardianRelation: extractField('보호자관계'),
-                guardianPhone: extractField('보호자연락처'),
-                guardianNotes: extractField('보호자기타내용'),
-                consentToReferral: extractField('센터의뢰동의여부'),
-                consentNotes: extractField('센터의뢰동의여부기타내용'),
-                reason: extractField('의뢰이유'),
-                agency: agency,
-                agencyPhone: extractField('의뢰인연락처'),
-                requesterName: extractField('의뢰인이름'),
-                requesterFax: extractField('의뢰인팩스'),
-                requesterEmail: extractField('의뢰인이메일'),
-                registrationDate: registrationDate.split(' ')[0],
-                createdAt: registrationDate,
-                referralPath: referralPath,
-                isWebsiteReferral: true,
-                status: 'pending'
-            };
-
-            // [Security] Quarantine check for automated scanner probes / test spam
-            const isSpamProbe = /sparrow|dast|<script|onload=|javascript:|alert\(/i.test(
-                `${item.name} ${item.phone} ${item.problem} ${item.reason} ${item.requesterName}`
-            );
-            if (isSpamProbe) {
-                console.warn(`🛡️ [SCRAPER QUARANTINE] Quarantined security probe/spam: ${item.name} (${currentExtId})`);
-                const quarantined = getData('QuarantinedReferrals', []);
-                quarantined.push({ ...item, quarantinedAt: new Date().toISOString(), reason: 'Automated scanner probe detected' });
-                saveData('QuarantinedReferrals', quarantined);
-                scrapedIds.add(currentExtId);
-                saveData('ScrapedExternalIds', Array.from(scrapedIds));
-                continue;
-            }
-
-            if (item.name) {
-                const isAlreadyRegistered = referrals.some(r => {
-                    const nameMatch = r.name && r.name.trim() === item.name.trim();
-                    if (!nameMatch) return false;
-
-                    const rPhone = normalizePhone(r.phone);
-                    const itemPhone = normalizePhone(item.phone);
-                    if (rPhone && itemPhone && rPhone === itemPhone) return true;
-
-                    if (r.birthDate && item.birthDate && r.birthDate.trim() === item.birthDate.trim()) return true;
-
-                    return false;
+            try {
+                console.log(`📥 [Scraper] Fetching details for idx: ${idx}`);
+                const viewRes = await fetch(`${EXTERNAL_CONFIG.viewUrl}?idx=${idx}`, {
+                    headers: {
+                        'Cookie': sessionCookie,
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+                    }
                 });
+                if (!viewRes.ok) {
+                    failedCount++;
+                    continue;
+                }
+                const viewHtml = await viewRes.text();
 
-                if (isAlreadyRegistered) {
-                    console.log(`ℹ️ [Scraper] Skipping ${item.name} because they are already registered in the system.`);
-                    scrapedIds.add(currentExtId);
-                    saveData('ScrapedExternalIds', Array.from(scrapedIds));
+                const extractField = (label) => {
+                    const regex = new RegExp(`<label>${label}<\\/label>\\s*<div><strong>(.*?)<\\/strong><\\/div>`, 's');
+                    const match = viewHtml.match(regex);
+                    return match ? match[1].replace(/<br\s*\/?>/gi, '\n').trim() : '';
+                };
+
+                let regDate = extractField('등록일시');
+                if (!regDate) {
+                    const m = viewHtml.match(/<div><strong>(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})<\/strong><\/div>/);
+                    regDate = m ? m[1] : '';
+                }
+
+                if (!regDate) {
+                    console.warn(`⚠️ [Scraper] Missing registration date for idx ${idx}, counting as failed detail fetch.`);
+                    failedCount++;
                     continue;
                 }
 
-                newItems.push(item);
-                console.log(`✅ [Scraper] Successfully scraped: ${item.name}`);
+                const birthDate = extractField('생년월일');
+                const genderRaw = extractField('성별');
+                const gender = genderRaw.includes('남') ? '남성' : (genderRaw.includes('여') ? '여성' : '기타');
+
+                let age = 0;
+                if (birthDate && birthDate.match(/^\d{4}/)) {
+                    const birthYear = parseInt(birthDate.substring(0, 4));
+                    age = new Date().getFullYear() - birthYear;
+                }
+
+                const agency = extractField('의뢰인기관명');
+                let referralPath = '기타';
+                if (agency.includes('행정복지센터') || agency.includes('동사무소') || agency.includes('면사무소')) referralPath = '읍면동 행정복지센터';
+                else if (agency.includes('경찰')) referralPath = '경찰서';
+                else if (agency.includes('소방') || agency.includes('119')) referralPath = '소방';
+                else if (agency.includes('보건소')) referralPath = '보건소';
+                else if (agency.includes('병원') || agency.includes('의료원') || agency.includes('의원')) referralPath = '의료기관';
+                else if (agency.includes('이천시청') || agency.includes('시청')) referralPath = '이천시청';
+                else if (agency) referralPath = '의뢰기관';
+
+                const nowIso = new Date().toISOString();
+                const item = {
+                    id: currentExtId,
+                    externalIdx: currentExtId,
+                    externalReferralId: String(idx),
+                    name: extractField('이름'),
+                    phone: extractField('연락처'),
+                    gender: gender,
+                    age: age,
+                    birthDate: birthDate,
+                    address: extractField('주소'),
+                    medicalInsurance: extractField('의료보장'),
+                    disabilityStatus: extractField('장애등록여부'),
+                    problem: extractField('주문제'),
+                    guardianPresence: extractField('보호자유무'),
+                    guardianName: extractField('보호자성명'),
+                    guardianRelation: extractField('보호자관계'),
+                    guardianPhone: extractField('보호자연락처'),
+                    guardianNotes: extractField('보호자기타내용'),
+                    consentToReferral: extractField('센터의뢰동의여부'),
+                    consentNotes: extractField('센터의뢰동의여부기타내용'),
+                    reason: extractField('의뢰이유'),
+                    agency: agency,
+                    agencyPhone: extractField('의뢰인연락처'),
+                    requesterName: extractField('의뢰인이름'),
+                    requesterFax: extractField('의뢰인팩스'),
+                    requesterEmail: extractField('의뢰인이메일'),
+                    registrationDate: regDate.split(' ')[0],
+                    externalReceivedAt: regDate,
+                    createdAt: regDate,
+                    firstScrapedAt: nowIso,
+                    lastSyncedAt: nowIso,
+                    referralPath: referralPath,
+                    isWebsiteReferral: true,
+                    websiteReferralSeenAt: null,
+                    status: 'pending'
+                };
+
+                // [Security] Quarantine check for automated scanner probes / test spam
+                const isSpamProbe = /sparrow|dast|<script|onload=|javascript:|alert\(/i.test(
+                    `${item.name} ${item.phone} ${item.problem} ${item.reason} ${item.requesterName}`
+                );
+                if (isSpamProbe) {
+                    console.warn(`🛡️ [SCRAPER QUARANTINE] Quarantined security probe/spam: ${item.name} (${currentExtId})`);
+                    const quarantined = getData('QuarantinedReferrals', []);
+                    quarantined.push({ ...item, quarantinedAt: nowIso, reason: 'Automated scanner probe detected' });
+                    saveData('QuarantinedReferrals', quarantined);
+                    scrapedIds.add(currentExtId);
+                    continue;
+                }
+
+                // [Constraint] Only collect September 2026 referrals
+                if (!isSeptember2026InSeoul(regDate)) {
+                    console.log(`⏩ [Scraper] Skipping ${item.name} (${currentExtId}) - registration date prior to September 2026 (${regDate})`);
+                    scrapedIds.add(currentExtId);
+                    continue;
+                }
+
+                if (item.name) {
+                    const isAlreadyRegistered = referrals.some(r => {
+                        const nameMatch = r.name && r.name.trim() === item.name.trim();
+                        if (!nameMatch) return false;
+
+                        const rPhone = normalizePhone(r.phone);
+                        const itemPhone = normalizePhone(item.phone);
+                        if (rPhone && itemPhone && rPhone === itemPhone) return true;
+
+                        if (r.birthDate && item.birthDate && r.birthDate.trim() === item.birthDate.trim()) return true;
+
+                        return false;
+                    });
+
+                    if (isAlreadyRegistered) {
+                        console.log(`ℹ️ [Scraper] Skipping ${item.name} because they are already registered in the system.`);
+                        scrapedIds.add(currentExtId);
+                        continue;
+                    }
+
+                    newItems.push(item);
+                    scrapedIds.add(currentExtId);
+                    console.log(`✅ [Scraper] Successfully scraped: ${item.name} (${currentExtId})`);
+                }
+            } catch (detailErr) {
+                console.warn(`❌ [Scraper] Error fetching detail for idx ${idx}:`, detailErr.message);
+                failedCount++;
             }
         }
 
         if (newItems.length > 0) {
             const updatedPending = [...newItems, ...existingPending];
-            saveData('PendingReferrals', updatedPending);
-
-            newItems.forEach(item => {
-                if (item.externalIdx) scrapedIds.add(item.externalIdx);
-            });
-            saveData('ScrapedExternalIds', Array.from(scrapedIds));
-
+            await persistData('PendingReferrals', updatedPending);
             console.log(`🚀 [Scraper] Added ${newItems.length} new external referrals`);
         } else {
             console.log('😴 [Scraper] No new referrals to add');
         }
+
+        meta.lastSuccessfulSyncAt = new Date().toISOString();
+        meta.lastSyncStatus = 'success';
+        meta.lastSyncError = null;
+        meta.failedDetailCount = failedCount;
+        await saveWebsiteSyncMetadata(meta);
+        await persistData('ScrapedExternalIds', Array.from(scrapedIds));
+
+        return { success: true, added: newItems.length };
     } catch (err) {
         console.error('❌ [Scraper] Error during external fetch:', err);
+        meta.lastSyncStatus = 'failed';
+        meta.lastSyncError = err.message;
+        await saveWebsiteSyncMetadata(meta);
+        return { success: false, error: err.message };
+    } finally {
+        isWebsiteSyncing = false;
     }
 }
+
+function getWebsiteReferralsSummary() {
+    const meta = getWebsiteSyncMetadata();
+    const referrals = getData('Referrals', []);
+    const pendingReferrals = getData('PendingReferrals', []);
+
+    const periodStart = '2026-09-01T00:00:00+09:00';
+    const septMap = new Map();
+
+    // 1. Pending referrals
+    pendingReferrals.forEach(p => {
+        const extId = p.externalIdx || (p.id && String(p.id).startsWith('ext_') ? p.id : null);
+        if (!extId && !p.isWebsiteReferral) return;
+
+        const key = extId || p.id;
+        const receivedAt = p.externalReceivedAt || p.registrationDate || p.createdAt || '';
+        if (!isSeptember2026InSeoul(receivedAt)) return;
+
+        const isSeen = !!(meta.seenExternalIds && meta.seenExternalIds[key]) || !!p.websiteReferralSeenAt;
+
+        septMap.set(key, {
+            id: p.id || key,
+            externalIdx: extId || key,
+            externalReferralId: p.externalReferralId || (extId ? extId.replace(/^ext_/, '') : undefined),
+            name: p.name,
+            phone: p.phone,
+            gender: p.gender,
+            age: p.age,
+            birthDate: p.birthDate,
+            address: p.address,
+            agency: p.agency,
+            agencyPhone: p.agencyPhone,
+            requesterName: p.requesterName,
+            requesterPhone: p.requesterPhone || p.agencyPhone,
+            problem: p.problem,
+            reason: p.reason,
+            externalReceivedAt: p.externalReceivedAt || receivedAt,
+            firstScrapedAt: p.firstScrapedAt || p.createdAt,
+            lastSyncedAt: p.lastSyncedAt || meta.lastSuccessfulSyncAt,
+            referralPath: p.referralPath || '홈페이지',
+            isWebsiteReferral: true,
+            status: p.status === 'completed' ? 'completed' : (p.status === 'processing' ? 'processing' : 'pending'),
+            isSeen: isSeen,
+            websiteReferralSeenAt: p.websiteReferralSeenAt || (meta.seenExternalIds ? meta.seenExternalIds[key] : null),
+            source: 'pending'
+        });
+    });
+
+    // 2. Registered referrals (registered items override pending if matching)
+    referrals.forEach(r => {
+        const extId = r.externalIdx || (r.id && String(r.id).startsWith('ext_') ? r.id : null);
+        if (!extId && !r.isWebsiteReferral) return;
+
+        const key = extId || r.refNo || r.referralId;
+        const receivedAt = r.externalReceivedAt || r.registrationDate || r.requestDate || r.createdAt || '';
+        if (!isSeptember2026InSeoul(receivedAt)) return;
+
+        const status = r.closureStatus === '종결' ? 'completed' : 'processing';
+        const isSeen = true; // Registered items have been reviewed
+
+        septMap.set(key, {
+            id: r.referralId || r.id || key,
+            externalIdx: extId || key,
+            externalReferralId: extId ? extId.replace(/^ext_/, '') : undefined,
+            name: r.name,
+            phone: r.phone,
+            gender: r.gender,
+            age: r.age,
+            birthDate: r.birthDate,
+            address: r.address,
+            agency: r.requestAgency || r.agency,
+            agencyPhone: r.requesterPhone || r.agencyPhone,
+            requesterName: r.requesterName || r.requestorName,
+            requesterPhone: r.requesterPhone,
+            problem: r.problem,
+            reason: r.reason,
+            externalReceivedAt: r.externalReceivedAt || receivedAt,
+            firstScrapedAt: r.firstScrapedAt || r.createdAt,
+            lastSyncedAt: r.lastSyncedAt || meta.lastSuccessfulSyncAt,
+            referralPath: r.referralPath || '홈페이지',
+            isWebsiteReferral: true,
+            status: status,
+            isSeen: isSeen,
+            websiteReferralSeenAt: r.websiteReferralSeenAt || meta.lastSuccessfulSyncAt,
+            refNo: r.refNo,
+            source: 'registered'
+        });
+    });
+
+    const items = Array.from(septMap.values());
+    items.sort((a, b) => (b.externalReceivedAt || '').localeCompare(a.externalReceivedAt || ''));
+
+    const total = items.length;
+    const unseen = items.filter(i => !i.isSeen).length;
+    const pending = items.filter(i => i.status === 'pending').length;
+    const processing = items.filter(i => i.status === 'processing').length;
+    const completed = items.filter(i => i.status === 'completed').length;
+
+    return {
+        success: true,
+        periodStart,
+        total,
+        unseen,
+        pending,
+        processing,
+        completed,
+        failedDetailCount: meta.failedDetailCount || 0,
+        lastSuccessfulSyncAt: meta.lastSuccessfulSyncAt,
+        lastSyncStatus: meta.lastSyncStatus || 'idle',
+        lastSyncError: meta.lastSyncError || null,
+        syncInProgress: isWebsiteSyncing,
+        items
+    };
+}
+
+// ----------------------------------------------------
+// 🌐 Website Referral Summary & Sync Endpoints
+// ----------------------------------------------------
+app.get('/api/website-referrals/summary', (req, res) => {
+    res.json(getWebsiteReferralsSummary());
+});
+
+app.post('/api/website-referrals/sync', async (req, res) => {
+    try {
+        await fetchExternalReferrals({ force: true });
+        res.json(getWebsiteReferralsSummary());
+    } catch (err) {
+        console.error('Error during website-referrals/sync:', err);
+        res.status(500).json({
+            success: false,
+            error: err.message,
+            summary: getWebsiteReferralsSummary()
+        });
+    }
+});
+
+// Backwards-compatible alias for pending-referrals/sync
+app.post('/api/pending-referrals/sync', async (req, res) => {
+    try {
+        await fetchExternalReferrals({ force: true });
+        res.json(getWebsiteReferralsSummary());
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/website-referrals/mark-seen', async (req, res) => {
+    try {
+        const { ids } = req.body || {};
+        const meta = getWebsiteSyncMetadata();
+        const now = new Date().toISOString();
+        const pendingReferrals = getData('PendingReferrals', []);
+
+        if (Array.isArray(ids) && ids.length > 0) {
+            ids.forEach(id => {
+                meta.seenExternalIds[id] = now;
+            });
+            pendingReferrals.forEach(p => {
+                if (ids.includes(p.id) || ids.includes(p.externalIdx)) {
+                    p.websiteReferralSeenAt = now;
+                }
+            });
+        } else {
+            const summary = getWebsiteReferralsSummary();
+            summary.items.forEach(item => {
+                if (item.externalIdx) meta.seenExternalIds[item.externalIdx] = now;
+                if (item.id) meta.seenExternalIds[item.id] = now;
+            });
+            pendingReferrals.forEach(p => {
+                if (isSeptember2026InSeoul(p.externalReceivedAt || p.registrationDate || p.createdAt || '')) {
+                    p.websiteReferralSeenAt = now;
+                }
+            });
+        }
+
+        await saveWebsiteSyncMetadata(meta);
+        await persistData('PendingReferrals', pendingReferrals);
+
+        res.json(getWebsiteReferralsSummary());
+    } catch (err) {
+        console.error('Error in mark-seen:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 
 // [Auto-Migration] Ensure NAS Referrals.json has zero duplicate or missing refNos on startup
 const sanitizeReferralsOnStartup = async () => {
@@ -2568,6 +3013,16 @@ setInterval(fetchExternalReferrals, EXTERNAL_CONFIG.pollInterval); // 30분 주�
 app.listen(PORT, async () => {
     console.log(`🚀 이천센터 의뢰관리시스템 v${SERVER_VERSION} 서버 실행 중 (포트: ${PORT})`);
     await sanitizeReferralsOnStartup();
+});
+
+// API Catch-all 404 handler (prevents SPA HTML fallback for missing API endpoints)
+app.all('/api/*', (req, res) => {
+    res.status(404).json({
+        error: {
+            code: 'NOT_FOUND',
+            message: '요청한 API 엔드포인트를 찾을 수 없습니다.'
+        }
+    });
 });
 
 // Catch-all for Frontend

@@ -157,6 +157,58 @@ export interface Referral {
     consentNotes?: string;
     problem?: string;
     reason?: string;
+
+    // Website Referral Additional Metadata
+    externalReferralId?: string;
+    externalReceivedAt?: string;
+    websiteReferralSeenAt?: string;
+    firstScrapedAt?: string;
+    lastSyncedAt?: string;
+}
+
+export interface WebsiteReferralItem {
+    id: string;
+    externalIdx: string;
+    externalReferralId?: string;
+    name: string;
+    phone?: string;
+    gender?: string;
+    age?: number | string;
+    birthDate?: string;
+    address?: string;
+    agency?: string;
+    agencyPhone?: string;
+    requesterName?: string;
+    requesterPhone?: string;
+    problem?: string;
+    reason?: string;
+    externalReceivedAt: string;
+    firstScrapedAt?: string;
+    lastSyncedAt?: string;
+    referralPath?: string;
+    isWebsiteReferral: boolean;
+    status: 'pending' | 'processing' | 'completed';
+    isSeen: boolean;
+    websiteReferralSeenAt?: string | null;
+    refNo?: string;
+    source?: 'pending' | 'registered';
+    [key: string]: any;
+}
+
+export interface WebsiteReferralSummary {
+    success: boolean;
+    periodStart: string;
+    total: number;
+    unseen: number;
+    pending: number;
+    processing: number;
+    completed: number;
+    failedDetailCount: number;
+    lastSuccessfulSyncAt: string | null;
+    lastSyncStatus?: 'success' | 'failed' | 'idle';
+    lastSyncError?: string | null;
+    syncInProgress?: boolean;
+    items: WebsiteReferralItem[];
 }
 
 // 노트 데이터 구조를 정의하는 인터페이스
@@ -352,3 +404,596 @@ export interface BudgetPreset {
     createdAt: string;
     scope: 'all' | 'department' | 'private';
 }
+
+// ============================================================
+// 🎙️ TRACK A3/A4: VOICE CALL DOMAIN MODEL & METADATA CONTRACTS
+// ============================================================
+
+export type ProcessingStatus =
+    | 'received'
+    | 'validating'
+    | 'rejected'
+    | 'queued'
+    | 'capacity_waiting'
+    | 'transcribing'
+    | 'summarizing'
+    | 'routing'
+    | 'review_required'
+    | 'ready'
+    | 'retrying'
+    | 'failed'
+    | 'completed';
+
+export type CallCategory =
+    | 'clinical'
+    | 'administrative'
+    | 'mixed'
+    | 'unknown';
+
+export type AssignmentStatus =
+    | 'unassigned'
+    | 'recommended'
+    | 'assigned'
+    | 'reassigned';
+
+export type ReviewStatus =
+    | 'not_started'
+    | 'ai_draft'
+    | 'in_review'
+    | 'revision_required'
+    | 'confirmed';
+
+export type IntakeValidationStatus =
+    | 'pending'
+    | 'valid'
+    | 'duplicate'
+    | 'unsupported'
+    | 'corrupted'
+    | 'oversized'
+    | 'duration_exceeded'
+    | 'content_mismatch'
+    | 'quarantined';
+
+export type AudioIntakeSource =
+    | 'browser_upload'
+    | 'browser_recording'
+    | 'nas_ingest'
+    | 'internal_api';
+
+export type DiarizationMode =
+    | 'model'
+    | 'channel'
+    | 'none';
+
+export interface VoiceCallRecord {
+    id: string;
+    intakeSource: AudioIntakeSource;
+    intakeReference?: string;
+    originalFileName: string;
+    storageKey?: string;
+    contentHash: string;
+    mimeType: string;
+    fileSize: number;
+    durationSeconds?: number;
+    validationStatus: IntakeValidationStatus;
+    rejectionCode?: string;
+    processingStatus: ProcessingStatus;
+    callCategory: CallCategory;
+    classificationConfidence?: number;
+    requiresHumanReview: boolean;
+    subjectType?: 'referral' | 'suicide_attempter' | 'unregistered_client';
+    subjectId?: string;
+    referralId?: string;
+    recommendedDepartmentId?: string;
+    recommendedAssigneeId?: string;
+    assignedDepartmentId?: string;
+    assignedUserId?: string;
+    assignmentStatus: AssignmentStatus;
+    reviewStatus: ReviewStatus;
+    activeProcessingRevisionId?: string;
+    transcriptStorageKey?: string;
+    receivedAt: string;
+    processedAt?: string;
+    confirmedAt?: string;
+    confirmedBy?: string;
+    createdBy?: string;
+    createdAt: string;
+    updatedAt: string;
+    version: number;
+    isDeleted: boolean;
+    deletedAt?: string;
+}
+
+export interface TranscriptSegment {
+    id?: string;
+    sequence: number;
+    startSeconds: number;
+    endSeconds: number;
+    text: string;
+    speakerLabel?: string;
+    confidence?: number;
+}
+
+export interface VoiceCallTranscript {
+    id: string;
+    callId: string;
+    detectedLanguage: string;
+    languageConfidence?: number;
+    text: string;
+    segments: TranscriptSegment[];
+    sttEngine: string;
+    sttModel: string;
+    sttModelVersion?: string;
+    sttModelDigest?: string;
+    diarizationMode: DiarizationMode;
+    createdAt: string;
+    updatedAt: string;
+    version: number;
+}
+
+export interface ProcessingRevision {
+    id: string;
+    callId: string;
+    revisionNumber: number;
+    status: 'draft' | 'active' | 'superseded' | 'failed';
+    sttEngine: string;
+    sttModel: string;
+    sttModelDigest?: string;
+    llmProvider: string;
+    llmModel: string;
+    llmModelDigest?: string;
+    promptId: string;
+    promptVersion: string;
+    schemaVersion: string;
+    callCategory: CallCategory;
+    classificationConfidence: number;
+    requiresHumanReview: boolean;
+    aiSummary: string;
+    aiKeyPoints: string[];
+    aiRequestedActions: string[];
+    safetyFlags: string[];
+    recommendedDepartmentId?: string;
+    recommendedAssigneeId?: string;
+    detectedLanguage: string;
+    diarizationMode: DiarizationMode;
+    validationResult?: 'pass' | 'warning' | 'fail';
+    validationErrors?: Array<{ field: string; message: string }>;
+    retryCount: number;
+    startedAt: string;
+    completedAt?: string;
+    createdAt: string;
+}
+
+export interface CallSummaryReview {
+    id: string;
+    callId: string;
+    processingRevisionId: string;
+    aiSummarySnapshot: string;
+    reviewedSummary: string;
+    aiKeyPointsSnapshot: string[];
+    reviewedKeyPoints: string[];
+    aiRequestedActionsSnapshot: string[];
+    reviewedRequestedActions: string[];
+    reviewStatus: ReviewStatus;
+    reviewedBy: string;
+    reviewedAt: string;
+    createdAt: string;
+    updatedAt: string;
+    version: number;
+}
+
+export interface AssignmentHistoryEntry {
+    id: string;
+    callId: string;
+    previousUserId?: string;
+    nextUserId?: string;
+    previousDepartmentId?: string;
+    nextDepartmentId?: string;
+    reason?: string;
+    assignedBy: string;
+    assignedAt: string;
+    resultingVersion: number;
+}
+
+export interface ReconciliationIssue {
+    checkCode: string;
+    severity: 'error' | 'warning' | 'info';
+    resourceType: 'voice_call' | 'transcript' | 'processing_revision' | 'summary_review' | 'assignment_history';
+    resourceId: string;
+    repairable: boolean;
+    safeMessage: string;
+}
+
+export interface ReconciliationReport {
+    timestamp: string;
+    totalRecords: number;
+    issuesCount: number;
+    issues: ReconciliationIssue[];
+}
+
+export interface AudioIntakeConfig {
+    temporaryRoot: string;
+    quarantineRoot?: string;
+    minFileBytes?: number;
+    maxFileBytes?: number;
+    maxDurationSeconds?: number;
+}
+
+export interface AudioIntakeResult {
+    intakeId: string;
+    voiceCallId: string | null;
+    temporaryStorageKey: string | null;
+    originalFileName: string;
+    normalizedFileName: string;
+    declaredMimeType?: string;
+    detectedMimeType: string | null;
+    detectedFormat: string | null;
+    fileSize: number;
+    contentHash: string;
+    durationSeconds: number | null;
+    durationValidationStatus: 'pending' | 'exact' | 'estimated' | 'unavailable' | 'exceeded';
+    processingStatus?: ProcessingStatus;
+    validationStatus: IntakeValidationStatus;
+    rejectionCode?: string;
+    duplicateOfCallId?: string;
+    receivedAt: string;
+    validatedAt: string;
+}
+
+export type StoragePromotionStatus =
+    | 'not_started'
+    | 'pending'
+    | 'copying'
+    | 'verifying'
+    | 'linked'
+    | 'incomplete'
+    | 'failed'
+    | 'quarantined';
+
+export type MediaValidationStage =
+    | 'signature_only'
+    | 'structural'
+    | 'pending_decode'
+    | 'decoded'
+    | 'rejected';
+
+export interface PublicAudioIntakeResult {
+    intakeId: string;
+    status: 'accepted' | 'rejected' | 'duplicate';
+    validationStatus: IntakeValidationStatus;
+    mediaValidationStage: MediaValidationStage;
+    messageCode: string;
+    fileSize?: number;
+    declaredMimeType?: string | null;
+    detectedFormat?: string | null;
+    warnings: string[];
+    receivedAt: string;
+    validatedAt: string;
+}
+
+export interface PrivateAudioStorageConfig {
+    privateAudioRoot: string;
+    quarantineAudioRoot?: string;
+    temporaryAudioRoot: string;
+    minimumFreeSpaceBytes?: number;
+    maxSingleFileBytes?: number;
+}
+
+export interface AudioPromotionResult {
+    status: 'promoted' | 'already_promoted';
+    callId: string;
+    storageKey: string;
+    version: number;
+    fileSize?: number;
+    contentHash?: string;
+    usedCopyFallback?: boolean;
+    idempotent?: boolean;
+    promotedAt?: string;
+}
+
+export type StreamingDispositionType = 'inline' | 'attachment';
+
+export interface ParsedByteRange {
+    type: 'full' | 'range';
+    start: number;
+    end: number;
+    length: number;
+}
+
+export interface AudioStreamingAuditEvent {
+    id: string;
+    eventType: string;
+    resourceType: 'voice_call';
+    resourceId: string;
+    actorUserId: string;
+    outcome: 'SUCCESS' | 'DENIED' | 'ERROR';
+    reasonCode?: string;
+    occurredAt: string;
+}
+
+// --- Track A8: Persistent Job Queue Types ---
+export type VoiceCallJobStatus =
+    | 'queued'
+    | 'leased'
+    | 'processing'
+    | 'retry_wait'
+    | 'completed'
+    | 'failed'
+    | 'cancelled'
+    | 'blocked';
+
+export type VoiceCallJobType =
+    | 'audio_decode_validation'
+    | 'stt_transcription'
+    | 'llm_classification'
+    | 'routing'
+    | 'reconciliation'
+    | 'synthetic_noop'
+    | 'synthetic_test';
+
+export type VoiceCallJobPriority = 'urgent' | 'high' | 'normal';
+
+export interface VoiceCallJob {
+    id: string;
+    callId: string;
+    jobType: VoiceCallJobType;
+    status: VoiceCallJobStatus;
+    idempotencyKey: string;
+    pipelineRevision: number;
+    priority: VoiceCallJobPriority;
+    attemptCount: number;
+    maxAttempts: number;
+    nextAttemptAt: string | null;
+    leaseOwner: string | null;
+    leaseTokenHash: string | null;
+    leaseAcquiredAt: string | null;
+    leaseExpiresAt: string | null;
+    heartbeatAt: string | null;
+    startedAt: string | null;
+    completedAt: string | null;
+    cancelledAt: string | null;
+    failedAt: string | null;
+    lastErrorCode: string | null;
+    lastErrorMessage: string | null;
+    resultReference: Record<string, unknown> | null;
+    createdAt: string;
+    updatedAt: string;
+    version: number;
+}
+
+// --- Track A9: Persistent Notifications and Outbox Types ---
+export type NotificationStatus = 'unread' | 'read' | 'archived' | 'expired';
+export type NotificationSeverity = 'info' | 'warning' | 'action_required';
+
+export type NotificationType =
+    | 'voice_call_received'
+    | 'voice_call_ready_for_review'
+    | 'voice_call_assigned'
+    | 'voice_call_reassigned'
+    | 'voice_call_processing_failed'
+    | 'voice_call_review_requested'
+    | 'system_configuration_required';
+
+export interface NotificationRecord {
+    id: string;
+    recipientUserId: string;
+    type: NotificationType;
+    resourceType: string;
+    resourceId: string;
+    messageCode: string;
+    severity: NotificationSeverity;
+    status: NotificationStatus;
+    deduplicationKey: string;
+    sourceOutboxEventId: string | null;
+    safeMetadata: Record<string, unknown> | null;
+    createdAt: string;
+    updatedAt: string;
+    deliveredAt: string;
+    readAt: string | null;
+    archivedAt: string | null;
+    expiresAt: string | null;
+    version: number;
+}
+
+export type OutboxStatus =
+    | 'pending'
+    | 'leased'
+    | 'dispatching'
+    | 'retry_wait'
+    | 'delivered'
+    | 'failed'
+    | 'cancelled'
+    | 'blocked';
+
+export interface NotificationOutboxEvent {
+    id: string;
+    eventType: NotificationType;
+    aggregateType: string;
+    aggregateId: string;
+    recipientUserId: string;
+    sourceVersion: number;
+    deduplicationKey: string;
+    payload: Record<string, unknown>;
+    status: OutboxStatus;
+    attemptCount: number;
+    maxAttempts: number;
+    nextAttemptAt: string | null;
+    leaseOwner: string | null;
+    leaseTokenHash: string | null;
+    leaseAcquiredAt: string | null;
+    leaseExpiresAt: string | null;
+    heartbeatAt: string | null;
+    deliveredNotificationId: string | null;
+    lastErrorCode: string | null;
+    createdAt: string;
+    updatedAt: string;
+    deliveredAt: string | null;
+    failedAt: string | null;
+    cancelledAt: string | null;
+    version: number;
+}
+
+// ============================================================
+// TRACK A10: ASSIGNMENT AND ROUTING DOMAIN TYPES
+// ============================================================
+
+export type AssignmentOperationStatus =
+    | 'pending'
+    | 'call_updated'
+    | 'history_recorded'
+    | 'outbox_recorded'
+    | 'completed'
+    | 'incomplete'
+    | 'failed'
+    | 'conflict';
+
+export interface AssignmentCommand {
+    callId: string;
+    operationId: string;
+    expectedVersion: number;
+    requestedDepartmentId: string;
+    requestedUserId: string;
+    reasonCode: string;
+    noteCode?: string;
+}
+
+export interface AssignmentOperationRecord {
+    id: string;
+    operationId: string;
+    callId: string;
+    actorUserId: string;
+    requestedDepartmentId: string;
+    requestedUserId: string;
+    expectedVersion: number;
+    reasonCode?: string;
+    requestFingerprint?: string;
+    status: AssignmentOperationStatus;
+    resultingCallVersion: number | null;
+    historyRecordId: string | null;
+    outboxEventId: string | null;
+    lastErrorCode: string | null;
+    createdAt: string;
+    updatedAt: string;
+    completedAt: string | null;
+    version: number;
+}
+
+export interface AssignableUserSummary {
+    id: string;
+    role: string;
+    canonicalDepartmentId: string | null;
+    isActive: boolean;
+    isDeleted: boolean;
+    isSuspended: boolean;
+    isAssignable: boolean;
+}
+
+// ============================================================
+// TRACK A11: PERSISTENT AUDIT LOG DOMAIN TYPES
+// ============================================================
+
+export type AuditCategory =
+    | 'authentication'
+    | 'authorization'
+    | 'audio_access'
+    | 'assignment'
+    | 'notification'
+    | 'outbox'
+    | 'job'
+    | 'storage'
+    | 'system';
+
+export type AuditActorType = 'user' | 'worker' | 'system' | 'anonymous';
+
+export type AuditOutcome =
+    | 'success'
+    | 'denied'
+    | 'failed'
+    | 'incomplete'
+    | 'conflict'
+    | 'blocked'
+    | 'aborted';
+
+export interface AuditEntry {
+    id: string;
+    sequence: number;
+    schemaVersion: number;
+    eventType: string;
+    category: AuditCategory;
+    actorType: AuditActorType;
+    actorId: string | null;
+    resourceType: string;
+    resourceId: string;
+    operationId: string | null;
+    outcome: AuditOutcome;
+    reasonCode: string | null;
+    beforeVersion: number | null;
+    afterVersion: number | null;
+    occurredAt: string;
+    recordedAt: string;
+    previousEntryHash: string;
+    entryHash: string;
+    safeMetadata: Record<string, unknown> | null;
+}
+
+export interface AuditHead {
+    schemaVersion: number;
+    lastSequence: number;
+    lastEntryHash: string;
+    updatedAt: string;
+}
+
+// ============================================================
+// TRACK A12: OPERATIONAL READINESS, JOYCALL SYNC & NAS INTAKE
+// ============================================================
+
+export type OperationalStatus =
+    | 'ready'
+    | 'disabled'
+    | 'unconfigured'
+    | 'degraded'
+    | 'corrupted'
+    | 'unavailable'
+    | 'blocked';
+
+export type JoyCallSyncStatus =
+    | 'PENDING'
+    | 'UPLOADING'
+    | 'COMPLETED'
+    | 'FAILED'
+    | 'SKIPPED_DUPLICATE';
+
+export interface JoyCallTransferManifestRecord {
+    filename: string;
+    sha256: string;
+    sizeBytes: number;
+    destinationFilename: string;
+    status: JoyCallSyncStatus;
+    completedAt?: string;
+    failedAt?: string;
+    error?: string;
+}
+
+export type JoyCallIntakeProcessingStatus =
+    | 'pending'
+    | 'validating'
+    | 'stored'
+    | 'rejected'
+    | 'duplicate';
+
+export type JoyCallClassificationStatus =
+    | 'pending'
+    | 'classified';
+
+export type JoyCallCanonicalRecordType =
+    | 'administrative_call'
+    | 'individual_counseling'
+    | 'intake_counseling';
+
+export type JoyCallCanonicalClassificationMethod =
+    | 'staff_selected'
+    | 'staff_corrected';
+
+export type JoyCallLinkStatus =
+    | 'unlinked'
+    | 'linked';

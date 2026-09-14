@@ -129,6 +129,24 @@ function App() {
                         setUsers(saved ? JSON.parse(saved) : initialUsers);
                         setIsOfflineFallback(true);
                     }
+
+                    // [Track A1] Verify and restore active session via HttpOnly cookie
+                    try {
+                        const meRes = await apiClient.getMe();
+                        if (meRes && meRes.success && meRes.user) {
+                            console.log('[Auth] Active session verified for user:', meRes.user.name);
+                            setCurrentUser(meRes.user);
+                            safeSessionStorage.setItem('currentUser', JSON.stringify(meRes.user));
+                        } else {
+                            safeSessionStorage.removeItem('currentUser');
+                            setCurrentUser(null);
+                        }
+                    } catch (authErr) {
+                        // Unauthenticated or expired session -> clear client cache
+                        safeSessionStorage.removeItem('currentUser');
+                        setCurrentUser(null);
+                    }
+
                     setIsLoadingData(false); // Unblock UI!
 
                     // 2. High Priority: Referrals (화면 즉시 표시를 위해 최우선 비동기 로드)
@@ -345,6 +363,13 @@ function App() {
             if (logToUpdate) {
                 await apiClient.updateLog(logToUpdate as Log);
             }
+        }
+
+        // [Track A1] Revoke server session cookie
+        try {
+            await apiClient.logout();
+        } catch (logoutErr) {
+            console.warn('[Auth] Server logout error:', logoutErr);
         }
 
         safeSessionStorage.removeItem('currentUser');
@@ -653,6 +678,7 @@ function App() {
                     setPendingReferrals={setPendingReferrals}
                     selectedTeam={selectedTeam}
                     setSelectedTeam={setSelectedTeam}
+                    showToast={showToast}
                 />;
             case 'referrals':
                 return <ReferralDashboardV2
@@ -731,6 +757,7 @@ function App() {
                     setPendingReferrals={setPendingReferrals}
                     selectedTeam={selectedTeam}
                     setSelectedTeam={setSelectedTeam}
+                    showToast={showToast}
                 />;
         }
     };
