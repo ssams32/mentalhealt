@@ -61,6 +61,7 @@ export const PAGES_CONFIG: Record<string, PageConfig> = {
     caseAnalysis: { title: '사례 분석 시스템', icon: 'fa-solid fa-magnifying-glass-chart', color: 'text-purple-600', bg: 'bg-purple-50', activeBg: 'bg-purple-100', activeText: 'text-purple-700' },
     data: { title: '데이터 관리', icon: 'fa-solid fa-database', color: 'text-emerald-600', bg: 'bg-emerald-50', activeBg: 'bg-emerald-100', activeText: 'text-emerald-700' },
     reports: { title: '통계/보고서', icon: 'fa-solid fa-chart-pie', color: 'text-amber-500', bg: 'bg-amber-50', activeBg: 'bg-amber-100', activeText: 'text-amber-700' },
+    voiceCalls: { title: '음성 전화 관리', icon: 'fa-solid fa-phone-volume', color: 'text-violet-600', bg: 'bg-violet-50', activeBg: 'bg-violet-100', activeText: 'text-violet-700' },
 
     budget: {
         title: '예산 관리',

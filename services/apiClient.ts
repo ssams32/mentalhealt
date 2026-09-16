@@ -434,6 +434,103 @@ class ApiClient {
         return this.request<{ success: boolean; user: User; capabilities: string[] }>('/auth/capabilities');
     }
 
+    // ──────────────────────────────────────────────────────────
+    // [Voice Calls] 상담/행정전화 관리 API
+    // ──────────────────────────────────────────────────────────
+    async getVoiceCalls(params?: {
+        tab?: string;
+        category?: string;
+        assignment?: string;
+        search?: string;
+        startDate?: string;
+        endDate?: string;
+        department?: string;
+    }): Promise<{ total: number; calls: any[] }> {
+        const query = new URLSearchParams();
+        if (params) {
+            Object.entries(params).forEach(([k, v]) => {
+                if (v !== undefined && v !== null && v !== '') query.append(k, String(v));
+            });
+        }
+        const qs = query.toString() ? `?${query.toString()}` : '';
+        return this.request<{ total: number; calls: any[] }>(`/voice-calls${qs}`);
+    }
+
+    async getVoiceCallStats(): Promise<{
+        total: number;
+        pendingClassification: number;
+        administrative: number;
+        individualCounseling: number;
+        intakeCounseling: number;
+        totalCounseling: number;
+        unassigned: number;
+        assigned: number;
+        linkedToReferral: number;
+    }> {
+        return this.request('/voice-calls/stats');
+    }
+
+    async getVoiceCall(id: string): Promise<any> {
+        return this.request(`/voice-calls/${id}`);
+    }
+
+    async classifyVoiceCall(id: string, data: {
+        callRecordType: 'administrative_call' | 'individual_counseling' | 'intake_counseling';
+        notes?: string;
+        callerPhoneNumber?: string;
+        clientName?: string;
+    }): Promise<{ success: boolean; message: string; call: any }> {
+        return this.request(`/voice-calls/${id}/classify`, {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    }
+
+    async assignVoiceCall(id: string, data: {
+        assignedDepartmentId?: string;
+        assignedUserId?: string;
+        assignedUserName?: string;
+    }): Promise<{ success: boolean; message: string; call: any }> {
+        return this.request(`/voice-calls/${id}/assign`, {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    }
+
+    async linkVoiceCall(id: string, data: {
+        referralId?: string;
+        refNo?: string;
+        clientId?: string;
+        clientName?: string;
+    }): Promise<{ success: boolean; message: string; call: any }> {
+        return this.request(`/voice-calls/${id}/link`, {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    }
+
+    async syncVoiceCalls(): Promise<{
+        success: boolean;
+        message: string;
+        scanned: number;
+        imported: number;
+        skipped: number;
+    }> {
+        return this.request('/voice-calls/sync', {
+            method: 'POST'
+        });
+    }
+
+    async seedSampleVoiceCalls(): Promise<{
+        success: boolean;
+        message: string;
+        count: number;
+    }> {
+        return this.request('/voice-calls/seed-samples', {
+            method: 'POST'
+        });
+    }
+
     // 호환성 유지용 빈 함수
     isAvailable(): boolean { return true; }
 }

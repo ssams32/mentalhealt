@@ -28,9 +28,16 @@ archive/
 app/data/*.json
 data/*.json
 app/data/backups/
+app/data_real_backup/
+app/data/*.tmp*
 audit-output/
 !app/data/*.example.json
 !data/*.example.json
+
+# Scratch & Diff dumps
+diff*.txt
+old_*.txt
+*.diff
 
 # Extra backups, legacy and transfer folders
 NAS_COMPLETE_V3/

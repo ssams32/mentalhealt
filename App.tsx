@@ -21,6 +21,7 @@ import InactivityTimer from './components/auth/InactivityTimer';
 import Toast from './components/common/Toast';
 import AntiGravityDashboard from './components/antigravity/AntiGravityDashboard';
 import HomePage from './components/home/HomePage';
+import { CallAutomationPage } from './components/calls/CallAutomationPage';
 // import OfficialDocumentPage from './components/officialDocuments/OfficialDocumentPage';
 
 declare var _: any;
@@ -92,6 +93,7 @@ function App() {
 
     // [New] Pending referrals for notification badge and inbox
     const [pendingReferrals, setPendingReferrals] = useState<any[]>([]);
+    const [voicePendingCount, setVoicePendingCount] = useState<number>(0);
     // ref로 referrals 최신값 유지 (폴링 의존성 배열에 referrals 포함 시 연쇄 재시작 방지)
     const referralsRef = useRef(referrals);
     useEffect(() => { referralsRef.current = referrals; }, [referrals]);
@@ -302,6 +304,23 @@ function App() {
             clearInterval(interval);
         };
     }, []); // [Fix] [] 고정: referrals 변경마다 interval 재시작하는 연쇄 트리거 차단
+
+    // Periodic fetch for voice call stats (voicePendingCount)
+    useEffect(() => {
+        const fetchVoiceStats = async () => {
+            try {
+                const s = await apiClient.getVoiceCallStats();
+                if (s && typeof s.pendingClassification === 'number') {
+                    setVoicePendingCount(s.pendingClassification);
+                }
+            } catch (e) {
+                // Ignore silent fetch failures
+            }
+        };
+        fetchVoiceStats();
+        const vInterval = setInterval(fetchVoiceStats, 30000);
+        return () => clearInterval(vInterval);
+    }, []);
 
     // [New] Notification effect when new pending referrals arrive
     useEffect(() => {
@@ -726,6 +745,16 @@ function App() {
 
             case 'budget':
                 return <BudgetPage currentUser={currentUser} showToast={showToast} />;
+            case 'voiceCalls':
+                return <CallAutomationPage
+                    currentUser={currentUser}
+                    referrals={referrals}
+                    onNavigateToReferrals={(initialData) => {
+                        setPendingTransfer(initialData);
+                        setActivePage('referrals');
+                    }}
+                    showToast={showToast}
+                />;
             case 'accounts':
                 return <AccountsPage
                     users={users}
@@ -773,6 +802,7 @@ function App() {
                     onLogout={handleLogout}
                     onToggleAgent={() => setIsAgentOpen(prev => !prev)}
                     pendingCount={pendingReferrals.length}
+                    voicePendingCount={voicePendingCount}
                 />
                 <main className="flex-1 flex flex-col min-w-0 min-h-0 relative overflow-hidden text-left">
                     {isOfflineFallback && (

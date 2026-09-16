@@ -279,7 +279,42 @@ export interface CalendarEvent {
 }
 
 export type Page = 'home' | 'referrals' | 'suicideAttempters' | 'caseAnalysis' | 'data' | 'reports' | 'accounts' | 'calendar' | 'budget'
-    | 'aiNotepad' | 'assets' | 'antiGravity';
+    | 'aiNotepad' | 'assets' | 'antiGravity' | 'voiceCalls';
+
+export interface VoiceCallItem {
+    id: string;
+    originalFileName: string;
+    callerPhoneNumber?: string;
+    clientName?: string;
+    fileSize: number;
+    durationSeconds?: number;
+    mimeType?: string;
+    storageKey?: string;
+    intakeSource?: string;
+    contentHash?: string;
+    validationStatus?: string;
+    processingStatus?: string;
+    callCategory?: 'clinical' | 'administrative' | 'mixed' | 'unknown';
+    callRecordType?: 'administrative_call' | 'individual_counseling' | 'intake_counseling' | null;
+    classificationStatus?: 'pending' | 'classified';
+    classificationMethod?: 'staff_selected' | 'staff_corrected' | null;
+    classifiedByUserId?: string;
+    classifiedByUserName?: string;
+    classifiedAt?: string;
+    assignedDepartmentId?: string;
+    assignedUserId?: string;
+    assignedUserName?: string;
+    assignmentStatus?: 'unassigned' | 'recommended' | 'assigned' | 'reassigned';
+    assignmentChangedAt?: string;
+    referralId?: string;
+    refNo?: string;
+    clientId?: string;
+    subjectLinkStatus?: 'unlinked' | 'linked';
+    notes?: string;
+    receivedAt?: string;
+    createdAt: string;
+    updatedAt: string;
+}
 
 export interface PageConfig {
     title: string;

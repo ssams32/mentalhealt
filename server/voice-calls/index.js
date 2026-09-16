@@ -12,3 +12,4 @@ export * from './processingRevisionRepository.js';
 export * from './summaryReviewRepository.js';
 export * from './assignmentHistoryRepository.js';
 export * from './voiceCallReconciliation.js';
+export * from './voiceCallRouter.js';

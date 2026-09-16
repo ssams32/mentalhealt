@@ -18,7 +18,8 @@ import {
     Map,
     Rocket,
     Clock,
-    Home // [New] Icon for Home
+    Home, // [New] Icon for Home
+    PhoneCall // [New] Icon for Voice Calls
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -29,6 +30,7 @@ interface SidebarProps {
     onToggleAgent: () => void;
     sessionTime?: number;
     pendingCount?: number;
+    voicePendingCount?: number;
 }
 
 const PAGE_ICONS: Record<Page, React.ElementType> = {
@@ -44,10 +46,11 @@ const PAGE_ICONS: Record<Page, React.ElementType> = {
     calendar: Calendar,
     assets: Map,
     antiGravity: Rocket,
+    voiceCalls: PhoneCall,
     //  officialDocuments: FileText,
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePage, onLogout, onToggleAgent, sessionTime, pendingCount }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePage, onLogout, onToggleAgent, sessionTime, pendingCount, voicePendingCount }) => {
     const isCollapsed = false; // 항상 확장된 상태 유지
 
     // Helper to format time
@@ -82,9 +85,13 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
 
                     {/* Navigation */}
                     <nav className="flex-1 px-3 space-y-1 overflow-y-auto custom-scrollbar">
-                        {(['home', 'referrals', 'suicideAttempters', 'caseAnalysis', 'data', 'reports', 'budget', 'accounts'] as Page[]).filter(p => {
+                        {(['home', 'referrals', 'suicideAttempters', 'caseAnalysis', 'voiceCalls', 'data', 'reports', 'budget', 'accounts'] as Page[]).filter(p => {
                             if (p === 'accounts') return true;
                             if (p === 'caseAnalysis') return true; // 모든 실무 직원이 사례분석시스템 메뉴 접근 가능
+                            if (p === 'voiceCalls') {
+                                // 관리자, 매니저 또는 음성 권한 사용자에게 노출
+                                return currentUser.role === 'admin' || currentUser.role === 'manager' || (currentUser.permissions as any)?.voiceCalls;
+                            }
                             if (p === 'data') return currentUser.role === 'admin';
                             return true;
                         }).map((page) => {
@@ -109,6 +116,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                                     {page === 'home' && pendingCount && pendingCount > 0 && (
                                         <span className={`absolute ${isCollapsed ? 'top-1 right-1' : 'top-3 right-3'} w-5 h-5 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-md animate-pulse`}>
                                             {pendingCount > 9 ? '9+' : pendingCount}
+                                        </span>
+                                    )}
+
+                                    {page === 'voiceCalls' && voicePendingCount !== undefined && voicePendingCount > 0 && (
+                                        <span className={`absolute ${isCollapsed ? 'top-1 right-1' : 'top-3 right-3'} px-1.5 py-0.5 bg-amber-500 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-md animate-pulse`}>
+                                            {voicePendingCount > 99 ? '99+' : voicePendingCount}
                                         </span>
                                     )}
                                 </button>

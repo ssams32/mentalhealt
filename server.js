@@ -19,8 +19,8 @@ import { createCorsOptions } from './server/config/corsPolicy.js';
 import { getEffectiveVoiceCapabilities } from './server/permissions/voiceCapabilities.js';
 import { requireVoiceCapability, requireRole } from './server/permissions/permissionMiddleware.js';
 
-// --- Track A7: Authenticated Audio Streaming ---
-import { VoiceCallRepository } from './server/voice-calls/voiceCallRepository.js';
+// --- Track A7 & Voice Management: Authenticated Audio Streaming & Call Management ---
+import { VoiceCallRepository, createVoiceCallRouter } from './server/voice-calls/index.js';
 import {
     PrivateAudioAccessService,
     AuditEventSink,
@@ -378,7 +378,17 @@ const audioStreamingRouter = createAudioStreamingRouter({
     voiceAccessAuthorizer
 });
 
+const voiceCallRouter = createVoiceCallRouter({
+    requireAuth,
+    voiceCallRepository,
+    privateAudioDir,
+    joyCallIncomingDir: process.env.JOYCALL_INCOMING_DIR || (privateAudioDir ? path.resolve(privateAudioDir, '..', 'incoming-voice') : null),
+    getData,
+    persistData
+});
+
 app.use('/api/voice-calls', audioStreamingRouter);
+app.use('/api/voice-calls', voiceCallRouter);
 
 
 // --- UTILITIES ---
