@@ -26,6 +26,7 @@ COPY --from=builder /app/dist-local ./dist
 
 # Copy backend source
 COPY server.js ./
+COPY server/ ./server/
 
 # Create directories for data persistence
 RUN mkdir -p /app/data
