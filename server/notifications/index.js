@@ -13,3 +13,5 @@ export * from './notificationOutboxRepository.js';
 export * from './notificationDispatcherRunner.js';
 export * from './notificationReconciliation.js';
 export * from './notificationMetrics.js';
+export * from './internalNotificationRepository.js';
+export * from './notificationRouter.js';

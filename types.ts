@@ -97,6 +97,7 @@ export interface Attachment {
     notes?: ReferralNote[];
     size: number;
     uploadedAt: string;
+    fileHash?: string;
 }
 
 export interface Referral {
@@ -140,6 +141,13 @@ export interface Referral {
     isWebsiteReferral?: boolean; // 홈페이지 의뢰 여부
     externalIdx?: string; // [NEW] ID for external referrals for deletion tracking
     address?: string; // 주소 필드 추가
+
+    // Online Survey Referral Integration Fields
+    source?: string;
+    sourceSubmissionId?: string;
+    sourceSurveyId?: string;
+    sourceAssessmentId?: string;
+    referralStatus?: 'PENDING_STAFF_REVIEW' | 'REGISTERED' | 'REJECTED';
 
     // External Referral Specific Fields
     agency?: string;
@@ -279,7 +287,47 @@ export interface CalendarEvent {
 }
 
 export type Page = 'home' | 'referrals' | 'suicideAttempters' | 'caseAnalysis' | 'data' | 'reports' | 'accounts' | 'calendar' | 'budget'
-    | 'aiNotepad' | 'assets' | 'antiGravity' | 'voiceCalls';
+    | 'aiNotepad' | 'assets' | 'antiGravity' | 'voiceCalls' | 'surveyManagement';
+
+export interface SurveyImportItem {
+    internalImportId: string;
+    submissionId: string;
+    schemaVersion: string;
+    keyVersion: string;
+    externalStatus: 'PENDING' | 'LEASED' | 'ACKNOWLEDGED' | 'DELETE_PENDING' | 'DELETED' | 'FAILED' | 'QUARANTINED';
+    internalStatus: 'DOWNLOADED' | 'DECRYPTED' | 'STORED' | 'COMPLETED' | 'QUARANTINED_SCHEMA' | 'QUARANTINED_CONSENT' | 'QUARANTINED_SBQR_GATE' | 'QUARANTINED_TAMPERED' | 'ERROR';
+    importedAt: string | null;
+    acknowledgedAt: string | null;
+    externalDeletedAt: string | null;
+    lastErrorCode: string | null;
+    assessmentId: string;
+    isSbqrQuarantined: boolean;
+    maskedClientName: string;
+    maskedPhone: string;
+    region: string;
+    totalScore: number | null;
+    severity: string | null;
+    consultationStatus: string;
+    internalSurveyId?: string | null;
+    assignedUserId?: string | null;
+    assignedDepartmentId?: string | null;
+    assignmentPriority?: 'NORMAL' | 'PRIORITY_REVIEW' | 'IMMEDIATE_REVIEW';
+    assignedAt?: string | null;
+    version?: number;
+}
+
+export interface SurveyStatusSummary {
+    totalImports: number;
+    completed: number;
+    quarantined: number;
+    quarantinedSbqr: number;
+    deletePending: number;
+    ackPending: number;
+    isImportRunning: boolean;
+    currentBatchId: string | null;
+    totalSubmissions: number;
+}
+
 
 export interface VoiceCallItem {
     id: string;

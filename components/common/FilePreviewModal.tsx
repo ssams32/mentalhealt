@@ -23,6 +23,13 @@ const FilePreviewModal: React.FC<FilePreviewModalProps> = ({ file, onClose }) =>
 
         const loadPreview = async () => {
             try {
+                // If it's a stored NAS attachment or local URL
+                if (file.url && (file.url.startsWith('/attachments') || file.url.startsWith('/api') || file.url.startsWith('blob:'))) {
+                    setPreviewUrl(file.url);
+                    setIsLoading(false);
+                    return;
+                }
+
                 // If it's a Drive file with no data but has an ID, use Drive Preview
                 if (!file.content && file.id && !file.url?.startsWith('blob:')) {
                     if (file.id.startsWith('att_')) {

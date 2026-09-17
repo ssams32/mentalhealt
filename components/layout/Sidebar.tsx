@@ -19,13 +19,17 @@ import {
     Rocket,
     Clock,
     Home, // [New] Icon for Home
-    PhoneCall // [New] Icon for Voice Calls
+    PhoneCall, // [New] Icon for Voice Calls
+    ClipboardList // [Track B] Icon for Survey Management
 } from 'lucide-react';
+
+import { NotificationBell } from '../notifications/NotificationBell';
 
 interface SidebarProps {
     currentUser: User;
     activePage: Page;
     setActivePage: (page: Page) => void;
+    onNavigateToReferral?: (referralId: string) => void;
     onLogout: () => void;
     onToggleAgent: () => void;
     sessionTime?: number;
@@ -47,10 +51,11 @@ const PAGE_ICONS: Record<Page, React.ElementType> = {
     assets: Map,
     antiGravity: Rocket,
     voiceCalls: PhoneCall,
+    surveyManagement: ClipboardList,
     //  officialDocuments: FileText,
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePage, onLogout, onToggleAgent, sessionTime, pendingCount, voicePendingCount }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePage, onNavigateToReferral, onLogout, onToggleAgent, sessionTime, pendingCount, voicePendingCount }) => {
     const isCollapsed = false; // 항상 확장된 상태 유지
 
     // Helper to format time
@@ -67,30 +72,39 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                 <div className={`flex flex-col h-full bg-white rounded-[var(--radius-xl)] shadow-[var(--shadow-item)] border border-slate-100 transition-all duration-300 ${isCollapsed ? 'items-center px-2' : ''}`}>
 
                     {/* Header */}
-                    <div className={`p-6 ${isCollapsed ? 'px-2 flex justify-center' : 'px-8'}`}>
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg text-white font-black text-lg shrink-0">
-                                IC
+                    <div className={`p-6 ${isCollapsed ? 'px-2 flex justify-center' : 'px-6'}`}>
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg text-white font-black text-lg shrink-0">
+                                    IC
+                                </div>
+                                {!isCollapsed && (
+                                    <div className="animate-entrance">
+                                        <h2 className="text-lg font-black text-slate-900 tracking-tight leading-none">
+                                            이천센터<br />
+                                            <span className="text-[var(--brand-primary)]">의뢰관리</span>
+                                        </h2>
+                                    </div>
+                                )}
                             </div>
                             {!isCollapsed && (
-                                <div className="animate-entrance">
-                                    <h2 className="text-lg font-black text-slate-900 tracking-tight leading-none">
-                                        이천센터<br />
-                                        <span className="text-[var(--brand-primary)]">의뢰관리</span>
-                                    </h2>
-                                </div>
+                                <NotificationBell onNavigate={setActivePage} onNavigateToReferral={onNavigateToReferral} />
                             )}
                         </div>
                     </div>
 
                     {/* Navigation */}
                     <nav className="flex-1 px-3 space-y-1 overflow-y-auto custom-scrollbar">
-                        {(['home', 'referrals', 'suicideAttempters', 'caseAnalysis', 'voiceCalls', 'data', 'reports', 'budget', 'accounts'] as Page[]).filter(p => {
+                        {(['home', 'referrals', 'suicideAttempters', 'caseAnalysis', 'voiceCalls', 'surveyManagement', 'data', 'reports', 'budget', 'accounts'] as Page[]).filter(p => {
                             if (p === 'accounts') return true;
                             if (p === 'caseAnalysis') return true; // 모든 실무 직원이 사례분석시스템 메뉴 접근 가능
                             if (p === 'voiceCalls') {
                                 // 관리자, 매니저 또는 음성 권한 사용자에게 노출
                                 return currentUser.role === 'admin' || currentUser.role === 'manager' || (currentUser.permissions as any)?.voiceCalls;
+                            }
+                            if (p === 'surveyManagement') {
+                                // 관리자, 매니저 또는 설문가져오기 권한 사용자에게 노출
+                                return currentUser.role === 'admin' || currentUser.role === 'manager' || (currentUser.permissions as any)?.surveyImport || (currentUser.permissions as any)?.SURVEY_IMPORT_MANAGER;
                             }
                             if (p === 'data') return currentUser.role === 'admin';
                             return true;

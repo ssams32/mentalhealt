@@ -77,6 +77,13 @@ const DocumentAttachmentModal: React.FC<DocumentAttachmentModalProps> = ({
             setPreviewError(null);
 
             try {
+                // [NEW] Internal Server File (stored in /attachments or local endpoint)
+                if (selectedFile.url && (selectedFile.url.startsWith('/attachments') || selectedFile.url.startsWith('/api') || selectedFile.url.startsWith('blob:'))) {
+                    setPreviewUrl(selectedFile.url);
+                    setIsPreviewLoading(false);
+                    return;
+                }
+
                 // [NEW] Server File (Drive ID exists, Content is missing) -> Use Drive Preview
                 if (!selectedFile.content && selectedFile.id) {
                     setPreviewUrl(`https://drive.google.com/file/d/${selectedFile.id}/preview`);
@@ -537,11 +544,12 @@ const DocumentAttachmentModal: React.FC<DocumentAttachmentModalProps> = ({
                                             ) : previewUrl ? (
                                                 <div className="flex flex-col lg:flex-row gap-4 h-full">
                                                     <div className="flex-1 overflow-auto bg-slate-100 rounded-lg flex items-start justify-center min-h-[300px] p-4">
-                                                        {previewUrl.includes('drive.google.com') ? (
+                                                        {(previewUrl.includes('drive.google.com') || selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf')) ? (
                                                             <iframe
                                                                 src={previewUrl}
                                                                 className="w-full h-full border-none rounded-lg"
                                                                 allow="autoplay"
+                                                                title="File Preview"
                                                             />
                                                         ) : (
                                                             <img

@@ -612,6 +612,9 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
             }
 
             const submissionData: Partial<Referral> = { ...formData };
+            if (submissionData.referralStatus === 'PENDING_STAFF_REVIEW') {
+                submissionData.referralStatus = 'REGISTERED';
+            }
             if (currentNote.trim()) {
                 const timestamp = new Date().toLocaleString('ko-KR');
                 const newNote: ReferralNote = {
@@ -835,6 +838,11 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                                     {formData.externalIdx && (
                                         <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 border border-indigo-100 text-[10px] font-black rounded-md shadow-sm">
                                             홈페이지 일련번호: {formData.externalIdx}
+                                        </span>
+                                    )}
+                                    {formData.referralStatus === 'PENDING_STAFF_REVIEW' && (
+                                        <span className="px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-black rounded-md shadow-sm">
+                                            온라인검진 자동접수 (검토대기)
                                         </span>
                                     )}
                                 </div>

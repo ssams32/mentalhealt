@@ -22,6 +22,7 @@ import Toast from './components/common/Toast';
 import AntiGravityDashboard from './components/antigravity/AntiGravityDashboard';
 import HomePage from './components/home/HomePage';
 import { CallAutomationPage } from './components/calls/CallAutomationPage';
+import { SurveyManagementPage } from './components/survey/SurveyManagementPage';
 // import OfficialDocumentPage from './components/officialDocuments/OfficialDocumentPage';
 
 declare var _: any;
@@ -755,6 +756,15 @@ function App() {
                     }}
                     showToast={showToast}
                 />;
+            case 'surveyManagement':
+                return <SurveyManagementPage
+                    currentUser={currentUser}
+                    onNavigateToReferrals={(initialData) => {
+                        setPendingTransfer(initialData);
+                        setActivePage('referrals');
+                    }}
+                    showToast={showToast}
+                />;
             case 'accounts':
                 return <AccountsPage
                     users={users}
@@ -799,6 +809,10 @@ function App() {
                     currentUser={currentUser}
                     activePage={activePage}
                     setActivePage={setActivePage}
+                    onNavigateToReferral={(targetReferralId) => {
+                        setPendingTransfer({ targetReferralId } as any);
+                        setActivePage('referrals');
+                    }}
                     onLogout={handleLogout}
                     onToggleAgent={() => setIsAgentOpen(prev => !prev)}
                     pendingCount={pendingReferrals.length}

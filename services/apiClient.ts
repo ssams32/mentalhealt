@@ -531,6 +531,144 @@ class ApiClient {
         });
     }
 
+    // ──────────────────────────────────────────────────────────
+    // [Track B: Surveys] 온라인 설문 수신 및 관리 API
+    // ──────────────────────────────────────────────────────────
+    async getSurveyStatus(): Promise<any> {
+        return this.request('/surveys/status');
+    }
+
+    async importOnlineSurveys(limit: number = 50): Promise<{
+        success: boolean;
+        message: string;
+        summary: {
+            batchId: string;
+            totalFetched: number;
+            imported: number;
+            duplicates: number;
+            quarantined: number;
+            ackPending: number;
+            deletePending: number;
+        };
+    }> {
+        return this.request('/surveys/import', {
+            method: 'POST',
+            body: JSON.stringify({ limit })
+        });
+    }
+
+    async getSurveyImports(): Promise<{ total: number; imports: any[] }> {
+        return this.request('/surveys/imports');
+    }
+
+    async getSurveySubmission(id: string): Promise<{ submission: any }> {
+        return this.request(`/surveys/submissions/${id}`);
+    }
+
+    async retrySurveyDeletions(): Promise<{ success: boolean; result: { total: number; succeeded: number; failed: number } }> {
+        return this.request('/surveys/retry-deletions', {
+            method: 'POST'
+        });
+    }
+
+    async getSurveyAssignableStaff(): Promise<{ staff: Array<{ id: string; name: string; team: string; role: string }> }> {
+        return this.request('/surveys/assignable-staff');
+    }
+
+    async assignSurveyStaff(id: string, payload: {
+        assignedUserId: string;
+        assignedDepartmentId?: string;
+        assignmentPriority?: 'NORMAL' | 'PRIORITY_REVIEW' | 'IMMEDIATE_REVIEW';
+        expectedVersion?: number;
+        reason?: string;
+    }): Promise<{ success: boolean; message: string; submission: any }> {
+        return this.request(`/surveys/${id}/assign`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+    }
+
+    async updateSurveyConsultationStatus(id: string, payload: {
+        consultationStatus: string;
+        note?: string;
+    }): Promise<{ success: boolean; message: string; submission: any }> {
+        return this.request(`/surveys/${id}/consultation-status`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+    }
+
+    async getSurveyAssignmentHistory(id: string): Promise<{ history: any[] }> {
+        return this.request(`/surveys/${id}/assignment-history`);
+    }
+
+    async downloadSurveyExport(filters: Record<string, string> = {}): Promise<{ blob: Blob; filename: string }> {
+        const queryParams = new URLSearchParams();
+        Object.entries(filters).forEach(([k, v]) => {
+            if (v && v !== 'all') queryParams.append(k, v);
+        });
+        const url = `${this.baseUrl}/surveys/export${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+
+        const resp = await fetch(url, {
+            credentials: 'include',
+            headers: {
+                ...this.getAuthHeaders()
+            }
+        });
+
+        if (!resp.ok) {
+            let errorMsg = `Export failed with HTTP ${resp.status}`;
+            try {
+                const errJson = await resp.json();
+                errorMsg = errJson.error?.message || errJson.message || errorMsg;
+            } catch (ignore) {}
+            throw new Error(errorMsg);
+        }
+
+        const disposition = resp.headers.get('Content-Disposition');
+        let filename = 'online-surveys.xlsx';
+        if (disposition && disposition.includes('filename=')) {
+            const match = disposition.match(/filename="?([^"]+)"?/);
+            if (match && match[1]) filename = match[1];
+        }
+
+        const blob = await resp.blob();
+        return { blob, filename };
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // [Track B: Notifications] 사내 인앱 알림 API
+    // ──────────────────────────────────────────────────────────
+    async getInternalNotifications(params: { limit?: number; includeRead?: boolean } = {}): Promise<{ notifications: any[] }> {
+        const query = new URLSearchParams();
+        if (params.limit) query.append('limit', String(params.limit));
+        if (params.includeRead !== undefined) query.append('includeRead', String(params.includeRead));
+        const qs = query.toString();
+        return this.request(`/notifications${qs ? `?${qs}` : ''}`);
+    }
+
+    async getUnreadNotificationCount(): Promise<{ unreadCount: number }> {
+        return this.request('/notifications/unread-count');
+    }
+
+    async markNotificationAsRead(id: string): Promise<{ success: boolean; notification: any }> {
+        return this.request(`/notifications/${id}/read`, {
+            method: 'POST'
+        });
+    }
+
+    async markAllNotificationsAsRead(): Promise<{ success: boolean; updatedCount: number }> {
+        return this.request('/notifications/read-all', {
+            method: 'POST'
+        });
+    }
+
+    async dismissNotification(id: string): Promise<{ success: boolean }> {
+        return this.request(`/notifications/${id}/dismiss`, {
+            method: 'POST'
+        });
+    }
+
     // 호환성 유지용 빈 함수
     isAvailable(): boolean { return true; }
 }

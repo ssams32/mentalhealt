@@ -111,15 +111,20 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
     // Pre-filled data for transfer from SA page
     const [transferPrefill, setTransferPrefill] = useState<Partial<Referral> | null>(null);
 
-    // Auto-open form when initialFormData is injected from outside (SA transfer)
+    // Auto-open form or select referral when initialFormData is injected from outside (SA transfer or notification)
     useEffect(() => {
         if (initialFormData) {
+            const anyData = initialFormData as any;
+            if (anyData.targetReferralId || (anyData.referralId && !anyData.name)) {
+                const targetId = anyData.targetReferralId || anyData.referralId;
+                setSelectedReferralId(targetId);
+                if (onInitialFormConsumed) onInitialFormConsumed();
+                return;
+            }
             console.log("[ReferralDashboardV2] Detected pending transfer data:", initialFormData.name);
             setTransferPrefill(initialFormData as any);
             setIsAddModalOpen(true);
             if (onInitialFormConsumed) {
-                // Use a small delay or ensure this only runs once to prevent immediate clearing before modal can read it if needed
-                // But since we setTransferPrefill ABOVE, it should be fine.
                 onInitialFormConsumed();
             }
         }
