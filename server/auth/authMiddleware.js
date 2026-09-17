@@ -22,12 +22,20 @@ export function parseSessionCookie(cookieHeader) {
 }
 
 export function createAuthMiddleware(authService) {
+    const extractToken = (req) => {
+        let token = parseSessionCookie(req.headers.cookie);
+        if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+            token = req.headers.authorization.slice(7).trim();
+        }
+        return token;
+    };
+
     /**
      * Mandatory authentication middleware.
      * Blocks unauthenticated requests with 401 UNAUTHENTICATED.
      */
     const requireAuth = async (req, res, next) => {
-        const token = parseSessionCookie(req.headers.cookie);
+        const token = extractToken(req);
 
         if (!token) {
             return res.status(401).json({
@@ -69,7 +77,7 @@ export function createAuthMiddleware(authService) {
      * Attaches req.auth if session is valid, but does not block.
      */
     const optionalAuth = async (req, res, next) => {
-        const token = parseSessionCookie(req.headers.cookie);
+        const token = extractToken(req);
         if (token) {
             try {
                 const user = await authService.authenticateSession(token);
