@@ -1004,22 +1004,34 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                             </span>
                                                         </div>
 
-                                                        <div className="flex items-baseline gap-3 my-2">
-                                                            <span className="text-3xl font-black text-slate-900">
-                                                                {currentSelectedItem.totalScore ?? submissionDetail?.submission?.assessment?.totalScore ?? '-'}
-                                                            </span>
-                                                            <span className="text-xs text-slate-500 font-bold">점</span>
-
-                                                            {currentSelectedItem.assessmentId.toLowerCase() === 'bepsi-k' && (
-                                                                <span className="text-sm font-bold text-amber-600 ml-2">
-                                                                    (평균 {currentSelectedItem.meanScore || submissionDetail?.submission?.assessment?.meanScore || '2.80'}점)
+                                                        {currentSelectedItem.assessmentId.toLowerCase() === 'bepsi-k' ? (
+                                                            <div className="flex items-baseline gap-3 my-2">
+                                                                <span className="text-3xl font-black text-amber-700">
+                                                                    {currentSelectedItem.meanScore ?? submissionDetail?.submission?.assessment?.meanScore ?? (currentSelectedItem.totalScore ? (currentSelectedItem.totalScore / 5).toFixed(2) : '-')}
                                                                 </span>
-                                                            )}
-                                                        </div>
+                                                                <span className="text-xs text-amber-800 font-bold">점 (평균 점수)</span>
+                                                                <span className="text-xs font-semibold text-slate-500 ml-2">
+                                                                    [문항 합계: {currentSelectedItem.totalScore ?? submissionDetail?.submission?.assessment?.totalScore ?? '-'}점]
+                                                                </span>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex items-baseline gap-3 my-2">
+                                                                <span className="text-3xl font-black text-slate-900">
+                                                                    {currentSelectedItem.totalScore ?? submissionDetail?.submission?.assessment?.totalScore ?? '-'}
+                                                                </span>
+                                                                <span className="text-xs text-slate-500 font-bold">점</span>
+                                                            </div>
+                                                        )}
 
                                                         <div className="mt-2 text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1.5 rounded-lg border border-teal-100 flex items-center justify-between">
-                                                            <span>판정: {currentSelectedItem.severity || submissionDetail?.submission?.assessment?.severity || '점검 완료'}</span>
-                                                            <span className="text-[10px] text-slate-400 font-normal">공식 평가 정책 준수</span>
+                                                            <span>
+                                                                {currentSelectedItem.assessmentId.toLowerCase() === 'sbq-r'
+                                                                    ? `선별: ${Number(currentSelectedItem.totalScore ?? submissionDetail?.submission?.assessment?.totalScore) >= 7 ? '추가 확인 권장' : '선별 기준점 미만'}`
+                                                                    : `판정: ${currentSelectedItem.severity || submissionDetail?.submission?.assessment?.severity || '점검 완료'}`}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-400 font-normal">
+                                                                {currentSelectedItem.assessmentId.toLowerCase() === 'sbq-r' ? '선별 참고정보 (진단 아님)' : '공식 평가 정책 준수'}
+                                                            </span>
                                                         </div>
                                                     </div>
 

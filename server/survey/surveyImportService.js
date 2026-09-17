@@ -590,57 +590,8 @@ export class SurveyImportService {
             return; // Cannot proceed without successful ACK!
         }
 
-        // [E2E_STEP 12/14] 담당자 배정
-        const assignedUserId = 'admin';
-        if (this.repository && typeof this.repository.assignStaff === 'function') {
-            try {
-                await this.repository.assignStaff({
-                    internalSurveyId: extraParams?.internalSurveyId,
-                    submissionId,
-                    targetUserId: assignedUserId,
-                    actorId: actorId || 'system',
-                    reason: '신규 온라인 설문 자동 배정',
-                    priority: extraParams?.priority || 'NORMAL'
-                });
-                await this.repository.recordWorkflowStep({
-                    submissionId,
-                    internalSurveyId: extraParams?.internalSurveyId,
-                    step: SURVEY_WORKFLOW_STEPS.ASSIGNED,
-                    details: { assignedUserId }
-                });
-                console.log(`👤 [E2E_STEP 12/14] 담당자 배정: 성공 (assignedUserId=${assignedUserId})`);
-            } catch (assignErr) {
-                console.warn(`⚠️ [E2E_STEP 12/14] 담당자 배정 경고 (비치명적): ${assignErr.message}`);
-            }
-        }
-
-        // [E2E_STEP 13/14] 내부 알림
-        if (this.notificationRepository && typeof this.notificationRepository.createNotification === 'function') {
-            try {
-                const notifResult = await this.notificationRepository.createNotification({
-                    recipientUserId: assignedUserId,
-                    type: NOTIFICATION_TYPES.SURVEY_ASSIGNED,
-                    relatedEntityType: 'survey',
-                    relatedEntityId: submissionId,
-                    safeTitle: '신규 온라인 설문이 배정되었습니다.',
-                    safeMessage: `접수번호 [${extraParams?.internalSurveyId || submissionId}] 신규 건이 배정되었습니다.`,
-                    priority: extraParams?.priority || 'NORMAL',
-                    createdByUserId: actorId || 'system',
-                    deduplicationKey: `survey_assign_${submissionId}_${assignedUserId}`
-                });
-                await this.repository.recordWorkflowStep({
-                    submissionId,
-                    internalSurveyId: extraParams?.internalSurveyId,
-                    step: SURVEY_WORKFLOW_STEPS.NOTIFICATION_CREATED,
-                    details: { notificationId: notifResult.notificationId || notifResult.notification?.notificationId }
-                });
-                console.log(`🔔 [E2E_STEP 13/14] 내부 알림: 성공 (notifId=${notifResult.notificationId || notifResult.notification?.notificationId})`);
-            } catch (notifErr) {
-                console.warn(`⚠️ [E2E_STEP 13/14] 내부 알림 경고 (비치명적): ${notifErr.message}`);
-            }
-        }
-
-        // 2. Phase 13 Delete Sequence: Only after ACK succeeds! [E2E_STEP 14/14]
+        // 2. External Delete Sequence: Sent immediately after ACK succeeds!
+        // Requirement 5: Do not keep external ciphertext merely because the manager has not yet assigned an employee.
         const deleteRequestId = record?.deleteRequestId || `req_del_${submissionId}_${Date.now()}`;
         await this.repository.createOrUpdateImportRecord({
             submissionId,
@@ -687,7 +638,7 @@ export class SurveyImportService {
                     result: 'SUCCESS',
                     batchId
                 });
-                console.log(`🗑️ [E2E_STEP 14/14] 외부 delete: 성공 (deleteRequestId=${deleteRequestId}, externalStatus=DELETED)`);
+                console.log(`🗑️ [E2E_STEP] 외부 delete: 성공 (deleteRequestId=${deleteRequestId}, externalStatus=DELETED)`);
             } else {
                 throw new Error('Delete rejected by external service');
             }
@@ -700,21 +651,100 @@ export class SurveyImportService {
             });
             await this.repository.recordAuditEvent({
                 actorId,
-                action: 'SURVEY_EXTERNAL_DELETE_PENDING',
+                action: 'SURVEY_EXTERNAL_DELETE_FAILED',
                 submissionId,
                 result: 'RETRY_PENDING',
                 errorCode: SURVEY_ERROR_CODES.EXTERNAL_DELETE_FAILED,
                 batchId
+            });
+            console.warn(`⚠️ [E2E_DELETE_WARN] 외부 delete 재시도 대기: ${delErr.message}`);
+        }
+
+        // 3. Post-Import Staff Assignment & Notification Workflow (Decoupled)
+        // Production flow: referral auto-created -> PENDING_STAFF_REVIEW -> UNASSIGNED
+        // Staff assignment is performed separately by an authorized manager (no auto-admin assignment).
+        const targetUserId = (extraParams?.assignedUserId && extraParams.assignedUserId !== 'admin' && extraParams.assignedUserId !== 'system')
+            ? extraParams.assignedUserId
+            : null;
+        if (targetUserId && this.repository && typeof this.repository.assignStaff === 'function') {
+            try {
+                await this.repository.assignStaff({
+                    internalSurveyId: extraParams?.internalSurveyId,
+                    submissionId,
+                    targetUserId,
+                    actorId: actorId || 'system',
+                    reason: '설문 접수 담당자 배정',
+                    priority: extraParams?.priority || 'NORMAL'
+                });
+                await this.repository.recordWorkflowStep({
+                    submissionId,
+                    internalSurveyId: extraParams?.internalSurveyId,
+                    step: SURVEY_WORKFLOW_STEPS.ASSIGNED,
+                    details: { assignedUserId: targetUserId }
+                });
+                console.log(`👤 [E2E_STEP] 담당자 배정: 성공 (assignedUserId=${targetUserId})`);
+
+                if (this.notificationRepository && typeof this.notificationRepository.createNotification === 'function') {
+                    const notifResult = await this.notificationRepository.createNotification({
+                        recipientUserId: targetUserId,
+                        type: NOTIFICATION_TYPES.SURVEY_ASSIGNED,
+                        relatedEntityType: 'referral',
+                        relatedEntityId: extraParams?.referralId || submissionId,
+                        safeTitle: '신규 온라인 설문이 배정되었습니다.',
+                        safeMessage: '온라인 설문 접수 건이 배정되었습니다. 업무함을 확인해주세요.',
+                        priority: extraParams?.priority || 'NORMAL',
+                        createdByUserId: actorId || 'system',
+                        deduplicationKey: `survey_assign_${submissionId}_${targetUserId}`
+                    });
+                    await this.repository.recordWorkflowStep({
+                        submissionId,
+                        internalSurveyId: extraParams?.internalSurveyId,
+                        step: SURVEY_WORKFLOW_STEPS.NOTIFICATION_CREATED,
+                        details: { notificationId: notifResult.notificationId || notifResult.notification?.notificationId }
+                    });
+                    console.log(`🔔 [E2E_STEP] 내부 알림: 성공 (notifId=${notifResult.notificationId || notifResult.notification?.notificationId})`);
+                }
+            } catch (assignErr) {
+                console.warn(`⚠️ [E2E_STEP] 담당자 배정 처리 경고: ${assignErr.message}`);
+            }
+        } else {
+            // Default unassigned state for production and manual management
+            console.log(`👤 [E2E_STEP] 접수 완료 건 배정 대기: UNASSIGNED (상태: PENDING_STAFF_REVIEW, 관리자 배정 대기)`);
+            await this.repository.recordWorkflowStep({
+                submissionId,
+                internalSurveyId: extraParams?.internalSurveyId,
+                step: SURVEY_WORKFLOW_STEPS.ASSIGNMENT_READY,
+                details: { status: 'UNASSIGNED', workflow: 'PENDING_STAFF_REVIEW' }
             });
         }
     }
 
     /**
      * Reconcile external ACK / deletion state for duplicates or partially completed imports.
+     * When lease expired earlier, resumes ACK/delete directly without regenerating referrals or PDF reports.
      */
     async _reconcileExternalState(ledgerRecord, leaseMetadata = {}) {
         if (ledgerRecord.externalStatus === SURVEY_EXTERNAL_STATUS.DELETED) {
             return;
+        }
+
+        const subId = ledgerRecord.submissionId;
+        const currentLeaseId = leaseMetadata.leaseId || ledgerRecord.leaseId;
+        const currentLeaseUntil = leaseMetadata.leaseUntil || ledgerRecord.leaseUntil;
+
+        // If not yet acknowledged, resume ACK step with new lease without regenerating referrals/PDFs
+        if (ledgerRecord.externalStatus !== SURVEY_EXTERNAL_STATUS.ACKNOWLEDGED && ledgerRecord.externalStatus !== SURVEY_EXTERNAL_STATUS.DELETE_PENDING) {
+            const now = Date.now();
+            if (currentLeaseUntil && new Date(currentLeaseUntil).getTime() > now) {
+                await this._acknowledgeAndDeleteExternalRecord(
+                    subId,
+                    { leaseId: currentLeaseId, leaseUntil: currentLeaseUntil },
+                    'system',
+                    this._currentBatchId,
+                    null
+                );
+                return;
+            }
         }
 
         const deleteRequestId = ledgerRecord.deleteRequestId || `req_del_${ledgerRecord.submissionId}_reconcile`;
@@ -723,13 +753,13 @@ export class SurveyImportService {
                 let res;
                 if (typeof this.externalApiClient.deleteImportedSubmission === 'function') {
                     res = await this.externalApiClient.deleteImportedSubmission(ledgerRecord.submissionId, {
-                        leaseId: leaseMetadata.leaseId || ledgerRecord.leaseId,
+                        leaseId: currentLeaseId,
                         workerId: this.workerId,
                         requestId: deleteRequestId
                     });
                 } else {
                     res = await this.externalApiClient.deleteCiphertext(ledgerRecord.submissionId, {
-                        leaseId: leaseMetadata.leaseId || ledgerRecord.leaseId,
+                        leaseId: currentLeaseId,
                         workerId: this.workerId,
                         requestId: deleteRequestId
                     });

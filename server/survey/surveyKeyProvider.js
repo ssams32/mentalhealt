@@ -40,14 +40,52 @@ export class SurveyKeyProvider {
                 throw new Error(`Path is not a regular file: ${this.secretPath}`);
             }
             const content = fs.readFileSync(this.secretPath, 'utf8').trim();
-            if (!content.includes('PRIVATE KEY')) {
-                throw new Error('File does not contain valid PEM RSA private key header');
+
+            // 1. Validate PKCS#8 PEM Header
+            if (!content.includes('-----BEGIN PRIVATE KEY-----')) {
+                throw new Error('Key must be in PKCS#8 PEM format with header "-----BEGIN PRIVATE KEY-----"');
             }
+
+            // 2. Parse private key with Node crypto
+            const keyObj = crypto.createPrivateKey({
+                key: content,
+                format: 'pem'
+            });
+
+            // 3. Verify asymmetric key type is RSA
+            if (keyObj.asymmetricKeyType !== 'rsa') {
+                throw new Error(`Invalid key type "${keyObj.asymmetricKeyType}". Expected RSA.`);
+            }
+
+            // 4. Verify modulus length is at least 2048 bits
+            const modulusLength = keyObj.asymmetricKeyDetails?.modulusLength;
+            if (typeof modulusLength === 'number' && modulusLength < 2048) {
+                throw new Error(`RSA modulus length (${modulusLength} bits) is insufficient. Minimum required is 2048 bits.`);
+            }
+
+            // 5. Verify RSA-OAEP SHA-256 cryptographic compatibility probe
+            const pubKeyObj = crypto.createPublicKey(keyObj);
+            const testProbe = Buffer.from('oaep_compat_probe_2026');
+            const cipherProbe = crypto.publicEncrypt({
+                key: pubKeyObj,
+                padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+                oaepHash: 'sha256'
+            }, testProbe);
+            const decryptedProbe = crypto.privateDecrypt({
+                key: keyObj,
+                padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+                oaepHash: 'sha256'
+            }, cipherProbe);
+
+            if (!decryptedProbe.equals(testProbe)) {
+                throw new Error('RSA-OAEP SHA-256 decryption test probe failed');
+            }
+
             return true;
         } catch (err) {
             throw new SurveyOperationError(
                 SURVEY_ERROR_CODES.PRIVATE_KEY_UNAVAILABLE,
-                `Survey private key file cannot be read or is invalid (${this.secretPath}): ${err.message}`
+                `Survey private key verification failed (${this.secretPath}): ${err.message}`
             );
         }
     }

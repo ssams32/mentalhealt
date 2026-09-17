@@ -15,8 +15,11 @@ export class MockTrackAApi {
         this.networkAvailable = true;
         this.simulateLeaseExpired = false;
         this.expectedWorkerId = options.workerId || 'track-b-worker-1';
-        this.counselingSubmissionEnabled = options.counselingSubmissionEnabled !== undefined ? options.counselingSubmissionEnabled : true;
         this.isProduction = options.isProduction || false;
+    }
+
+    setCounselingSubmissionEnabled(enabled) {
+        this.counselingSubmissionEnabled = Boolean(enabled);
     }
 
     /**

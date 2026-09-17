@@ -93,6 +93,124 @@ export function createSurveyImportRouter(deps = {}) {
         }
     });
 
+    // 1b. GET /api/surveys/readiness - Safe boolean-only staging/operational readiness endpoint (Admin-only)
+    // Strictly reports booleans only: no secret values, no private-key content, no filesystem paths, no Track A token, no ciphertext.
+    router.get('/readiness', requireAuth, requireSurveyImportPermission, async (req, res) => {
+        try {
+            const mode = (deps.surveyTrackAMode || process.env.SURVEY_TRACK_A_MODE || 'mock').trim().toLowerCase();
+            const modeValid = ['mock', 'staging', 'production'].includes(mode);
+
+            let trackAUrlConfigured = false;
+            if (mode === 'mock') {
+                trackAUrlConfigured = true;
+            } else {
+                const rawUrl = deps.trackABaseUrl || process.env.TRACK_A_BASE_URL;
+                try {
+                    if (rawUrl) {
+                        const { validateTrackABaseUrl } = await import('./surveyUrlValidator.js');
+                        validateTrackABaseUrl(rawUrl, mode);
+                        trackAUrlConfigured = true;
+                    }
+                } catch (e) {
+                    trackAUrlConfigured = false;
+                }
+            }
+
+            let privateKeyReadableAndParseable = false;
+            const keyProvider = deps.keyProvider || surveyImportService?.decryptionService?.keyProvider;
+            if (keyProvider) {
+                try {
+                    if (typeof keyProvider.validateKeyFilePermissions === 'function') {
+                        privateKeyReadableAndParseable = keyProvider.validateKeyFilePermissions() === true;
+                    } else {
+                        privateKeyReadableAndParseable = true;
+                    }
+                } catch (e) {
+                    privateKeyReadableAndParseable = false;
+                }
+            }
+
+            const workerId = deps.trackBWorkerId || process.env.TRACK_B_WORKER_ID;
+            const workerIdConfigured = Boolean(workerId && workerId.trim());
+
+            const serviceSecret = deps.trackBServiceSecret || process.env.TRACK_B_SERVICE_SECRET;
+            const serviceAuthConfigured = mode === 'mock' ? true : Boolean(serviceSecret && serviceSecret.trim());
+
+            let trackACapabilityReachable = false;
+            const externalApiClient = deps.externalApiClient || surveyImportService?.externalApiClient;
+            if (externalApiClient) {
+                try {
+                    if (typeof externalApiClient.checkSubmissionGateStatus === 'function') {
+                        const gate = await externalApiClient.checkSubmissionGateStatus();
+                        trackACapabilityReachable = gate && gate.submissionEnabled !== false;
+                    } else if (typeof externalApiClient.ping === 'function') {
+                        trackACapabilityReachable = await externalApiClient.ping();
+                    } else {
+                        trackACapabilityReachable = true;
+                    }
+                } catch (e) {
+                    trackACapabilityReachable = false;
+                }
+            }
+
+            let reportStorageWritable = false;
+            const targetDir = deps.attachmentsDir || referralService?.attachmentsDir || process.env.ATTACHMENTS_DIR;
+            if (targetDir) {
+                try {
+                    const fsMod = await import('fs');
+                    const pathMod = await import('path');
+                    if (fsMod.default.existsSync(targetDir)) {
+                        const testFilePath = pathMod.default.join(targetDir, `.write_test_${Date.now()}.tmp`);
+                        fsMod.default.writeFileSync(testFilePath, 'probe', 'utf8');
+                        fsMod.default.unlinkSync(testFilePath);
+                        reportStorageWritable = true;
+                    }
+                } catch (e) {
+                    reportStorageWritable = false;
+                }
+            }
+
+            const defaultLeaseSeconds = Number(process.env.TRACK_A_DEFAULT_LEASE_SECONDS || deps.trackADefaultLeaseSeconds || 600);
+            const leaseSecondsValid = defaultLeaseSeconds === 600;
+
+            const attachmentViewerAvailable = true;
+
+            const readiness = {
+                modeValid,
+                trackAUrlConfigured,
+                privateKeyReadableAndParseable,
+                workerIdConfigured,
+                serviceAuthConfigured,
+                leaseSecondsValid,
+                trackACapabilityReachable,
+                reportStorageWritable,
+                attachmentViewerAvailable
+            };
+
+            const overallReady = Object.values(readiness).every(Boolean);
+
+            // Live preview readiness status
+            const hasLivePreviewUrl = Boolean(
+                trackAUrlConfigured &&
+                (deps.trackABaseUrl || process.env.TRACK_A_BASE_URL) &&
+                !String(deps.trackABaseUrl || process.env.TRACK_A_BASE_URL).includes('localhost')
+            );
+            const liveIntegrationStatus = hasLivePreviewUrl && trackACapabilityReachable
+                ? '실연동 준비완료'
+                : '실연동 대기';
+
+            res.json({
+                readiness,
+                overallReady,
+                liveIntegrationStatus,
+                mode
+            });
+        } catch (err) {
+            console.error('❌ GET /api/surveys/readiness error:', err.message);
+            res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: err.message } });
+        }
+    });
+
     // 2. POST /api/surveys/import - Trigger manual import workflow
     router.post('/import', requireAuth, requireSurveyImportPermission, async (req, res) => {
         try {

@@ -41,6 +41,39 @@ export const SURVEY_ASSESSMENT_IDS = Object.freeze({
     CONTACT_ONLY: 'contact-only'
 });
 
+export const SURVEY_SCORING_POLICIES = Object.freeze({
+    BEPSI_K_REVISED_QUARTILE_1_6_2_2: 'BEPSI_K_REVISED_QUARTILE_1_6_2_2',
+    SBQR_GENERAL_POPULATION_CUTOFF_7: 'SBQR_GENERAL_POPULATION_CUTOFF_7'
+});
+
+export const TRACK_A_ASSESSMENT_QUESTION_COUNTS = Object.freeze({
+    'phq-9': 9,
+    'gad-7': 7,
+    'isi-k': 7,
+    'bepsi-k': 5,
+    'sbq-r': 4
+});
+export const TRACK_A_TOTAL_QUESTION_COUNT = 32;
+
+// Official SBQ-R optionId score matrices (Q1: 6 opts, Q2: 5 opts, Q3: 5 opts, Q4: 7 opts)
+export const SBQR_OFFICIAL_OPTION_SCORES = Object.freeze({
+    q1: Object.freeze([1, 2, 3, 3, 4, 4]),
+    q2: Object.freeze([1, 2, 3, 4, 5]),
+    q3: Object.freeze([1, 2, 2, 3, 3]),
+    q4: Object.freeze([0, 1, 2, 3, 4, 5, 6])
+});
+
+export const BEPSI_K_RESULT_CODES = Object.freeze({
+    LOW: 'LOW',
+    MODERATE: 'MODERATE',
+    HIGH: 'HIGH'
+});
+
+export const SBQR_RESULT_CODES = Object.freeze({
+    BELOW_SCREENING_CUTOFF: 'BELOW_SCREENING_CUTOFF',
+    ADDITIONAL_REVIEW_RECOMMENDED: 'ADDITIONAL_REVIEW_RECOMMENDED'
+});
+
 export const SUPPORTED_ENVELOPE_SCHEMA_VERSIONS = Object.freeze(['1.0.0', '1.0', 'v1.0']);
 export const SUPPORTED_PAYLOAD_SCHEMA_VERSIONS = Object.freeze(['1.0.0', '1.0', 'v1.0']);
 export const SUPPORTED_KEY_VERSIONS = Object.freeze(['k2026_01', 'test_key_v1']);

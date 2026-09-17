@@ -61,15 +61,31 @@ export class SurveyReferralService {
     _formatScreeningSummary(payload) {
         const assessment = payload.assessment || {};
         const hasSensitiveConsent = Boolean(payload.consentEvidence?.sensitiveInfoConsent);
+        const assessmentId = payload.assessmentId ? String(payload.assessmentId).toLowerCase() : 'contact-only';
 
-        if (hasSensitiveConsent && payload.assessmentId && payload.assessmentId !== 'contact-only') {
-            const scaleName = String(payload.assessmentId).toUpperCase();
+        if (hasSensitiveConsent && assessmentId !== 'contact-only') {
+            const scaleName = assessmentId.toUpperCase();
+            if (assessmentId === 'bepsi-k') {
+                const meanVal = assessment.meanScore !== undefined && assessment.meanScore !== null
+                    ? (typeof assessment.meanScore === 'number' ? assessment.meanScore.toFixed(2) : assessment.meanScore)
+                    : (assessment.totalScore ? (assessment.totalScore / 5).toFixed(2) : '-');
+                const sumVal = assessment.responseSum ?? assessment.totalScore ?? '-';
+                const severity = assessment.resultLabel || assessment.severity || '평가완료';
+                return `[온라인 검진 접수] 척도: BEPSI-K, 평균: ${meanVal}점 (문항합계: ${sumVal}점), 판정: ${severity} (선별검진결과지 첨부)`;
+            }
+
+            if (assessmentId === 'sbq-r') {
+                const totalScore = assessment.totalScore !== undefined && assessment.totalScore !== null ? `${assessment.totalScore}점` : '-';
+                const severity = assessment.severity || assessment.resultLabel || (Number(assessment.totalScore) >= 7 ? '추가 확인 권장' : '선별 기준점 미만');
+                return `[온라인 검진 접수] 척도: SBQ-R, 총점: ${totalScore}, 선별결과: ${severity} (선별검진결과지 첨부)`;
+            }
+
             const totalScore = assessment.totalScore !== undefined && assessment.totalScore !== null ? `${assessment.totalScore}점` : '-';
             const severity = assessment.severity || '미분류';
             return `[온라인 검진 접수] 척도: ${scaleName}, 총점: ${totalScore}, 심각도: ${severity} (선별검진결과지 첨부)`;
         }
 
-        return `[온라인 상담 접수] 단순 상담 신청 (민감정보 미동의 또는 검진척도 없음, 선별결과지 첨부)`;
+        return `[온라인 상담 접수] 단순 상담 신청 (검사결과 미전송 - 민감정보 수집 미동의, 선별결과지 첨부)`;
     }
 
     /**
@@ -105,10 +121,12 @@ export class SurveyReferralService {
         }
 
         // 2. Determine target team and assignee
+        // Default assignment policy: UNASSIGNED, PENDING_STAFF_REVIEW.
+        // Institutional policy does NOT permit automated admin assignment upon import.
         let targetTeam = assignedDepartmentId || '증진팀';
         let assigneeName = '';
 
-        if (assignedUserId) {
+        if (assignedUserId && assignedUserId !== 'admin' && assignedUserId !== 'system') {
             const users = this.getUsers() || [];
             const user = users.find(u => u && (String(u.id) === String(assignedUserId) || String(u.username) === String(assignedUserId)));
             if (user) {
@@ -139,6 +157,18 @@ export class SurveyReferralService {
         const assignedRefNo = `${prefix}${String(maxSeq + 1).padStart(3, '0')}`;
         const referralId = crypto.randomUUID();
 
+        // Source environment isolation check
+        if (this.sourceEnvironment === 'production') {
+            if (sourceEnvironment && sourceEnvironment !== 'production') {
+                throw new Error(`[SECURITY_VIOLATION] Production mode rejected referral creation with invalid sourceEnvironment: ${sourceEnvironment}`);
+            }
+        }
+        if (this.sourceEnvironment === 'staging') {
+            if (sourceEnvironment === 'production') {
+                throw new Error('[SECURITY_VIOLATION] Staging mode rejected referral creation with production sourceEnvironment');
+            }
+        }
+
         // 4. Generate Server-Side Screening Report PDF Attachment
         const reportResult = this.reportGenerator.generateScreeningReportPdf({
             refNo: assignedRefNo,
@@ -157,7 +187,9 @@ export class SurveyReferralService {
             fs.mkdirSync(targetFolder, { recursive: true });
         }
 
-        const physicalFileId = `${Date.now()}_${reportResult.filename}`;
+        // Strict neutral physical filename: survey-report_<UUID>.pdf
+        // Excludes name, phone, assessment identifier, score, risk label, or referral number
+        const physicalFileId = reportResult.filename;
         const targetFilePath = path.join(targetFolder, physicalFileId);
         await fs.promises.writeFile(targetFilePath, reportResult.buffer);
 
@@ -169,7 +201,7 @@ export class SurveyReferralService {
 
         const attachmentMetadata = {
             id: physicalFileId,
-            name: `선별검진결과지_${String(payload.assessmentId || 'CONTACT').toUpperCase()}_${assignedRefNo}.pdf`,
+            name: '온라인 마음건강 검진 결과보고서',
             url: `/attachments/${safeFolder}/${encodeURIComponent(physicalFileId)}`,
             type: 'application/pdf',
             size: reportResult.size,

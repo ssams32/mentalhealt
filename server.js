@@ -48,7 +48,8 @@ import {
     SurveyReferralService,
     TrackAClient,
     createSurveyImportRouter,
-    MockTrackAApi
+    MockTrackAApi,
+    validateTrackABaseUrl
 } from './server/survey/index.js';
 
 // --- In-App Internal Notifications ---
@@ -139,11 +140,41 @@ app.use((err, req, res, next) => {
     res.status(500).json({ success: false, error: "Internal Server Error", message: err.message });
 });
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'app', 'data');
-const ATTACHMENTS_DIR = process.env.ATTACHMENTS_DIR || path.resolve(__dirname, 'docker', 'Data', 'attachments');
+// ==========================================
+// 1. Explicit Mode Resolution (Default: 'mock')
+// ==========================================
+const rawSurveyTrackAMode = (process.env.SURVEY_TRACK_A_MODE || 'mock').trim().toLowerCase();
+const VALID_SURVEY_TRACK_A_MODES = ['mock', 'staging', 'production'];
+if (!VALID_SURVEY_TRACK_A_MODES.includes(rawSurveyTrackAMode)) {
+    console.error(`❌ [FATAL_CONFIG_ERROR] Invalid SURVEY_TRACK_A_MODE: "${process.env.SURVEY_TRACK_A_MODE}". Must be one of: 'mock', 'staging', 'production'.`);
+    throw new Error(`[FATAL] Invalid SURVEY_TRACK_A_MODE: "${process.env.SURVEY_TRACK_A_MODE}". Must be 'mock', 'staging', or 'production'.`);
+}
+const surveyTrackAMode = rawSurveyTrackAMode;
+
+// Physical separation of data directories by execution mode
+const BASE_DATA_ROOT = path.join(__dirname, 'app', 'data');
+const BASE_ATTACHMENTS_ROOT = path.resolve(__dirname, 'docker', 'Data', 'attachments');
+
+const DATA_DIR = process.env.DATA_DIR
+    ? path.resolve(process.env.DATA_DIR)
+    : path.join(BASE_DATA_ROOT, surveyTrackAMode);
+
+const ATTACHMENTS_DIR = process.env.ATTACHMENTS_DIR
+    ? path.resolve(process.env.ATTACHMENTS_DIR)
+    : path.join(BASE_ATTACHMENTS_ROOT, surveyTrackAMode);
+
+// Isolation safety enforcement: Staging mode must NEVER open or point to production data/attachments!
+if (surveyTrackAMode === 'staging') {
+    const normDataDir = DATA_DIR.replace(/\\/g, '/').toLowerCase();
+    const normAttDir = ATTACHMENTS_DIR.replace(/\\/g, '/').toLowerCase();
+    if (normDataDir.includes('/production') || normAttDir.includes('/production')) {
+        throw new Error('[FATAL_ISOLATION_ERROR] Staging mode must never open production JSON data files or attachment directories.');
+    }
+}
 
 console.log('==========================================');
 console.log('🚀 [SERVER STARTUP]');
+console.log('🔒 SURVEY_TRACK_A_MODE:', surveyTrackAMode);
 console.log('📂 DATA_DIR:', DATA_DIR);
 console.log('📂 ATTACHMENTS_DIR:', ATTACHMENTS_DIR);
 console.log('🔗 ABSOLUTE_PATH:', path.resolve(DATA_DIR));
@@ -155,6 +186,16 @@ if (!fs.existsSync(DATA_DIR)) {
 }
 if (!fs.existsSync(ATTACHMENTS_DIR)) {
     fs.mkdirSync(ATTACHMENTS_DIR, { recursive: true });
+}
+
+// Bootstrap initial users and data for mock mode if newly initialized
+const usersJsonPath = path.join(DATA_DIR, 'Users.json');
+const rootUsersJsonPath = path.join(BASE_DATA_ROOT, 'Users.json');
+if (!fs.existsSync(usersJsonPath) && fs.existsSync(rootUsersJsonPath) && surveyTrackAMode === 'mock') {
+    try {
+        fs.copyFileSync(rootUsersJsonPath, usersJsonPath);
+        console.log(`📋 [SYSTEM] Bootstrapped baseline Users.json for ${surveyTrackAMode} environment.`);
+    } catch (ignore) {}
 }
 
 // ==========================================
@@ -432,14 +473,6 @@ app.use('/api/voice-calls', voiceCallRouter);
 // ==========================================
 // 📋 TRACK B: INTERNAL SURVEY IMPORT & MANAGEMENT
 // ==========================================
-// 1. Explicit Mode Resolution (Default: 'mock')
-const rawSurveyTrackAMode = (process.env.SURVEY_TRACK_A_MODE || 'mock').trim().toLowerCase();
-const VALID_SURVEY_TRACK_A_MODES = ['mock', 'staging', 'production'];
-if (!VALID_SURVEY_TRACK_A_MODES.includes(rawSurveyTrackAMode)) {
-    console.error(`❌ [FATAL_CONFIG_ERROR] Invalid SURVEY_TRACK_A_MODE: "${process.env.SURVEY_TRACK_A_MODE}". Must be one of: 'mock', 'staging', 'production'.`);
-    throw new Error(`[FATAL] Invalid SURVEY_TRACK_A_MODE: "${process.env.SURVEY_TRACK_A_MODE}". Must be 'mock', 'staging', or 'production'.`);
-}
-const surveyTrackAMode = rawSurveyTrackAMode;
 console.log(`🔒 [SURVEY_CONFIG] Active execution mode: SURVEY_TRACK_A_MODE=${surveyTrackAMode}`);
 
 // 2. Production Mode Fail-Closed Validation
@@ -467,12 +500,19 @@ if (surveyTrackAMode === 'staging') {
         'TRACK_A_BASE_URL',
         'TRACK_B_SERVICE_SECRET',
         'TRACK_B_WORKER_ID',
-        'SURVEY_PRIVATE_KEY_PATH'
+        'SURVEY_PRIVATE_KEY_PATH',
+        'TRACK_A_DEFAULT_LEASE_SECONDS'
     ];
     const missingStagingVars = requiredStagingEnvVars.filter(varName => !process.env[varName] || !process.env[varName].trim());
     if (missingStagingVars.length > 0) {
         console.error(`❌ [FATAL_CONFIG_ERROR] Staging mode requires all mandatory variables. Missing or empty: ${missingStagingVars.join(', ')}`);
         throw new Error(`[FATAL] Missing required staging environment variables: ${missingStagingVars.join(', ')}. Server fail-closed.`);
+    }
+
+    const leaseSec = Number(process.env.TRACK_A_DEFAULT_LEASE_SECONDS);
+    if (isNaN(leaseSec) || leaseSec !== 600) {
+        console.error(`❌ [FATAL_CONFIG_ERROR] Staging mode requires TRACK_A_DEFAULT_LEASE_SECONDS=600 (got ${process.env.TRACK_A_DEFAULT_LEASE_SECONDS})`);
+        throw new Error(`[FATAL] Staging mode requires TRACK_A_DEFAULT_LEASE_SECONDS=600. Server fail-closed.`);
     }
 }
 
@@ -532,6 +572,17 @@ const trackBWorkerId = process.env.TRACK_B_WORKER_ID || (surveyTrackAMode === 'm
 const trackARequestTimeoutMs = Number(process.env.TRACK_A_REQUEST_TIMEOUT_MS) || 10000;
 const trackADefaultLeaseSeconds = Number(process.env.TRACK_A_DEFAULT_LEASE_SECONDS) || 600;
 
+// Validate Track A URL for staging and production
+if (surveyTrackAMode === 'staging' || surveyTrackAMode === 'production') {
+    try {
+        validateTrackABaseUrl(trackABaseUrl, surveyTrackAMode);
+        console.log(`🌐 [SURVEY_CONFIG] TRACK_A_BASE_URL validated (${surveyTrackAMode}): ${trackABaseUrl}`);
+    } catch (urlErr) {
+        console.error(`❌ [FATAL_URL_ERROR] ${urlErr.message}`);
+        throw new Error(`[FATAL] Invalid TRACK_A_BASE_URL: ${urlErr.message}. Server fail-closed.`);
+    }
+}
+
 // 5. Explicit Client Selection strictly controlled by SURVEY_TRACK_A_MODE
 let externalSurveyApiClient;
 if (surveyTrackAMode === 'mock') {
@@ -585,7 +636,14 @@ const surveyImportRouter = createSurveyImportRouter({
     notificationRepository: internalNotificationRepository,
     surveyExportService,
     referralService: surveyReferralService,
-    getUsers: () => getData('Users', [])
+    getUsers: () => getData('Users', []),
+    keyProvider: surveyKeyProvider,
+    externalApiClient: externalSurveyApiClient,
+    attachmentsDir: ATTACHMENTS_DIR,
+    trackABaseUrl,
+    trackBServiceSecret,
+    trackBWorkerId,
+    surveyTrackAMode
 });
 
 const notificationRouter = createNotificationRouter({

@@ -49,6 +49,14 @@ export class SurveyImportRepository {
     }
 
     async createOrUpdateImportRecord(record) {
+        const effectiveSourceEnv = record.sourceEnvironment || this.sourceEnvironment || 'mock';
+        if (this.sourceEnvironment === 'production' && effectiveSourceEnv !== 'production') {
+            throw new Error(`[SECURITY_VIOLATION] Production mode rejected ledger write with non-production sourceEnvironment: ${effectiveSourceEnv}`);
+        }
+        if (this.sourceEnvironment === 'staging' && effectiveSourceEnv === 'production') {
+            throw new Error('[SECURITY_VIOLATION] Staging mode rejected ledger write targeting production');
+        }
+
         const list = this.getImportsLedger();
         const index = list.findIndex(item => item.submissionId === record.submissionId);
         const now = this._nowIso();
@@ -372,6 +380,14 @@ export class SurveyImportRepository {
      * Integrates with PendingReferrals without unsafe auto-merge.
      */
     async persistSurveyIntake({ envelope, payload, isSbqrQuarantined, quarantineReason, actorId, batchId }) {
+        const effectiveSourceEnv = envelope.sourceEnvironment || this.sourceEnvironment || 'mock';
+        if (this.sourceEnvironment === 'production' && effectiveSourceEnv !== 'production') {
+            throw new Error(`[SECURITY_VIOLATION] Production mode rejected intake write with non-production sourceEnvironment: ${effectiveSourceEnv}`);
+        }
+        if (this.sourceEnvironment === 'staging' && effectiveSourceEnv === 'production') {
+            throw new Error('[SECURITY_VIOLATION] Staging mode rejected intake write targeting production');
+        }
+
         const now = this._nowIso();
         const internalSurveyId = `surv_${crypto.randomUUID()}`;
         const submissionId = envelope.submissionId;

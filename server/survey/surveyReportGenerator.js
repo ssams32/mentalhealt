@@ -174,18 +174,52 @@ export class SurveyReportGenerator {
         doc.rect(18, 116, 174, 98, 'F');
         doc.rect(18, 116, 174, 98, 'S');
 
-        const assessmentTitle = payload.assessmentId ? String(payload.assessmentId).toUpperCase() : 'CONTACT-ONLY';
+        const assessmentId = payload.assessmentId ? String(payload.assessmentId).toLowerCase() : 'contact-only';
+        let scaleKoreanTitle = '단순 상담 접수 (검진 미실시)';
+        if (assessmentId === 'phq-9') scaleKoreanTitle = '우울 건강선별도구 (PHQ-9)';
+        else if (assessmentId === 'gad-7') scaleKoreanTitle = '불안 선별도구 (GAD-7)';
+        else if (assessmentId === 'isi-k') scaleKoreanTitle = '불면증 심각도 척도 (ISI-K)';
+        else if (assessmentId === 'bepsi-k') scaleKoreanTitle = '한국형 스트레스 척도 (BEPSI-K)';
+        else if (assessmentId === 'sbq-r') scaleKoreanTitle = '자살행동 선별질문지 (SBQ-R)';
+
         doc.setFontSize(10);
         doc.setTextColor(15, 23, 42);
-        doc.text(`■ 정신건강 선별검진 평가 결과 [ ${assessmentTitle} ]`, 22, 123);
+        doc.text(`■ 정신건강 선별검진 평가 결과 [ ${scaleKoreanTitle} ]`, 22, 123);
 
-        if (hasSensitiveConsent && payload.assessmentId !== 'contact-only') {
+        if (hasSensitiveConsent && assessmentId !== 'contact-only') {
             doc.setFontSize(9.5);
             doc.setTextColor(30, 41, 59);
-            const scoreText = assessment.totalScore !== undefined && assessment.totalScore !== null ? `${assessment.totalScore}점` : '평가 없음';
-            const severityText = assessment.severity || '판정 결과 없음';
-            doc.text(`검진 총점: ${scoreText}`, 24, 132);
-            doc.text(`심각도 / 위험도 판정: ${severityText}`, 90, 132);
+
+            if (assessmentId === 'bepsi-k') {
+                // BEPSI-K: Highlight meanScore as the primary score, show responseSum separately
+                const meanVal = assessment.meanScore !== undefined && assessment.meanScore !== null
+                    ? (typeof assessment.meanScore === 'number' ? assessment.meanScore.toFixed(2) : assessment.meanScore)
+                    : (assessment.totalScore ? (assessment.totalScore / 5).toFixed(2) : '-');
+                const sumVal = assessment.responseSum ?? assessment.totalScore ?? '-';
+                const bepsiSeverity = assessment.resultLabel || assessment.severity ||
+                    (parseFloat(meanVal) < 1.6 ? '저스트레스군' : parseFloat(meanVal) < 2.2 ? '중등도 스트레스군' : '고스트레스군');
+
+                doc.setFontSize(9.5);
+                doc.text(`평균 점수(주요지표): ${meanVal}점`, 24, 132);
+                doc.text(`[문항합계: ${sumVal}점]`, 82, 132);
+                doc.text(`스트레스 판정: ${bepsiSeverity}`, 124, 132);
+            } else if (assessmentId === 'sbq-r') {
+                // SBQ-R: Total score and additional review recommendation without definitive words
+                const scoreText = assessment.totalScore !== undefined && assessment.totalScore !== null ? `${assessment.totalScore}점` : '-';
+                const totalNum = Number(assessment.totalScore) || 0;
+                const reviewRec = totalNum >= 7
+                    ? '추가 확인 권장 (기준점 7점 이상)'
+                    : '선별 기준점 미만 (추가 확인 권장 대상 아님)';
+
+                doc.text(`선별 총점: ${scoreText} (범위: 3~18점)`, 24, 132);
+                doc.text(`선별 결과: ${reviewRec}`, 92, 132);
+            } else {
+                // PHQ-9, GAD-7, ISI-K
+                const scoreText = assessment.totalScore !== undefined && assessment.totalScore !== null ? `${assessment.totalScore}점` : '평가 없음';
+                const severityText = assessment.severity || '판정 결과 없음';
+                doc.text(`검진 총점: ${scoreText}`, 24, 132);
+                doc.text(`심각도 / 선별 결과: ${severityText}`, 90, 132);
+            }
 
             // Table Header for Questions
             doc.setFillColor(226, 232, 240);
@@ -218,15 +252,19 @@ export class SurveyReportGenerator {
             } else {
                 doc.setFontSize(9);
                 doc.setTextColor(100, 116, 139);
-                doc.text('상세 문항별 응답은 요약 저장 정책에 따라 총점과 심각도로 관리됩니다.', 30, 155);
+                doc.text('상세 문항별 응답은 요약 저장 정책에 따라 총점/평균과 선별 지표로 관리됩니다.', 30, 155);
             }
         } else {
-            // Contact-only or sensitive consent declined
+            // Contact-only or sensitive consent declined: Do NOT substitute 0, clearly display '검사결과 미전송'
+            doc.setFontSize(9.5);
+            doc.setTextColor(185, 28, 28);
+            doc.text('검사결과: 검사결과 미전송 (민감정보 수집·이용 미동의)', 24, 132);
+
             doc.setFontSize(9);
-            doc.setTextColor(148, 163, 184);
-            doc.text('※ 내담자가 민감정보 처리에 동의하지 않았거나 단순 상담 신청으로 접수되었습니다.', 24, 136);
-            doc.text('정신건강 선별검진 척도(PHQ-9/GAD-7 등) 결과 및 문항 점수는 일체 수집되지 않았으며,', 24, 144);
-            doc.text('인적사항 및 상담 신청 내용을 기반으로 기초 초기 상담이 진행됩니다.', 24, 152);
+            doc.setTextColor(100, 116, 139);
+            doc.text('※ 내담자가 민감정보(정신건강 선별검진 결과) 처리에 동의하지 않았습니다.', 24, 142);
+            doc.text('이에 따라 0점으로 처리하지 않고 결과 미전송으로 기록 관리하며,', 24, 150);
+            doc.text('기본 인적사항 및 상담 신청사유를 바탕으로 전문요원의 기초 상담이 진행됩니다.', 24, 158);
         }
 
         // --- 5. Legal & Clinical Safety Disclaimer ---
@@ -250,15 +288,16 @@ export class SurveyReportGenerator {
         const buffer = Buffer.from(arrayBuf);
         const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
 
-        // Neutral filename: survey-report_<safeSubId>.pdf
-        const safeSubId = submissionId ? submissionId.replace(/[^a-zA-Z0-9_\-]/g, '').substring(0, 16) : crypto.randomUUID().substring(0, 8);
-        const filename = `survey-report_${safeSubId}.pdf`;
+        // Strict neutral physical filename: survey-report_<UUID>.pdf
+        // Strictly excludes name, phone, assessment identifier, score, risk label, or referral number
+        const reportUuid = crypto.randomUUID();
+        const filename = `survey-report_${reportUuid}.pdf`;
 
         doc.setFontSize(7.5);
         doc.setTextColor(148, 163, 184);
         doc.text(`발급기관: ${this.institutionName} (${this.centerEnglish})`, 18, 256);
         doc.text(`전자 발급 무결성 해시: ${fileHash}`, 18, 261);
-        doc.text(`발급자 ID: ${actorId} | 처리엔진: ${this.systemName} v3.1 | 식별자: ${safeSubId}`, 18, 266);
+        doc.text(`발급자 ID: ${actorId} | 처리엔진: ${this.systemName} v3.1 | 문서식별자: ${reportUuid}`, 18, 266);
 
         return {
             buffer,
