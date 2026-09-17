@@ -35,6 +35,7 @@ interface SidebarProps {
     sessionTime?: number;
     pendingCount?: number;
     voicePendingCount?: number;
+    surveyPendingCount?: number;
 }
 
 const PAGE_ICONS: Record<Page, React.ElementType> = {
@@ -136,6 +137,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                                     {page === 'voiceCalls' && voicePendingCount !== undefined && voicePendingCount > 0 && (
                                         <span className={`absolute ${isCollapsed ? 'top-1 right-1' : 'top-3 right-3'} px-1.5 py-0.5 bg-amber-500 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-md animate-pulse`}>
                                             {voicePendingCount > 99 ? '99+' : voicePendingCount}
+                                        </span>
+                                    )}
+
+                                    {page === 'surveyManagement' && surveyPendingCount !== undefined && surveyPendingCount > 0 && (
+                                        <span className={`absolute ${isCollapsed ? 'top-1 right-1' : 'top-3 right-3'} px-1.5 py-0.5 bg-emerald-600 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-md animate-pulse`}>
+                                            {surveyPendingCount > 99 ? '99+' : surveyPendingCount}
                                         </span>
                                     )}
                                 </button>

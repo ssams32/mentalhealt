@@ -445,6 +445,42 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         }
     };
 
+    // Helper: Safe Business Data Transfer Status
+    const renderTransferStatusBadge = (item?: any) => {
+        if (!item) return null;
+        if (item.internalStatus === 'IMPORT_FAILED' || item.lastErrorCode) {
+            return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">처리 오류</span>;
+        }
+        if (item.internalStatus === 'PENDING' || item.externalStatus === 'PENDING') {
+            return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-50 text-slate-600 border border-slate-200">외부 접수 대기</span>;
+        }
+        if (item.internalStatus === 'LEASED' || item.internalStatus === 'IMPORTING') {
+            return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">내부 반입 중</span>;
+        }
+        if (item.assignedUserId) {
+            return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">담당자 배정 완료</span>;
+        }
+        if (item.hasReport) {
+            return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">검사결과 리포트 준비 완료</span>;
+        }
+        if (item.refNo) {
+            return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 text-teal-700 border border-teal-200">의뢰대장 생성 완료</span>;
+        }
+        if (item.internalStatus === 'IMPORTED' || item.internalStatus === 'COMPLETED') {
+            return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">내부 반입 완료</span>;
+        }
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">담당자 미배정</span>;
+    };
+
+    // Helper: Mark synthetic test fixture clearly
+    const renderFixtureBadge = (item?: any) => {
+        if (!item) return null;
+        const isMock = item.sourceEnvironment === 'mock' ||
+            (item.submissionId && (String(item.submissionId).includes('demo') || String(item.submissionId).includes('synthetic')));
+        if (!isMock) return null;
+        return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">합성 시험자료</span>;
+    };
+
     // Helper: Assessment Scale Korean Title
     const getAssessmentTitle = (scaleId?: string) => {
         switch ((scaleId || '').toLowerCase()) {
@@ -474,12 +510,14 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     <div>
                         <h1 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
                             온라인 설문 관리
-                            <span className="text-[11px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md">
-                                사내 전용망 Track B
-                            </span>
+                            {metrics.todayCount > 0 && (
+                                <span className="text-[11px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-md animate-pulse">
+                                    신규 접수 {metrics.todayCount}건
+                                </span>
+                            )}
                         </h1>
                         <p className="text-xs text-slate-500 font-medium mt-0.5">
-                            온라인 상담신청 내역과 검사결과를 확인하고, 의뢰대장 등록 및 담당자 배정을 관리합니다.
+                            온라인 상담신청 내역과 검사결과를 확인하고, 담당자 배정과 처리상태를 관리합니다.
                         </p>
                     </div>
                 </div>
@@ -745,7 +783,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                             {item.maskedPhone}
                                                         </span>
                                                     </div>
-                                                    <div>
+                                                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                                                        {renderFixtureBadge(item)}
+                                                        {renderTransferStatusBadge(item)}
                                                         {renderStatusBadge(item.consultationStatus, item.isSbqrQuarantined)}
                                                     </div>
                                                 </div>
@@ -842,6 +882,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                         {submissionDetail?.submission?.contact?.clientName || currentSelectedItem.maskedClientName} 님 상세 검토
                                                     </h2>
                                                     {renderPriorityBadge(currentSelectedItem.assignmentPriority)}
+                                                    {renderFixtureBadge(currentSelectedItem)}
+                                                    {renderTransferStatusBadge(currentSelectedItem)}
                                                     {renderStatusBadge(currentSelectedItem.consultationStatus, currentSelectedItem.isSbqrQuarantined)}
                                                 </div>
                                                 <div className="text-xs text-slate-500 font-medium mt-0.5 flex items-center gap-2">
@@ -1204,30 +1246,50 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                             <FileText className="w-4 h-4 text-emerald-600" />
                                                             SECTION C. 공문 서식 리포트 (A4 PDF)
                                                         </h3>
-                                                        <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
-                                                            {currentSelectedItem.hasReport ? '준비 완료' : '대기'}
+                                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                                            currentSelectedItem.hasReport
+                                                                ? 'bg-emerald-100 text-emerald-800'
+                                                                : (currentSelectedItem.internalStatus === 'IMPORT_FAILED' || currentSelectedItem.lastErrorCode)
+                                                                    ? 'bg-rose-100 text-rose-800'
+                                                                    : (currentSelectedItem.internalStatus === 'IMPORTING' || currentSelectedItem.internalStatus === 'LEASED')
+                                                                        ? 'bg-amber-100 text-amber-800'
+                                                                        : 'bg-slate-100 text-slate-600'
+                                                        }`}>
+                                                            {currentSelectedItem.hasReport
+                                                                ? '리포트 준비 완료'
+                                                                : (currentSelectedItem.internalStatus === 'IMPORT_FAILED' || currentSelectedItem.lastErrorCode)
+                                                                    ? '리포트 생성 실패'
+                                                                    : (currentSelectedItem.internalStatus === 'IMPORTING' || currentSelectedItem.internalStatus === 'LEASED')
+                                                                        ? '리포트 생성 중'
+                                                                        : '첨부파일 없음'
+                                                            }
                                                         </span>
                                                     </div>
 
                                                     <p className="text-xs text-slate-500 mb-3">
                                                         파일명: <span className="font-mono text-slate-700 font-bold">
-                                                            {currentSelectedItem.reportAttachment?.name || `survey-report_${currentSelectedItem.submissionId.substring(0, 8)}.pdf`}
+                                                            {currentSelectedItem.reportAttachment?.name || '온라인 마음건강 검진 결과보고서'}
                                                         </span>
                                                     </p>
                                                 </div>
 
                                                 <button
                                                     onClick={() => {
-                                                        const reportUrl = currentSelectedItem.reportAttachment?.url ||
-                                                            `/attachments/${currentSelectedItem.referralId || 'surveys'}/survey-report_${currentSelectedItem.submissionId}.pdf`;
+                                                        if (!currentSelectedItem.hasReport) {
+                                                            const errMsg = '검사결과 리포트를 찾을 수 없습니다. 리포트 재생성을 요청해 주세요.';
+                                                            if (showToast) showToast(errMsg, 'error');
+                                                            else alert(errMsg);
+                                                            return;
+                                                        }
+                                                        const reportUrl = `/api/surveys/submissions/${encodeURIComponent(currentSelectedItem.submissionId)}/report`;
                                                         setPreviewFile({
                                                             id: `att_${currentSelectedItem.submissionId}`,
-                                                            name: currentSelectedItem.reportAttachment?.name || `survey-report_${currentSelectedItem.submissionId}.pdf`,
+                                                            name: currentSelectedItem.reportAttachment?.name || '온라인 마음건강 검진 결과보고서.pdf',
                                                             type: 'application/pdf',
                                                             url: reportUrl
                                                         });
                                                     }}
-                                                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow transition flex items-center justify-center gap-2"
+                                                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow transition flex items-center justify-center gap-2 active:scale-95"
                                                 >
                                                     <Eye className="w-4 h-4" />
                                                     검사결과 리포트 바로보기 (PDF 뷰어)

@@ -475,15 +475,14 @@ export function createSurveyImportRouter(deps = {}) {
             if (notificationRepository) {
                 const isReassign = Boolean(updated.previousAssignedUserId);
                 const notifType = isReassign ? NOTIFICATION_TYPES.SURVEY_REASSIGNED : NOTIFICATION_TYPES.SURVEY_ASSIGNED;
-                const safeTitle = isReassign ? '의뢰 재배정 알림' : '신규 의뢰 배정 알림';
-                const safeRefNo = updatedReferral?.refNo || updated.internalSurveyId || updated.submissionId.substring(0, 10);
-                const safeMsg = `온라인 설문 기반 신규 의뢰 1건이 배정되었습니다.\n의뢰번호: ${safeRefNo}\n검토 우선순위: ${priority}\n의뢰대장에서 확인해 주세요.`;
+                const safeTitle = isReassign ? '온라인 설문 담당자 재배정 알림' : '온라인 설문 담당자 배정 알림';
+                const safeMsg = '온라인 설문 기반 상담신청 1건이 배정되었습니다.\n온라인 설문관리에서 확인해 주세요.';
 
                 await notificationRepository.createNotification({
                     recipientUserId: updated.assignedUserId,
                     type: notifType,
-                    relatedEntityType: 'referral',
-                    relatedEntityId: updatedReferral?.referralId || updatedReferral?.refNo || updated.submissionId,
+                    relatedEntityType: 'survey',
+                    relatedEntityId: updated.submissionId,
                     safeTitle,
                     safeMessage: safeMsg,
                     priority,
@@ -627,6 +626,97 @@ export function createSurveyImportRouter(deps = {}) {
             res.status(500).json({ error: { code: 'RETRY_FAILED', message: err.message } });
         }
     });
+
+    // 10. GET /api/surveys/submissions/:id/report and /api/surveys/:id/report - Secure PDF streaming
+    const handleGetReport = async (req, res) => {
+        try {
+            const { id } = req.params;
+            const fsMod = await import('fs');
+            const pathMod = await import('path');
+
+            // Find submission or referral
+            const submissions = surveyRepository.getSurveySubmissions();
+            const sub = submissions.find(s => s && (s.submissionId === id || s.internalSurveyId === id));
+
+            const referrals = surveyRepository.getData('Referrals', []);
+            const ref = referrals.find(r => r && (
+                r.sourceSubmissionId === id ||
+                r.sourceSurveyId === id ||
+                r.referralId === id ||
+                r.externalIdx === id ||
+                (sub && (r.sourceSubmissionId === sub.submissionId || r.sourceSurveyId === sub.internalSurveyId))
+            ));
+
+            const attachment = ref?.attachments?.find(a =>
+                a.type === 'application/pdf' ||
+                (a.name && String(a.name).endsWith('.pdf')) ||
+                (a.id && String(a.id).endsWith('.pdf')) ||
+                (a.url && String(a.url).includes('.pdf'))
+            );
+
+            const targetDir = deps.attachmentsDir || referralService?.attachmentsDir || process.env.ATTACHMENTS_DIR;
+            let filePath = null;
+
+            if (targetDir && ref && attachment) {
+                const safeFolder = (ref.referralId || 'surveys').replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
+                const candidate1 = pathMod.default.join(targetDir, safeFolder, attachment.id);
+                if (fsMod.default.existsSync(candidate1)) {
+                    filePath = candidate1;
+                } else {
+                    const candidate2 = pathMod.default.join(targetDir, attachment.id);
+                    if (fsMod.default.existsSync(candidate2)) {
+                        filePath = candidate2;
+                    }
+                }
+            }
+
+            // Fallback: search safeFolder for pdf
+            if (!filePath && targetDir && ref) {
+                const safeFolder = (ref.referralId || 'surveys').replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
+                const folderPath = pathMod.default.join(targetDir, safeFolder);
+                if (fsMod.default.existsSync(folderPath)) {
+                    const files = fsMod.default.readdirSync(folderPath);
+                    const pdfFile = files.find(f => f.endsWith('.pdf'));
+                    if (pdfFile) {
+                        filePath = pathMod.default.join(folderPath, pdfFile);
+                    }
+                }
+            }
+
+            if (!filePath || !fsMod.default.existsSync(filePath)) {
+                return res.status(404).json({
+                    error: {
+                        code: 'REPORT_NOT_FOUND',
+                        message: '검사결과 리포트를 찾을 수 없습니다. 리포트 재생성을 요청해 주세요.'
+                    }
+                });
+            }
+
+            // Audit record for report view
+            const actorId = req.auth.userId || req.auth.id || req.auth.username || 'admin';
+            if (typeof surveyRepository.recordAuditEvent === 'function') {
+                await surveyRepository.recordAuditEvent({
+                    actorId,
+                    action: 'SURVEY_REPORT_VIEWED',
+                    submissionId: sub?.submissionId || id,
+                    result: 'SUCCESS'
+                });
+            }
+
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', 'inline; filename="' + encodeURIComponent(attachment?.name || 'survey-report.pdf') + '"');
+            res.setHeader('Cache-Control', 'no-store');
+            res.setHeader('X-Content-Type-Options', 'nosniff');
+
+            fsMod.default.createReadStream(filePath).pipe(res);
+        } catch (err) {
+            console.error('❌ GET /api/surveys/:id/report error:', err.message);
+            res.status(500).json({ error: { code: 'REPORT_STREAM_FAILED', message: err.message } });
+        }
+    };
+
+    router.get('/submissions/:id/report', requireAuth, requireSurveyImportPermission, handleGetReport);
+    router.get('/:id/report', requireAuth, requireSurveyImportPermission, handleGetReport);
 
     return router;
 }

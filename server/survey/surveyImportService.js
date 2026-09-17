@@ -690,8 +690,8 @@ export class SurveyImportService {
                         type: NOTIFICATION_TYPES.SURVEY_ASSIGNED,
                         relatedEntityType: 'referral',
                         relatedEntityId: extraParams?.referralId || submissionId,
-                        safeTitle: '신규 온라인 설문이 배정되었습니다.',
-                        safeMessage: '온라인 설문 접수 건이 배정되었습니다. 업무함을 확인해주세요.',
+                        safeTitle: '온라인 설문 담당자 배정 알림',
+                        safeMessage: '온라인 설문 기반 상담신청 1건이 배정되었습니다.\n온라인 설문관리에서 확인해 주세요.',
                         priority: extraParams?.priority || 'NORMAL',
                         createdByUserId: actorId || 'system',
                         deduplicationKey: `survey_assign_${submissionId}_${targetUserId}`

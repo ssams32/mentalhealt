@@ -852,7 +852,22 @@ app.delete('/api/users/:id', (req, res) => {
 app.get('/api/referrals', (req, res) => {
     try {
         let referrals = getData('Referrals', []);
-        const { team, closureStatus, registrationStatus, view } = req.query;
+        const { team, closureStatus, registrationStatus, view, source, includeOnlineSurveys } = req.query;
+
+        // [Track B P0-1: Online Survey Separation]
+        // ONLINE_SURVEY records are excluded from general referral list by default.
+        const isOnlineSurveyRecord = (r) => {
+            if (!r) return false;
+            const src = String(r.source || r.sourceType || '').toUpperCase();
+            return src === 'ONLINE_SURVEY' || Boolean(r.sourceSubmissionId) || Boolean(r.sourceSurveyId);
+        };
+
+        const requestedSource = String(source || '').toUpperCase();
+        if (requestedSource === 'ONLINE_SURVEY') {
+            referrals = referrals.filter(isOnlineSurveyRecord);
+        } else if (includeOnlineSurveys !== 'true') {
+            referrals = referrals.filter(r => !isOnlineSurveyRecord(r));
+        }
 
         const reqUserId = req.headers['x-user-id'] || req.query.userId;
         const reqUserRole = req.headers['x-user-role'] || req.query.userRole;
@@ -950,6 +965,41 @@ app.get('/api/referrals', (req, res) => {
     } catch (err) {
         console.error('❌ GET /api/referrals error:', err);
         res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// Direct URL/ID access preserves full record access regardless of list exclusion
+app.get('/api/referrals/:id', (req, res) => {
+    try {
+        const { id } = req.params;
+        const referrals = getData('Referrals', []);
+        const target = referrals.find(r => r && (r.referralId === id || r.refNo === id || r.clientId === id || r.sourceSubmissionId === id));
+        if (!target) {
+            return res.status(404).json({ success: false, error: 'Referral not found' });
+        }
+        res.json(target);
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// Attachment streaming endpoint (supports inline PDF preview)
+app.get('/attachments/:folder/:file', (req, res) => {
+    try {
+        const { folder, file } = req.params;
+        const safeFolder = folder.replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
+        const safeFile = path.basename(file);
+        const filePath = path.join(ATTACHMENTS_DIR, safeFolder, safeFile);
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ error: { code: 'NOT_FOUND', message: '첨부파일을 찾을 수 없습니다.' } });
+        }
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'inline');
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        fs.createReadStream(filePath).pipe(res);
+    } catch (err) {
+        res.status(500).json({ error: { code: 'ATTACHMENT_ERROR', message: err.message } });
     }
 });
 

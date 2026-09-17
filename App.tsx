@@ -95,6 +95,7 @@ function App() {
     // [New] Pending referrals for notification badge and inbox
     const [pendingReferrals, setPendingReferrals] = useState<any[]>([]);
     const [voicePendingCount, setVoicePendingCount] = useState<number>(0);
+    const [surveyPendingCount, setSurveyPendingCount] = useState<number>(0);
     // ref로 referrals 최신값 유지 (폴링 의존성 배열에 referrals 포함 시 연쇄 재시작 방지)
     const referralsRef = useRef(referrals);
     useEffect(() => { referralsRef.current = referrals; }, [referrals]);
@@ -321,6 +322,26 @@ function App() {
         fetchVoiceStats();
         const vInterval = setInterval(fetchVoiceStats, 30000);
         return () => clearInterval(vInterval);
+    }, []);
+
+    // Periodic fetch for online survey unassigned count (menu badge)
+    useEffect(() => {
+        const fetchSurveyStats = async () => {
+            try {
+                const res = await fetch('/api/surveys/status', { credentials: 'include' });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && typeof data.unassignedCount === 'number') {
+                        setSurveyPendingCount(data.unassignedCount);
+                    }
+                }
+            } catch (e) {
+                // Ignore silent fetch failures
+            }
+        };
+        fetchSurveyStats();
+        const sInterval = setInterval(fetchSurveyStats, 30000);
+        return () => clearInterval(sInterval);
     }, []);
 
     // [New] Notification effect when new pending referrals arrive
@@ -817,6 +838,7 @@ function App() {
                     onToggleAgent={() => setIsAgentOpen(prev => !prev)}
                     pendingCount={pendingReferrals.length}
                     voicePendingCount={voicePendingCount}
+                    surveyPendingCount={surveyPendingCount}
                 />
                 <main className="flex-1 flex flex-col min-w-0 min-h-0 relative overflow-hidden text-left">
                     {isOfflineFallback && (

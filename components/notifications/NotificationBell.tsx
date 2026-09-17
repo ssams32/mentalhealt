@@ -97,15 +97,17 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ onNavigate, 
             setUnreadCount(prev => Math.max(0, prev - 1));
             setIsOpen(false);
 
-            // Requirement 7: When clicking assignment notification, move to connected referral detail with report visible
-            if (item.relatedEntityType === 'referral' && item.relatedEntityId) {
+            // P0-2: Survey notifications route strictly to Online Survey Management
+            if (item.type?.startsWith('SURVEY_') || item.type?.startsWith('survey_') || item.relatedEntityType === 'survey') {
+                if (onNavigate) {
+                    onNavigate('surveyManagement');
+                }
+            } else if (item.relatedEntityType === 'referral' && item.relatedEntityId) {
                 if (onNavigateToReferral) {
                     onNavigateToReferral(item.relatedEntityId);
                 } else if (onNavigate) {
                     onNavigate('referrals');
                 }
-            } else if (item.relatedEntityType === 'survey' && onNavigate) {
-                onNavigate('surveyManagement');
             }
         } catch (err) {
             console.error('Failed to mark notification read:', err);
