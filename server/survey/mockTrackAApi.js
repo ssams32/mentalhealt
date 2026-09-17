@@ -557,6 +557,144 @@ export class MockTrackAApi {
 
         const submissionId = options.submissionId || 'sub-staging-e2e-001';
         const nowIso = new Date().toISOString();
+        const memo = options.memo || options.counselingRequestText || 'STAGING E2E TEST DATA';
+        const isFiveScales = options.fiveScales || memo === 'LOCAL E2E TEST DATA' || options.assessmentId === 'bepsi-k';
+
+        if (isFiveScales) {
+            const scaleScores = {
+                'phq-9': {
+                    assessmentId: 'phq-9',
+                    assessmentVersion: '1.0.0',
+                    totalScore: 12,
+                    severity: '중등도 우울',
+                    responses: [
+                        { questionNumber: 1, questionLabel: '흥미나 즐거움 저하', score: 2, answerLabel: '자주 있음' },
+                        { questionNumber: 2, questionLabel: '기분 저하, 우울감', score: 2, answerLabel: '자주 있음' },
+                        { questionNumber: 3, questionLabel: '잠들기 어렵거나 수면 과다', score: 2, answerLabel: '자주 있음' },
+                        { questionNumber: 4, questionLabel: '피로감이나 기력 저하', score: 2, answerLabel: '자주 있음' },
+                        { questionNumber: 5, questionLabel: '식욕 저하 또는 과식', score: 1, answerLabel: '며칠 동안' },
+                        { questionNumber: 6, questionLabel: '자책감 또는 죄책감', score: 1, answerLabel: '며칠 동안' },
+                        { questionNumber: 7, questionLabel: '집중하기 어려움', score: 1, answerLabel: '며칠 동안' },
+                        { questionNumber: 8, questionLabel: '행동이 느려지거나 안절부절못함', score: 1, answerLabel: '며칠 동안' },
+                        { questionNumber: 9, questionLabel: '차라리 죽는 게 낫겠다는 생각', score: 0, answerLabel: '전혀 없음' }
+                    ]
+                },
+                'gad-7': {
+                    assessmentId: 'gad-7',
+                    assessmentVersion: '1.0.0',
+                    totalScore: 8,
+                    severity: '경미한 불안',
+                    responses: [
+                        { questionNumber: 1, questionLabel: '불안, 긴장됨', score: 1, answerLabel: '며칠 동안' },
+                        { questionNumber: 2, questionLabel: '걱정 조절 곤란', score: 1, answerLabel: '며칠 동안' },
+                        { questionNumber: 3, questionLabel: '과도한 걱정', score: 2, answerLabel: '자주 있음' },
+                        { questionNumber: 4, questionLabel: '안절부절못함', score: 1, answerLabel: '며칠 동안' },
+                        { questionNumber: 5, questionLabel: '쉽게 피로/짜증', score: 1, answerLabel: '며칠 동안' },
+                        { questionNumber: 6, questionLabel: '신경질적이 됨', score: 1, answerLabel: '며칠 동안' },
+                        { questionNumber: 7, questionLabel: '두려움 느낌', score: 1, answerLabel: '며칠 동안' }
+                    ]
+                },
+                'isi-k': {
+                    assessmentId: 'isi-k',
+                    assessmentVersion: '1.0.0',
+                    totalScore: 10,
+                    severity: '경미한 불면',
+                    responses: [
+                        { questionNumber: 1, questionLabel: '입면 곤란', score: 2, answerLabel: '약간' },
+                        { questionNumber: 2, questionLabel: '수면 유지 곤란', score: 2, answerLabel: '약간' },
+                        { questionNumber: 3, questionLabel: '조기 각성', score: 1, answerLabel: '약간' },
+                        { questionNumber: 4, questionLabel: '수면 양상 불만족', score: 2, answerLabel: '약간' },
+                        { questionNumber: 5, questionLabel: '낮 활동 방해', score: 1, answerLabel: '약간' },
+                        { questionNumber: 6, questionLabel: '타인 인지 문제', score: 1, answerLabel: '약간' },
+                        { questionNumber: 7, questionLabel: '수면 고통', score: 1, answerLabel: '약간' }
+                    ]
+                },
+                'bepsi-k': {
+                    assessmentId: 'bepsi-k',
+                    assessmentVersion: '1.0.0',
+                    questionSetVersion: '1.0.0',
+                    scoringPolicyId: 'BEPSI_K_REVISED_QUARTILE_1_6_2_2',
+                    responseSum: 14,
+                    meanScore: 2.80,
+                    totalScore: 14,
+                    resultCode: 'HIGH',
+                    resultLabel: '고스트레스군',
+                    responses: [
+                        { questionNumber: 1, questionLabel: '기능이나 능력에 대한 요구 부담', score: 3, answerLabel: '자주 느낌' },
+                        { questionNumber: 2, questionLabel: '자신의 뜻대로 되지 않음', score: 3, answerLabel: '자주 느낌' },
+                        { questionNumber: 3, questionLabel: '마음의 평정 유지 곤란', score: 3, answerLabel: '자주 느낌' },
+                        { questionNumber: 4, questionLabel: '자신감 상실', score: 2, answerLabel: '가끔 느낌' },
+                        { questionNumber: 5, questionLabel: '일상적 삶의 의미 상실', score: 3, answerLabel: '자주 느낌' }
+                    ]
+                },
+                'sbq-r': {
+                    assessmentId: 'sbq-r',
+                    assessmentVersion: '1.0.0',
+                    scoringPolicyId: 'SBQR_GENERAL_POPULATION_CUTOFF_7',
+                    totalScore: 7,
+                    resultCode: 'ADDITIONAL_REVIEW_RECOMMENDED',
+                    resultLabel: '추가 확인 권장',
+                    responses: [
+                        { questionNumber: 1, optionId: 'q1_opt2', score: 2, answerLabel: '생각해 본 적 있음' },
+                        { questionNumber: 2, optionId: 'q2_opt2', score: 2, answerLabel: '과거 1회' },
+                        { questionNumber: 3, optionId: 'q3_opt2', score: 2, answerLabel: '과거 1회 말함' },
+                        { questionNumber: 4, optionId: 'q4_opt2', score: 1, answerLabel: '가능성 낮음' }
+                    ]
+                }
+            };
+
+            return this.seedSubmission({
+                submissionId,
+                publicKeyPem,
+                payload: {
+                    submissionId,
+                    schemaVersion: 'v1.0',
+                    assessmentId: 'bepsi-k',
+                    assessmentVersion: '1.0.0',
+                    questionSetVersion: '1.0.0',
+                    scoringPolicyId: 'BEPSI_K_REVISED_QUARTILE_1_6_2_2',
+                    contactOnly: false,
+                    submittedAt: nowIso,
+                    contact: {
+                        clientName: 'SYNTHETIC 테스트사용자',
+                        phone: '010-0000-0000',
+                        gender: '기타',
+                        birthDate: '1990-01-01',
+                        region: '중리동',
+                        counselingRequestText: memo
+                    },
+                    assessment: {
+                        totalScore: 14,
+                        responseSum: 14,
+                        meanScore: 2.80,
+                        resultCode: 'HIGH',
+                        resultLabel: '고스트레스군',
+                        scoringPolicyId: 'BEPSI_K_REVISED_QUARTILE_1_6_2_2',
+                        responses: [
+                            { questionNumber: 1, questionLabel: '기능이나 능력에 대한 요구 부담', score: 3, answerLabel: '자주 느낌' },
+                            { questionNumber: 2, questionLabel: '자신의 뜻대로 되지 않음', score: 3, answerLabel: '자주 느낌' },
+                            { questionNumber: 3, questionLabel: '마음의 평정 유지 곤란', score: 3, answerLabel: '자주 느낌' },
+                            { questionNumber: 4, questionLabel: '자신감 상실', score: 2, answerLabel: '가끔 느낌' },
+                            { questionNumber: 5, questionLabel: '일상적 삶의 의미 상실', score: 3, answerLabel: '자주 느낌' }
+                        ],
+                        scaleScores
+                    },
+                    consentEvidence: {
+                        consentVersion: '2026.1',
+                        personalInfoConsent: true,
+                        sensitiveInfoConsent: true,
+                        consentedAt: nowIso,
+                        transmittedFieldSet: [
+                            'clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText',
+                            'responses', 'totalScore', 'responseSum', 'meanScore', 'resultCode', 'resultLabel',
+                            'scoringPolicyId', 'scaleScores'
+                        ]
+                    },
+                    retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+                }
+            });
+        }
+
         return this.seedSubmission({
             submissionId,
             publicKeyPem,
@@ -573,7 +711,7 @@ export class MockTrackAApi {
                     gender: '기타',
                     birthDate: '1990-01-01',
                     region: '중리동',
-                    counselingRequestText: 'STAGING E2E TEST DATA'
+                    counselingRequestText: memo
                 },
                 assessment: {
                     totalScore: 12,

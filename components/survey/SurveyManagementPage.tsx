@@ -991,80 +991,205 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     </div>
                                                 </div>
                                             ) : (
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                    {/* Card: Primary Scale */}
-                                                    <div className="p-4 rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white">
-                                                        <div className="flex items-center justify-between mb-2">
-                                                            <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                                                                <Activity className="w-4 h-4 text-teal-600" />
-                                                                {getAssessmentTitle(currentSelectedItem.assessmentId).name}
-                                                            </span>
-                                                            <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
-                                                                검사 완료
-                                                            </span>
-                                                        </div>
+                                                <div>
+                                                    {(() => {
+                                                        const nested = submissionDetail?.submission?.assessment?.scaleScores || submissionDetail?.submission?.assessment?.scales;
+                                                        const phq = nested?.['phq-9'] || nested?.phq9;
+                                                        const gad = nested?.['gad-7'] || nested?.gad7;
+                                                        const isi = nested?.['isi-k'] || nested?.isik;
+                                                        const bepsi = nested?.['bepsi-k'] || nested?.bepsik;
+                                                        const sbqr = nested?.['sbq-r'] || nested?.sbqr;
+                                                        const has5Scales = Boolean(phq && gad && isi && bepsi && sbqr);
 
-                                                        {currentSelectedItem.assessmentId.toLowerCase() === 'bepsi-k' ? (
-                                                            <div className="flex items-baseline gap-3 my-2">
-                                                                <span className="text-3xl font-black text-amber-700">
-                                                                    {currentSelectedItem.meanScore ?? submissionDetail?.submission?.assessment?.meanScore ?? (currentSelectedItem.totalScore ? (currentSelectedItem.totalScore / 5).toFixed(2) : '-')}
-                                                                </span>
-                                                                <span className="text-xs text-amber-800 font-bold">점 (평균 점수)</span>
-                                                                <span className="text-xs font-semibold text-slate-500 ml-2">
-                                                                    [문항 합계: {currentSelectedItem.totalScore ?? submissionDetail?.submission?.assessment?.totalScore ?? '-'}점]
-                                                                </span>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="flex items-baseline gap-3 my-2">
-                                                                <span className="text-3xl font-black text-slate-900">
-                                                                    {currentSelectedItem.totalScore ?? submissionDetail?.submission?.assessment?.totalScore ?? '-'}
-                                                                </span>
-                                                                <span className="text-xs text-slate-500 font-bold">점</span>
-                                                            </div>
-                                                        )}
+                                                        if (has5Scales) {
+                                                            return (
+                                                                <div className="space-y-4">
+                                                                    <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                                                                        <span className="text-xs font-bold text-slate-700">Track A 5대 선별검사 도메인별 종합 결과 (32문항)</span>
+                                                                        <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-md">5개 도메인 완료</span>
+                                                                    </div>
+                                                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                                                        {/* 1. PHQ-9 Card */}
+                                                                        <div className="p-3.5 rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50/60 to-white shadow-sm">
+                                                                            <div className="flex items-center justify-between mb-1.5">
+                                                                                <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                                                                                    <Activity className="w-3.5 h-3.5 text-blue-600" />
+                                                                                    우울 건강선별 (PHQ-9)
+                                                                                </span>
+                                                                                <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded">9문항</span>
+                                                                            </div>
+                                                                            <div className="flex items-baseline gap-2 my-1.5">
+                                                                                <span className="text-2xl font-black text-slate-900">{phq.totalScore ?? '-'}</span>
+                                                                                <span className="text-xs text-slate-500 font-bold">점</span>
+                                                                            </div>
+                                                                            <div className="text-xs font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100">
+                                                                                판정: {phq.severity || '평가 완료'}
+                                                                            </div>
+                                                                        </div>
 
-                                                        <div className="mt-2 text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1.5 rounded-lg border border-teal-100 flex items-center justify-between">
-                                                            <span>
-                                                                {currentSelectedItem.assessmentId.toLowerCase() === 'sbq-r'
-                                                                    ? `선별: ${Number(currentSelectedItem.totalScore ?? submissionDetail?.submission?.assessment?.totalScore) >= 7 ? '추가 확인 권장' : '선별 기준점 미만'}`
-                                                                    : `판정: ${currentSelectedItem.severity || submissionDetail?.submission?.assessment?.severity || '점검 완료'}`}
-                                                            </span>
-                                                            <span className="text-[10px] text-slate-400 font-normal">
-                                                                {currentSelectedItem.assessmentId.toLowerCase() === 'sbq-r' ? '선별 참고정보 (진단 아님)' : '공식 평가 정책 준수'}
-                                                            </span>
-                                                        </div>
-                                                    </div>
+                                                                        {/* 2. GAD-7 Card */}
+                                                                        <div className="p-3.5 rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-white shadow-sm">
+                                                                            <div className="flex items-center justify-between mb-1.5">
+                                                                                <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                                                                                    <Activity className="w-3.5 h-3.5 text-emerald-600" />
+                                                                                    불안 선별도구 (GAD-7)
+                                                                                </span>
+                                                                                <span className="text-[10px] font-bold px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded">7문항</span>
+                                                                            </div>
+                                                                            <div className="flex items-baseline gap-2 my-1.5">
+                                                                                <span className="text-2xl font-black text-slate-900">{gad.totalScore ?? '-'}</span>
+                                                                                <span className="text-xs text-slate-500 font-bold">점</span>
+                                                                            </div>
+                                                                            <div className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100">
+                                                                                판정: {gad.severity || '평가 완료'}
+                                                                            </div>
+                                                                        </div>
 
-                                                    {/* Card: BEPSI-K / Additional details if present */}
-                                                    {currentSelectedItem.assessmentId.toLowerCase() === 'bepsi-k' ? (
-                                                        <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/40">
-                                                            <span className="text-xs font-black text-amber-900 block mb-1">
-                                                                스트레스 척도 (BEPSI-K) 세부 지표
-                                                            </span>
-                                                            <p className="text-xs text-slate-600 leading-relaxed mb-2">
-                                                                BEPSI-K 척도는 5개 문항의 단순 합계(총점)와 1~5점 척도 환산 평균 점수를 분별하여 평가합니다.
-                                                            </p>
-                                                            <div className="grid grid-cols-2 gap-2 text-xs">
-                                                                <div className="bg-white p-2 rounded-lg border border-amber-200/70">
-                                                                    <span className="text-[10px] text-slate-400 block">문항 합계 (Raw)</span>
-                                                                    <strong className="text-slate-800 font-bold">{currentSelectedItem.totalScore || 14}점</strong>
+                                                                        {/* 3. ISI-K Card */}
+                                                                        <div className="p-3.5 rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50/60 to-white shadow-sm">
+                                                                            <div className="flex items-center justify-between mb-1.5">
+                                                                                <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                                                                                    <Moon className="w-3.5 h-3.5 text-indigo-600" />
+                                                                                    불면증 심각도 (ISI-K)
+                                                                                </span>
+                                                                                <span className="text-[10px] font-bold px-1.5 py-0.5 bg-indigo-100 text-indigo-800 rounded">7문항</span>
+                                                                            </div>
+                                                                            <div className="flex items-baseline gap-2 my-1.5">
+                                                                                <span className="text-2xl font-black text-slate-900">{isi.totalScore ?? '-'}</span>
+                                                                                <span className="text-xs text-slate-500 font-bold">점</span>
+                                                                            </div>
+                                                                            <div className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-lg border border-indigo-100">
+                                                                                판정: {isi.severity || '평가 완료'}
+                                                                            </div>
+                                                                        </div>
+
+                                                                        {/* 4. BEPSI-K Card */}
+                                                                        <div className="p-3.5 rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50/60 to-white shadow-sm">
+                                                                            <div className="flex items-center justify-between mb-1.5">
+                                                                                <span className="text-xs font-black text-amber-900 flex items-center gap-1.5">
+                                                                                    <Flame className="w-3.5 h-3.5 text-amber-600" />
+                                                                                    스트레스 척도 (BEPSI-K)
+                                                                                </span>
+                                                                                <span className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded">5문항</span>
+                                                                            </div>
+                                                                            <div className="flex items-baseline gap-2 my-1.5">
+                                                                                <span className="text-2xl font-black text-amber-700">
+                                                                                    {bepsi.meanScore !== undefined ? (typeof bepsi.meanScore === 'number' ? bepsi.meanScore.toFixed(2) : bepsi.meanScore) : '-'}
+                                                                                </span>
+                                                                                <span className="text-xs text-amber-800 font-bold">점 (평균 점수)</span>
+                                                                                <span className="text-[11px] text-slate-500 ml-auto font-medium">
+                                                                                    [합계: {bepsi.responseSum ?? bepsi.totalScore ?? '-'}점]
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded-lg border border-amber-100">
+                                                                                판정: {bepsi.resultLabel || bepsi.severity || '평가 완료'}
+                                                                            </div>
+                                                                        </div>
+
+                                                                        {/* 5. SBQ-R Card */}
+                                                                        <div className="p-3.5 rounded-xl border border-purple-200 bg-gradient-to-br from-purple-50/60 to-white shadow-sm">
+                                                                            <div className="flex items-center justify-between mb-1.5">
+                                                                                <span className="text-xs font-black text-purple-900 flex items-center gap-1.5">
+                                                                                    <ShieldAlert className="w-3.5 h-3.5 text-purple-600" />
+                                                                                    자살행동 선별 (SBQ-R)
+                                                                                </span>
+                                                                                <span className="text-[10px] font-bold px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded">4문항</span>
+                                                                            </div>
+                                                                            <div className="flex items-baseline gap-2 my-1.5">
+                                                                                <span className="text-2xl font-black text-purple-900">{sbqr.totalScore ?? '-'}</span>
+                                                                                <span className="text-xs text-purple-600 font-bold">점 (범위: 3~18)</span>
+                                                                            </div>
+                                                                            <div className="text-xs font-bold text-purple-700 bg-purple-50 px-2 py-1 rounded-lg border border-purple-100 flex items-center justify-between">
+                                                                                <span>
+                                                                                    선별: {Number(sbqr.totalScore) >= 7 ? '추가 확인 권장' : '선별 기준점 미만'}
+                                                                                </span>
+                                                                                <span className="text-[10px] text-slate-400 font-normal">선별 참고정보 (진단 아님)</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
                                                                 </div>
-                                                                <div className="bg-white p-2 rounded-lg border border-amber-200/70">
-                                                                    <span className="text-[10px] text-slate-400 block">평균 점수 (Mean)</span>
-                                                                    <strong className="text-amber-700 font-bold">{currentSelectedItem.meanScore || '2.80'}점</strong>
+                                                            );
+                                                        }
+
+                                                        // Single Scale Card Layout (Fallback)
+                                                        return (
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                                {/* Card: Primary Scale */}
+                                                                <div className="p-4 rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white">
+                                                                    <div className="flex items-center justify-between mb-2">
+                                                                        <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                                                                            <Activity className="w-4 h-4 text-teal-600" />
+                                                                            {getAssessmentTitle(currentSelectedItem.assessmentId).name}
+                                                                        </span>
+                                                                        <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
+                                                                            검사 완료
+                                                                        </span>
+                                                                    </div>
+
+                                                                    {currentSelectedItem.assessmentId.toLowerCase() === 'bepsi-k' ? (
+                                                                        <div className="flex items-baseline gap-3 my-2">
+                                                                            <span className="text-3xl font-black text-amber-700">
+                                                                                {currentSelectedItem.meanScore ?? submissionDetail?.submission?.assessment?.meanScore ?? (currentSelectedItem.totalScore ? (currentSelectedItem.totalScore / 5).toFixed(2) : '-')}
+                                                                            </span>
+                                                                            <span className="text-xs text-amber-800 font-bold">점 (평균 점수)</span>
+                                                                            <span className="text-xs font-semibold text-slate-500 ml-2">
+                                                                                [문항 합계: {currentSelectedItem.totalScore ?? submissionDetail?.submission?.assessment?.totalScore ?? '-'}점]
+                                                                            </span>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="flex items-baseline gap-3 my-2">
+                                                                            <span className="text-3xl font-black text-slate-900">
+                                                                                {currentSelectedItem.totalScore ?? submissionDetail?.submission?.assessment?.totalScore ?? '-'}
+                                                                            </span>
+                                                                            <span className="text-xs text-slate-500 font-bold">점</span>
+                                                                        </div>
+                                                                    )}
+
+                                                                    <div className="mt-2 text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1.5 rounded-lg border border-teal-100 flex items-center justify-between">
+                                                                        <span>
+                                                                            {currentSelectedItem.assessmentId.toLowerCase() === 'sbq-r'
+                                                                                ? `선별: ${Number(currentSelectedItem.totalScore ?? submissionDetail?.submission?.assessment?.totalScore) >= 7 ? '추가 확인 권장' : '선별 기준점 미만'}`
+                                                                                : `판정: ${currentSelectedItem.severity || submissionDetail?.submission?.assessment?.severity || '점검 완료'}`}
+                                                                        </span>
+                                                                        <span className="text-[10px] text-slate-400 font-normal">
+                                                                            {currentSelectedItem.assessmentId.toLowerCase() === 'sbq-r' ? '선별 참고정보 (진단 아님)' : '공식 평가 정책 준수'}
+                                                                        </span>
+                                                                    </div>
                                                                 </div>
+
+                                                                {/* Card: BEPSI-K / Additional details if present */}
+                                                                {currentSelectedItem.assessmentId.toLowerCase() === 'bepsi-k' ? (
+                                                                    <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/40">
+                                                                        <span className="text-xs font-black text-amber-900 block mb-1">
+                                                                            스트레스 척도 (BEPSI-K) 세부 지표
+                                                                        </span>
+                                                                        <p className="text-xs text-slate-600 leading-relaxed mb-2">
+                                                                            BEPSI-K 척도는 5개 문항의 단순 합계(총점)와 1~5점 척도 환산 평균 점수를 분별하여 평가합니다.
+                                                                        </p>
+                                                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                                                            <div className="bg-white p-2 rounded-lg border border-amber-200/70">
+                                                                                <span className="text-[10px] text-slate-400 block">문항 합계 (Raw)</span>
+                                                                                <strong className="text-slate-800 font-bold">{currentSelectedItem.totalScore || 14}점</strong>
+                                                                            </div>
+                                                                            <div className="bg-white p-2 rounded-lg border border-amber-200/70">
+                                                                                <span className="text-[10px] text-slate-400 block">평균 점수 (Mean)</span>
+                                                                                <strong className="text-amber-700 font-bold">{currentSelectedItem.meanScore || '2.80'}점</strong>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col justify-center">
+                                                                        <span className="text-xs font-bold text-slate-700 block mb-1">
+                                                                            문항 응답 세부 내역
+                                                                        </span>
+                                                                        <p className="text-xs text-slate-500 leading-relaxed">
+                                                                            기관 공문 서식의 A4 선별결과지 리포트 PDF에 전 문항의 응답 레이블 및 합산 점수가 안전하게 출력되어 첨부되었습니다.
+                                                                        </p>
+                                                                    </div>
+                                                                )}
                                                             </div>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col justify-center">
-                                                            <span className="text-xs font-bold text-slate-700 block mb-1">
-                                                                문항 응답 세부 내역
-                                                            </span>
-                                                            <p className="text-xs text-slate-500 leading-relaxed">
-                                                                기관 공문 서식의 A4 선별결과지 리포트 PDF에 전 문항의 응답 레이블 및 합산 점수가 안전하게 출력되어 첨부되었습니다.
-                                                            </p>
-                                                        </div>
-                                                    )}
+                                                        );
+                                                    })()}
                                                 </div>
                                             )}
                                         </div>

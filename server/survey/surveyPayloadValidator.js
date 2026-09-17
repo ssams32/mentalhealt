@@ -53,6 +53,12 @@ const ALLOWED_ASSESSMENT_KEYS = new Set([
     'resultLabel',
     'scoringPolicyId',
     'scaleScores',
+    'scales',
+    'phq9',
+    'gad7',
+    'isik',
+    'bepsik',
+    'sbqr',
     'riskFlag',
     'completedAt',
     'questionSetVersion',
@@ -228,6 +234,31 @@ export class SurveyPayloadValidator {
             this._validateGad7(assessment, responses);
         } else if (assessmentId === SURVEY_ASSESSMENT_IDS.ISI_K) {
             this._validateIsiK(assessment, responses);
+        }
+
+        // Validate nested 5-scale scores if present in scaleScores object
+        const nestedScales = assessment.scaleScores || assessment.scales;
+        if (nestedScales && typeof nestedScales === 'object') {
+            const bepsiObj = nestedScales.bepsik || nestedScales['bepsi-k'];
+            if (bepsiObj && typeof bepsiObj === 'object') {
+                this._validateBepsiK(bepsiObj, bepsiObj, bepsiObj.responses || bepsiObj.answers);
+            }
+            const sbqrObj = nestedScales.sbqr || nestedScales['sbq-r'];
+            if (sbqrObj && typeof sbqrObj === 'object') {
+                this._validateSbqR(sbqrObj, sbqrObj, sbqrObj.responses || sbqrObj.answers);
+            }
+            const phqObj = nestedScales.phq9 || nestedScales['phq-9'];
+            if (phqObj && typeof phqObj === 'object') {
+                this._validatePhq9(phqObj, phqObj.responses || phqObj.answers);
+            }
+            const gadObj = nestedScales.gad7 || nestedScales['gad-7'];
+            if (gadObj && typeof gadObj === 'object') {
+                this._validateGad7(gadObj, gadObj.responses || gadObj.answers);
+            }
+            const isiObj = nestedScales.isik || nestedScales['isi-k'];
+            if (isiObj && typeof isiObj === 'object') {
+                this._validateIsiK(isiObj, isiObj.responses || isiObj.answers);
+            }
         }
     }
 

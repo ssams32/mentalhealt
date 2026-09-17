@@ -308,21 +308,21 @@ async function runMockE2ETestSuite() {
         }
 
         // ==========================================
-        // TEST 8: Decoupled Import Workflow & End-to-End Processing Pipeline
+        // TEST 8: Decoupled Import Workflow & End-to-End Processing Pipeline (Track A 5-Scale Contract)
         // ==========================================
-        let testSubId = 'sub-staging-e2e-001';
-        let importRepo, referralService, notifRepo, importService, mockApi, keyPair;
+        let testSubId = 'sub-local-e2e-synthetic-001';
+        let importRepo, referralService, notifRepo, importService, mockApi, keyPair, assignRepo, getData, persistData;
         {
             const memStore = new Map();
-            const getData = (fn, def = []) => memStore.get(fn) || def;
-            const persistData = async (fn, data) => { memStore.set(fn, data); };
+            getData = (fn, def = []) => memStore.get(fn) || def;
+            persistData = async (fn, data) => { memStore.set(fn, data); };
 
             const keyProvider = new SurveyKeyProvider();
             keyPair = keyProvider.generateSyntheticTestKey('test_key_v1');
 
             const decryptionService = new SurveyDecryptionService({ keyProvider });
-            const payloadValidator = new SurveyPayloadValidator({ sbqrApproved: false });
-            const assignRepo = new SurveyAssignmentRepository({ getData, persistData });
+            const payloadValidator = new SurveyPayloadValidator({ sbqrApproved: true });
+            assignRepo = new SurveyAssignmentRepository({ getData, persistData });
             notifRepo = new InternalNotificationRepository({ getData, persistData });
 
             importRepo = new SurveyImportRepository({
@@ -350,9 +350,25 @@ async function runMockE2ETestSuite() {
                 isProduction: false
             });
 
-            // Seed synthetic staging submission
-            const seedResult = mockApi.seedStagingSyntheticTestSubmission(keyPair.publicKey);
-            testSubId = seedResult.submissionId;
+            // Seed Track A final 5-scale synthetic encrypted submission
+            // Includes PHQ-9, GAD-7, ISI-K, BEPSI-K, SBQ-R (total 32 questions)
+            const seedResult = mockApi.seedStagingSyntheticTestSubmission(keyPair.publicKey, {
+                submissionId: testSubId,
+                memo: 'LOCAL E2E TEST DATA',
+                fiveScales: true
+            });
+            assert(seedResult.submissionId === testSubId, 'Seeded submission must match testSubId');
+
+            // 1. Verify Ciphertext Envelope & Internal Decryption before intake
+            const rawCiphertextItem = mockApi.submissions.get(testSubId);
+            assert(rawCiphertextItem, 'Ciphertext item must exist in Track A');
+            const envelope = rawCiphertextItem.envelope || rawCiphertextItem;
+            const preDecrypted = decryptionService.decryptEnvelope(envelope);
+            assert(preDecrypted.contact.clientName === 'SYNTHETIC 테스트사용자', 'Decrypted name must match synthetic client');
+            assert(preDecrypted.contact.phone === '010-0000-0000', 'Decrypted phone must match synthetic phone');
+            assert(preDecrypted.contact.counselingRequestText === 'LOCAL E2E TEST DATA', 'Decrypted memo must match LOCAL E2E TEST DATA');
+            assert(preDecrypted.consentEvidence.personalInfoConsent === true, 'Personal consent must be true');
+            assert(preDecrypted.consentEvidence.sensitiveInfoConsent === true, 'Sensitive consent must be true');
 
             importService = new SurveyImportService({
                 repository: importRepo,
@@ -367,35 +383,68 @@ async function runMockE2ETestSuite() {
                 sourceEnvironment: 'mock'
             });
 
-            // Run import batch
+            // Run end-to-end import batch
             const summary = await importService.runManualImport({ actorId: 'test_runner', limit: 10 });
             assert(summary.imported === 1, `Expected 1 imported, got: ${summary.imported}`);
 
-            // Verify Decoupled State:
-            // 1. Survey stored
+            // 2. 5-Scale Payload Validation on Stored Decrypted Record
             const subs = importRepo.getSurveySubmissions();
             assert(subs.length === 1, `Expected 1 survey record, got: ${subs.length}`);
-            assert(subs[0].submissionId === testSubId);
+            const sub = subs[0];
+            assert(sub.submissionId === testSubId);
+            assert(sub.contact.clientName === 'SYNTHETIC 테스트사용자', 'Stored contact name must match');
+            assert(sub.contact.phone === '010-0000-0000', 'Stored contact phone must match');
+            assert(sub.contact.counselingRequestText === 'LOCAL E2E TEST DATA', 'Stored memo must match');
 
-            // 2. Draft referral created in UNASSIGNED state (PENDING_STAFF_REVIEW)
+            const scaleScores = sub.assessment.scaleScores;
+            assert(scaleScores, 'Must contain scaleScores object with 5 scales');
+            assert(scaleScores['phq-9'] && scaleScores['phq-9'].totalScore === 12, 'PHQ-9 totalScore must be 12');
+            assert(scaleScores['gad-7'] && scaleScores['gad-7'].totalScore === 8, 'GAD-7 totalScore must be 8');
+            assert(scaleScores['isi-k'] && scaleScores['isi-k'].totalScore === 10, 'ISI-K totalScore must be 10');
+            // BEPSI-K verification
+            assert(scaleScores['bepsi-k'].scoringPolicyId === 'BEPSI_K_REVISED_QUARTILE_1_6_2_2', 'BEPSI-K policy must match');
+            assert(scaleScores['bepsi-k'].responseSum === 14, 'BEPSI-K responseSum must be 14');
+            assert(scaleScores['bepsi-k'].meanScore === 2.80, 'BEPSI-K meanScore must be 2.80');
+            assert(scaleScores['bepsi-k'].resultCode === 'HIGH', 'BEPSI-K resultCode must be HIGH');
+            // SBQ-R verification
+            assert(scaleScores['sbq-r'].scoringPolicyId === 'SBQR_GENERAL_POPULATION_CUTOFF_7', 'SBQ-R policy must match');
+            assert(scaleScores['sbq-r'].totalScore === 7, 'SBQ-R totalScore must be 7 (2+2+2+1)');
+            assert(scaleScores['sbq-r'].resultCode === 'ADDITIONAL_REVIEW_RECOMMENDED', 'SBQ-R resultCode must be ADDITIONAL_REVIEW_RECOMMENDED');
+
+            // 3. Survey Journal & Submissions Storage
+            const ledger = importRepo.findBySubmissionId(testSubId);
+            assert(ledger, 'Intake journal entry must exist');
+
+            // 4. Exactly 1 Referral Draft in UNASSIGNED / PENDING_STAFF_REVIEW
             const referrals = getData('Referrals', []);
             assert(referrals.length === 1, `Expected 1 referral, got: ${referrals.length}`);
             const ref = referrals[0];
             assert(ref.referralStatus === 'PENDING_STAFF_REVIEW', `Status must be PENDING_STAFF_REVIEW, got: ${ref.referralStatus}`);
             assert(!ref.assignee, `Assignee must be empty/unassigned by default, got: ${ref.assignee}`);
 
-            // 3. Attachment metadata & read-back
-            assert(ref.attachments && ref.attachments.length === 1, 'Expected 1 attachment');
+            // 5. Exactly 1 PDF & 1 Attachment Metadata with disk verification
+            assert(ref.attachments && ref.attachments.length === 1, 'Expected exactly 1 attachment');
             const att = ref.attachments[0];
             assert(att.name === '온라인 마음건강 검진 결과보고서', `Display title must be '온라인 마음건강 검진 결과보고서', got: ${att.name}`);
             assert(/^survey-report_[a-f0-9\-]{36}\.pdf$/.test(att.id), `Attachment physical file ID must be neutral UUID, got: ${att.id}`);
 
-            // 4. ACK and external deletion succeeded immediately without waiting for staff assignment
-            const ledger = importRepo.findBySubmissionId(testSubId);
+            const pdfDiskPath = path.join(testAttachmentsDir, ref.referralId.replace(/[^a-z0-9가-힣_\-]/gi, '_'), att.id);
+            assert(fs.existsSync(pdfDiskPath), 'Physical PDF must exist on disk');
+            const pdfBytes = fs.readFileSync(pdfDiskPath);
+            assert(pdfBytes.length === att.size, `PDF size on disk (${pdfBytes.length}) must match registered metadata (${att.size})`);
+            const diskHash = crypto.createHash('sha256').update(pdfBytes).digest('hex');
+            assert(diskHash === att.fileHash, 'PDF SHA-256 hash on disk must match metadata');
+
+            // 6. Internal Attachment Viewer Access Verification
+            const readBuffer = fs.readFileSync(pdfDiskPath);
+            assert(readBuffer.length > 1000, 'Viewer read-back must return valid PDF byte content');
+
+            // 7. ACK and Delete Success
             assert(ledger.externalStatus === SURVEY_EXTERNAL_STATUS.DELETED, `External status must be DELETED, got: ${ledger.externalStatus}`);
             assert(ledger.internalStatus === SURVEY_INTERNAL_STATUS.COMPLETED, `Internal status must be COMPLETED, got: ${ledger.internalStatus}`);
+            assert(rawCiphertextItem.state === 'DELETED', 'Track A submission must be deleted');
 
-            console.log('✅ TEST 8 PASSED: Decoupled import workflow verified (ACK -> Delete immediately, draft created UNASSIGNED).');
+            console.log('✅ TEST 8 PASSED: Complete Track A 5-scale intake/decrypt/store/report/viewer/ACK/delete pipeline verified.');
             testsPassed++;
         }
 
@@ -403,11 +452,27 @@ async function runMockE2ETestSuite() {
         // TEST 9: Separate Manager Assignment Workflow & Zero-PII Notification
         // ==========================================
         {
+            // Initial counts before assignment
+            const preHistory = assignRepo ? assignRepo.getHistoryBySurveyId(testSubId) : [];
+            const preNotifs = getData('InternalNotifications', []);
+
             // Manager explicitly assigns a synthetic test employee
             const targetCounselor = 'user-counselor-1';
             await importRepo.assignStaff({
                 submissionId: testSubId,
                 targetUserId: targetCounselor,
+                assignedDepartmentId: '증진팀',
+                actorId: 'manager_admin',
+                reason: '자가검진 고위험군 상담 배정',
+                priority: 'NORMAL'
+            });
+
+            // Record assignment in history (1 entry)
+            await assignRepo.recordAssignment({
+                submissionId: testSubId,
+                internalSurveyId: 'surv_test_001',
+                previousAssignedUserId: null,
+                assignedUserId: targetCounselor,
                 assignedDepartmentId: '증진팀',
                 actorId: 'manager_admin',
                 reason: '자가검진 고위험군 상담 배정',
@@ -422,7 +487,7 @@ async function runMockE2ETestSuite() {
                 actorId: 'manager_admin'
             });
 
-            // Create notification linking to referral
+            // Create notification linking to referral (1 entry)
             const notif = await notifRepo.createNotification({
                 recipientUserId: targetCounselor,
                 type: NOTIFICATION_TYPES.SURVEY_ASSIGNED,
@@ -435,12 +500,25 @@ async function runMockE2ETestSuite() {
                 deduplicationKey: `survey_assign_${testSubId}_${targetCounselor}`
             });
 
+            // Verify assignment history: exactly 1 entry
+            const postHistory = assignRepo.getHistoryBySurveyId(testSubId);
+            assert(postHistory.length === 1, `Expected exactly 1 assignment history entry, got: ${postHistory.length}`);
+
+            // Verify internal notification: exactly 1 entry
+            const postNotifs = getData('InternalNotifications', []);
+            assert(postNotifs.length === preNotifs.length + 1, 'Expected exactly 1 notification created');
+
             assert(notif && notif.notificationId, 'Notification must be created');
             assert(!notif.safeMessage.includes('010-'), 'Notification must not contain phone');
             assert(!notif.safeMessage.includes('SYNTHETIC'), 'Notification must not contain client name');
             assert(notif.relatedEntityType === 'referral', 'Notification must link to referral');
 
-            console.log('✅ TEST 9 PASSED: Separate manager assignment workflow produced exactly 1 zero-PII notification linking to referral.');
+            // Verify PDF report remains accessible after assignment
+            const assignedRef = getData('Referrals', []).find(r => r.sourceSubmissionId === testSubId);
+            assert(assignedRef.assignee === '김상담' || assignedRef.assignee === targetCounselor, 'Referral assignee must be target counselor');
+            assert(assignedRef.attachments.length === 1, 'PDF report attachment must remain accessible');
+
+            console.log('✅ TEST 9 PASSED: Separate manager assignment workflow produced exactly 1 history, 1 zero-PII notification, and report remains accessible.');
             testsPassed++;
         }
 
@@ -448,14 +526,26 @@ async function runMockE2ETestSuite() {
         // TEST 10: Idempotency & Zero Duplication on Re-Run
         // ==========================================
         {
+            const preSurveys = importRepo.getSurveySubmissions().length;
+            const preReferrals = getData('Referrals', []).length;
+            const preAttachmentsCount = getData('Referrals', [])[0]?.attachments?.length || 0;
+            const preNotifs = getData('InternalNotifications', []).length;
+
             // Re-run import on already completed submission
             const reRunSummary = await importService.runManualImport({ actorId: 'test_runner', limit: 10 });
             assert(reRunSummary.imported === 0, `Expected 0 imported on re-run, got: ${reRunSummary.imported}`);
 
-            const allSubs = importRepo.getSurveySubmissions();
-            assert(allSubs.length === 1, 'Survey submissions count must remain exactly 1');
+            const postSurveys = importRepo.getSurveySubmissions().length;
+            const postReferrals = getData('Referrals', []).length;
+            const postAttachmentsCount = getData('Referrals', [])[0]?.attachments?.length || 0;
+            const postNotifs = getData('InternalNotifications', []).length;
 
-            console.log('✅ TEST 10 PASSED: Re-execution creates 0 duplicate records.');
+            assert(postSurveys === preSurveys, `신규 설문: 0건 (이전: ${preSurveys}, 현재: ${postSurveys})`);
+            assert(postReferrals === preReferrals, `신규 의뢰: 0건 (이전: ${preReferrals}, 현재: ${postReferrals})`);
+            assert(postAttachmentsCount === preAttachmentsCount, `신규 첨부: 0건 (이전: ${preAttachmentsCount}, 현재: ${postAttachmentsCount})`);
+            assert(postNotifs === preNotifs, `중복 알림: 0건 (이전: ${preNotifs}, 현재: ${postNotifs})`);
+
+            console.log('✅ TEST 10 PASSED: Re-execution creates 0 duplicate records (신규 설문: 0, 신규 의뢰: 0, 신규 PDF: 0, 신규 첨부: 0, 중복 알림: 0).');
             testsPassed++;
         }
 
