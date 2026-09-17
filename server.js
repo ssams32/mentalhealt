@@ -35,6 +35,28 @@ import {
     VoiceAccessAuthorizer
 } from './server/voice-access/index.js';
 
+// --- Track B: Internal Survey Administration & Import ---
+import {
+    SurveyKeyProvider,
+    SurveyDecryptionService,
+    SurveyPayloadValidator,
+    SurveyImportRepository,
+    SurveyImportService,
+    SurveyAssignmentRepository,
+    SurveyExportService,
+    SurveyReportGenerator,
+    SurveyReferralService,
+    TrackAClient,
+    createSurveyImportRouter,
+    MockTrackAApi
+} from './server/survey/index.js';
+
+// --- In-App Internal Notifications ---
+import {
+    InternalNotificationRepository,
+    createNotificationRouter
+} from './server/notifications/index.js';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -134,17 +156,6 @@ if (!fs.existsSync(DATA_DIR)) {
 if (!fs.existsSync(ATTACHMENTS_DIR)) {
     fs.mkdirSync(ATTACHMENTS_DIR, { recursive: true });
 }
-
-// [Fix] Legacy URL Rewrite Middleware
-app.use('/attachments', (req, res, next) => {
-    const url = decodeURIComponent(req.url);
-    if (url.includes('이천센터의뢰관리 파일저장소')) {
-        req.url = req.url.replace(/이천센터의뢰관리 파일저장소\/의뢰관리 첨부파일/, 'legacy')
-            .replace(/이천센터의뢰관리 파일저장소/, 'legacy');
-    }
-    next();
-});
-app.use('/attachments', express.static(ATTACHMENTS_DIR));
 
 // ==========================================
 // 💾 IN-MEMORY CACHE & ASYNC PERSISTENCE
@@ -316,6 +327,34 @@ const authRouter = createAuthRouter(authService, requireAuth);
 
 app.use('/api/auth', authRouter);
 
+// ==========================================
+// 📁 ATTACHMENTS (Protected Internal File Access)
+// ==========================================
+// [Fix] Legacy URL Rewrite Middleware
+app.use('/attachments', (req, res, next) => {
+    const url = decodeURIComponent(req.url);
+    if (url.includes('이천센터의뢰관리 파일저장소')) {
+        req.url = req.url.replace(/이천센터의뢰관리 파일저장소\/의뢰관리 첨부파일/, 'legacy')
+            .replace(/이천센터의뢰관리 파일저장소/, 'legacy');
+    }
+    next();
+});
+
+// Protect /attachments with session authentication, cache prevention, and inline disposition for PDFs
+app.use('/attachments', requireAuth, (req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    next();
+}, express.static(ATTACHMENTS_DIR, {
+    setHeaders: (res, filePath) => {
+        if (filePath.toLowerCase().endsWith('.pdf')) {
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', 'inline');
+        }
+    }
+}));
+
 // Capability inspection endpoint (Minimal UI helper only; server enforces checks per request)
 app.get('/api/auth/capabilities', requireAuth, (req, res) => {
     const caps = getEffectiveVoiceCapabilities(req.auth);
@@ -389,6 +428,205 @@ const voiceCallRouter = createVoiceCallRouter({
 
 app.use('/api/voice-calls', audioStreamingRouter);
 app.use('/api/voice-calls', voiceCallRouter);
+
+// ==========================================
+// 📋 TRACK B: INTERNAL SURVEY IMPORT & MANAGEMENT
+// ==========================================
+// 1. Explicit Mode Resolution (Default: 'mock')
+const rawSurveyTrackAMode = (process.env.SURVEY_TRACK_A_MODE || 'mock').trim().toLowerCase();
+const VALID_SURVEY_TRACK_A_MODES = ['mock', 'staging', 'production'];
+if (!VALID_SURVEY_TRACK_A_MODES.includes(rawSurveyTrackAMode)) {
+    console.error(`❌ [FATAL_CONFIG_ERROR] Invalid SURVEY_TRACK_A_MODE: "${process.env.SURVEY_TRACK_A_MODE}". Must be one of: 'mock', 'staging', 'production'.`);
+    throw new Error(`[FATAL] Invalid SURVEY_TRACK_A_MODE: "${process.env.SURVEY_TRACK_A_MODE}". Must be 'mock', 'staging', or 'production'.`);
+}
+const surveyTrackAMode = rawSurveyTrackAMode;
+console.log(`🔒 [SURVEY_CONFIG] Active execution mode: SURVEY_TRACK_A_MODE=${surveyTrackAMode}`);
+
+// 2. Production Mode Fail-Closed Validation
+if (surveyTrackAMode === 'production') {
+    const requiredProductionEnvVars = [
+        'TRACK_A_BASE_URL',
+        'TRACK_B_SERVICE_SECRET',
+        'TRACK_B_WORKER_ID',
+        'SURVEY_PRIVATE_KEY_PATH',
+        'TRACK_A_REQUEST_TIMEOUT_MS',
+        'TRACK_A_MAX_BATCH_SIZE',
+        'TRACK_A_DEFAULT_LEASE_SECONDS'
+    ];
+
+    const missingVars = requiredProductionEnvVars.filter(varName => !process.env[varName] || !process.env[varName].trim());
+    if (missingVars.length > 0) {
+        console.error(`❌ [FATAL_CONFIG_ERROR] Production mode requires all mandatory variables. Missing or empty: ${missingVars.join(', ')}`);
+        throw new Error(`[FATAL] Missing required production environment variables: ${missingVars.join(', ')}. Server fail-closed.`);
+    }
+}
+
+// 3. Staging Mode Validation
+if (surveyTrackAMode === 'staging') {
+    const requiredStagingEnvVars = [
+        'TRACK_A_BASE_URL',
+        'TRACK_B_SERVICE_SECRET',
+        'TRACK_B_WORKER_ID',
+        'SURVEY_PRIVATE_KEY_PATH'
+    ];
+    const missingStagingVars = requiredStagingEnvVars.filter(varName => !process.env[varName] || !process.env[varName].trim());
+    if (missingStagingVars.length > 0) {
+        console.error(`❌ [FATAL_CONFIG_ERROR] Staging mode requires all mandatory variables. Missing or empty: ${missingStagingVars.join(', ')}`);
+        throw new Error(`[FATAL] Missing required staging environment variables: ${missingStagingVars.join(', ')}. Server fail-closed.`);
+    }
+}
+
+// 4. Key Provider Initialization and Permissions Validation
+const surveyPrivateKeyPath = process.env.SURVEY_PRIVATE_KEY_PATH || (surveyTrackAMode === 'mock' ? path.join(__dirname, '.mock_survey_private_key') : null);
+
+const surveyKeyProvider = new SurveyKeyProvider({
+    secretPath: surveyPrivateKeyPath
+});
+
+if (surveyTrackAMode === 'production' || surveyTrackAMode === 'staging') {
+    // Fail closed if key file missing, unreadable, or invalid PEM format. Never fallback to Mock!
+    try {
+        surveyKeyProvider.validateKeyFilePermissions();
+        console.log(`🔑 [SURVEY_CONFIG] Survey private key verified at: ${surveyPrivateKeyPath}`);
+    } catch (keyErr) {
+        console.error(`❌ [FATAL_KEY_ERROR] ${keyErr.message}`);
+        throw new Error(`[FATAL] Survey private key is unavailable or unreadable in ${surveyTrackAMode} mode: ${keyErr.message}. Server fail-closed and will NOT fallback to mock.`);
+    }
+} else {
+    // Mock mode: If secret file does not exist, initialize synthetic test key
+    if (!fs.existsSync(surveyKeyProvider.secretPath)) {
+        surveyKeyProvider.generateSyntheticTestKey('test_key_v1');
+        console.log(`🌱 [SURVEY_CONFIG] Mock mode: initialized in-memory synthetic RSA key (test_key_v1).`);
+    }
+}
+
+const surveyDecryptionService = new SurveyDecryptionService({
+    keyProvider: surveyKeyProvider
+});
+
+const surveyPayloadValidator = new SurveyPayloadValidator({
+    sbqrApproved: process.env.SBQR_GATE_APPROVED === 'true'
+});
+
+const surveyAssignmentRepository = new SurveyAssignmentRepository({
+    getData,
+    persistData
+});
+
+const internalNotificationRepository = new InternalNotificationRepository({
+    getData,
+    persistData
+});
+
+const surveyRepository = new SurveyImportRepository({
+    getData,
+    persistData,
+    assignmentRepository: surveyAssignmentRepository,
+    sourceEnvironment: surveyTrackAMode
+});
+
+// Common parameters
+const trackABaseUrl = process.env.TRACK_A_BASE_URL || process.env.TRACK_A_COLLECTION_API_URL;
+const trackBServiceSecret = process.env.TRACK_B_SERVICE_SECRET || process.env.TRACK_B_INTERNAL_PULL_TOKEN;
+const trackBWorkerId = process.env.TRACK_B_WORKER_ID || (surveyTrackAMode === 'mock' ? 'track-b-mock-worker' : 'track-b-worker-1');
+const trackARequestTimeoutMs = Number(process.env.TRACK_A_REQUEST_TIMEOUT_MS) || 10000;
+const trackADefaultLeaseSeconds = Number(process.env.TRACK_A_DEFAULT_LEASE_SECONDS) || 600;
+
+// 5. Explicit Client Selection strictly controlled by SURVEY_TRACK_A_MODE
+let externalSurveyApiClient;
+if (surveyTrackAMode === 'mock') {
+    externalSurveyApiClient = new MockTrackAApi({
+        workerId: trackBWorkerId,
+        isProduction: false
+    });
+    console.log(`🧪 [SURVEY_CONFIG] MockTrackAApi client active (mode=mock).`);
+} else {
+    // staging or production
+    externalSurveyApiClient = new TrackAClient({
+        baseUrl: trackABaseUrl,
+        serviceSecret: trackBServiceSecret,
+        workerId: trackBWorkerId,
+        timeoutMs: trackARequestTimeoutMs,
+        defaultLeaseSeconds: trackADefaultLeaseSeconds
+    });
+    console.log(`🌐 [SURVEY_CONFIG] TrackAClient active (mode=${surveyTrackAMode}, url=${trackABaseUrl}, workerId=${trackBWorkerId}, lease=${trackADefaultLeaseSeconds}s).`);
+}
+
+const surveyReportGenerator = new SurveyReportGenerator();
+const surveyReferralService = new SurveyReferralService({
+    getData,
+    persistData,
+    attachmentsDir: ATTACHMENTS_DIR,
+    reportGenerator: surveyReportGenerator,
+    getUsers: () => getData('Users', []),
+    sourceEnvironment: surveyTrackAMode
+});
+
+const surveyImportService = new SurveyImportService({
+    repository: surveyRepository,
+    decryptionService: surveyDecryptionService,
+    validator: surveyPayloadValidator,
+    externalApiClient: externalSurveyApiClient,
+    referralService: surveyReferralService,
+    assignmentRepository: surveyAssignmentRepository,
+    notificationRepository: internalNotificationRepository,
+    workerId: trackBWorkerId,
+    defaultLeaseSeconds: trackADefaultLeaseSeconds,
+    sourceEnvironment: surveyTrackAMode
+});
+
+const surveyExportService = new SurveyExportService();
+
+const surveyImportRouter = createSurveyImportRouter({
+    requireAuth,
+    surveyImportService,
+    surveyRepository,
+    surveyAssignmentRepository,
+    notificationRepository: internalNotificationRepository,
+    surveyExportService,
+    referralService: surveyReferralService,
+    getUsers: () => getData('Users', [])
+});
+
+const notificationRouter = createNotificationRouter({
+    requireAuth,
+    notificationRepository: internalNotificationRepository
+});
+
+app.use('/api/surveys', surveyImportRouter);
+app.use('/api/notifications', notificationRouter);
+
+// Startup workflow recovery for pending deletions or lease reacquisition
+surveyImportService.recoverPendingWorkflows('startup_recovery').catch(err => {
+    console.error('⚠️ [SURVEY_STARTUP_RECOVERY_ERROR]:', err.message);
+});
+
+// In development/local mock mode, if SurveySubmissions is empty, auto-import seeded synthetic records
+// STRICT ENFORCEMENT: Never seed synthetic records in staging or production mode!
+if (surveyTrackAMode === 'mock' && process.env.NODE_ENV !== 'production') {
+    const existingSubs = surveyRepository.getSurveySubmissions();
+    if (existingSubs.length === 0 && typeof externalSurveyApiClient.seedDefaultSyntheticSubmissions === 'function') {
+        const pubKey = surveyKeyProvider.getPublicKey ? surveyKeyProvider.getPublicKey('test_key_v1') : '';
+        if (pubKey) {
+            externalSurveyApiClient.seedDefaultSyntheticSubmissions(pubKey);
+            surveyImportService.runManualImport({ actorId: 'system_dev_seed', limit: 10 }).then(async (summary) => {
+                console.log(`🌱 [SURVEY_SEED] Auto-imported ${summary.imported} synthetic submissions with draft referrals & PDF reports.`);
+                try {
+                    await surveyRepository.assignStaff({
+                        submissionId: 'sub-demo-002',
+                        targetUserId: 'admin',
+                        assignedDepartmentId: '증진팀',
+                        actorId: 'system',
+                        assignmentPriority: 'NORMAL',
+                        reason: '신규 접수 배정'
+                    });
+                    await surveyReferralService.updateReferralAssignee('sub-demo-002', 'admin', '증진팀', 'system', '신규 접수 배정');
+                } catch (ignore) {}
+            }).catch(e => console.warn('🌱 [SURVEY_SEED] Notice:', e.message));
+        }
+    }
+}
+
 
 
 // --- UTILITIES ---
@@ -558,9 +796,23 @@ app.get('/api/referrals', (req, res) => {
         let referrals = getData('Referrals', []);
         const { team, closureStatus, registrationStatus, view } = req.query;
 
-        // [의뢰관리 정책] 실무 직원 누구나 전체팀 의뢰 현황을 확인하고 공유할 수 있도록 지원
-        // 클라이언트에서 특정 team을 지정하여 요청한 경우에만 해당 부서로 필터링
+        const reqUserId = req.headers['x-user-id'] || req.query.userId;
+        const reqUserRole = req.headers['x-user-role'] || req.query.userRole;
+        let reqUserTeam = req.headers['x-user-team'] || req.query.userTeam;
+        if (reqUserTeam) {
+            try { reqUserTeam = decodeURIComponent(reqUserTeam); } catch {}
+        }
+
+        const users = getData('Users', []);
+        const user = users.find(u => u.id === reqUserId || u.username === reqUserId);
+        const role = user?.role || reqUserRole || 'user';
+        const userTeam = user?.team || reqUserTeam;
+        const canSelectAllTeams = role === 'admin' || (role === 'manager' && user?.permissions?.referrals?.read !== false);
+
         let effectiveTeam = team;
+        if (!canSelectAllTeams && userTeam) {
+            effectiveTeam = userTeam;
+        }
 
         if (effectiveTeam && effectiveTeam !== 'all') {
             referrals = referrals.filter(r => {

@@ -12,6 +12,10 @@ Thumbs.db
 coverage/
 .env
 .env.local
+.env.*
+*.pem
+*.key
+secrets/
 .claude/
 scratch/
 brain/
