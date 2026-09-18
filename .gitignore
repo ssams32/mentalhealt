@@ -73,6 +73,7 @@ Icon
 .test_mock_e2e_tmp_*
 *.pdf
 app/data/mock/
+app/data/staging/
 app/data/attachments/
 
 

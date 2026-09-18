@@ -133,10 +133,18 @@ async function runRealStagingE2ETestSuite() {
 
     console.log('🌐 [STAGING_STEP 01/10] Connecting to Track A staging endpoint...');
     try {
-        const pingOk = await trackAClient.ping();
-        console.log(`🌐 [STAGING_STEP 01/10] Connection established (status=${pingOk ? 'UP' : 'UNKNOWN'})`);
+        const cap = await trackAClient.checkCapabilities();
+        console.log(`🌐 [STAGING_STEP 01/10] Capabilities verified (status=UP, encryptedAvailable=${cap.encryptedCounselingSubmissionAvailable}, storageStatus=${cap.storageStatus}, vercelEnv=${cap.vercelEnv})`);
+        if (!cap.valid) {
+            console.error('❌ [STAGING_CAPABILITIES_MISMATCH] Track A capabilities do not meet required staging contract.');
+            process.exit(1);
+        }
     } catch (netErr) {
-        console.error(`❌ [STAGING_NETWORK_ERROR] Cannot connect to Track A staging (${validatedBaseUrl}): ${netErr.message}`);
+        if (netErr.trackACode === 'PREVIEW_DEPLOYMENT_PROTECTION_BLOCKED') {
+            console.error('❌ [STAGING_AUTH_ERROR] PREVIEW_DEPLOYMENT_PROTECTION_BLOCKED: Track A preview requires valid Vercel protection bypass.');
+        } else {
+            console.error(`❌ [STAGING_NETWORK_ERROR] Cannot connect to Track A staging (${validatedBaseUrl}): ${netErr.message}`);
+        }
         process.exit(1);
     }
 

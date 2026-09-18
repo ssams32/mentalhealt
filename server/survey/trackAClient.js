@@ -33,6 +33,7 @@ export class TrackAClient {
         this.workerId = config.workerId;
         this.timeoutMs = Number(config.timeoutMs) || 10000;
         this.defaultLeaseSeconds = Number(config.defaultLeaseSeconds) || 300;
+        this.vercelBypassSecret = config.vercelBypassSecret || process.env.TRACK_A_VERCEL_BYPASS_SECRET || '';
 
         // Security check: enforce HTTPS in production
         if (process.env.NODE_ENV === 'production' && !this.baseUrl.startsWith('https://')) {
@@ -62,6 +63,10 @@ export class TrackAClient {
             'Accept': 'application/json'
         };
 
+        if (this.vercelBypassSecret) {
+            headers['x-vercel-protection-bypass'] = this.vercelBypassSecret;
+        }
+
         if (body) {
             headers['Content-Type'] = 'application/json';
         }
@@ -82,9 +87,12 @@ export class TrackAClient {
                 data = await resp.json().catch(() => null);
             } else {
                 const text = await resp.text().catch(() => '');
+                const isVercelBlocked = text.includes('data-dpl-id') || text.includes('dash') || text.includes('login') || resp.headers.get('x-matched-path') === '/login';
                 throw new TrackAIntegrationError({
-                    message: `Unexpected response format from Track A (HTTP ${resp.status}): not JSON`,
-                    trackACode: 'NON_JSON_RESPONSE',
+                    message: isVercelBlocked
+                        ? 'PREVIEW_DEPLOYMENT_PROTECTION_BLOCKED'
+                        : `Unexpected response format from Track A (HTTP ${resp.status}): not JSON`,
+                    trackACode: isVercelBlocked ? 'PREVIEW_DEPLOYMENT_PROTECTION_BLOCKED' : 'NON_JSON_RESPONSE',
                     statusCode: resp.status,
                     submissionId
                 });
@@ -117,6 +125,41 @@ export class TrackAClient {
                 submissionId
             });
         }
+    }
+
+    /**
+     * Check Track A service capabilities.
+     * Validates:
+     * - HTTP 200
+     * - Content-Type application/json
+     * - encryptedCounselingSubmissionAvailable === true
+     * - storageStatus === 'READY'
+     * - vercelEnv === 'preview'
+     */
+    async checkCapabilities() {
+        const data = await this._request('/api/v1/capabilities', { method: 'GET' });
+        const vercelEnv = data?.vercelEnv || data?.safeMeta?.vercelEnv;
+        const valid = Boolean(
+            data &&
+            data.encryptedCounselingSubmissionAvailable === true &&
+            data.storageStatus === 'READY' &&
+            vercelEnv === 'preview'
+        );
+        return {
+            valid,
+            data,
+            encryptedCounselingSubmissionAvailable: data?.encryptedCounselingSubmissionAvailable,
+            storageStatus: data?.storageStatus,
+            vercelEnv
+        };
+    }
+
+    /**
+     * Connectivity ping alias delegating to checkCapabilities().
+     */
+    async ping() {
+        const cap = await this.checkCapabilities();
+        return cap.valid;
     }
 
     /**

@@ -76,8 +76,9 @@ export const SBQR_RESULT_CODES = Object.freeze({
 
 export const SUPPORTED_ENVELOPE_SCHEMA_VERSIONS = Object.freeze(['1.0.0', '1.0', 'v1.0']);
 export const SUPPORTED_PAYLOAD_SCHEMA_VERSIONS = Object.freeze(['1.0.0', '1.0', 'v1.0']);
-export const SUPPORTED_KEY_VERSIONS = Object.freeze(['k2026_01', 'test_key_v1']);
+export const SUPPORTED_KEY_VERSIONS = Object.freeze(['v1-2026', 'k2026_01', 'test_key_v1']);
 export const SUPPORTED_ALGORITHMS = Object.freeze([
+    'AES-GCM-256/RSA-OAEP-SHA256',
     'AES-256-GCM+RSA-OAEP-SHA256',
     'RSA-OAEP-256+AES-256-GCM',
     'RSA-OAEP+AES-GCM',
