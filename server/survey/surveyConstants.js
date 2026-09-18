@@ -38,6 +38,7 @@ export const SURVEY_ASSESSMENT_IDS = Object.freeze({
     ISI_K: 'isi-k',
     BEPSI_K: 'bepsi-k',
     SBQ_R: 'sbq-r',
+    ICHEON_SCREENING_23: 'icheon-screening-23',
     CONTACT_ONLY: 'contact-only'
 });
 

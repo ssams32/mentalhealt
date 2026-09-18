@@ -80,6 +80,11 @@ export class SurveyReferralService {
                 return `[온라인 검진 접수] 척도: SBQ-R, 총점: ${totalScore}, 선별결과: ${severity} (선별검진결과지 첨부)`;
             }
 
+            if (assessmentId === 'icheon-screening-23') {
+                const riskLabel = assessment.risk?.label || assessment.risk?.level || '5개 척도 종합 선별';
+                return `[온라인 종합검진 접수] 5개 척도 종합검진 (PHQ-9, GAD-7, ISI-K, BEPSI-K, SBQ-R), 선별판정: ${riskLabel} (선별검진결과지 첨부)`;
+            }
+
             const totalScore = assessment.totalScore !== undefined && assessment.totalScore !== null ? `${assessment.totalScore}점` : '-';
             const severity = assessment.severity || '미분류';
             return `[온라인 검진 접수] 척도: ${scaleName}, 총점: ${totalScore}, 심각도: ${severity} (선별검진결과지 첨부)`;

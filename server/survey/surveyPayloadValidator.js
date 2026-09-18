@@ -25,21 +25,47 @@ const ALLOWED_TOP_LEVEL_KEYS = new Set([
     'scoringPolicyId',
     'contactOnly',
     'submittedAt',
+    'requestedAt',
     'completedAt',
     'consentEvidence',
+    'consent',
     'contact',
+    'identity',
     'assessment',
-    'retention'
+    'retention',
+    'retentionPolicyReference',
+    'scaleScores'
 ]);
 
 const ALLOWED_CONTACT_KEYS = new Set([
     'clientName',
+    'name',
     'phone',
     'gender',
     'birthDate',
     'region',
     'address',
-    'counselingRequestText'
+    'counselingRequestText',
+    'note',
+    'preferredTime',
+    'demographics'
+]);
+
+const ALLOWED_DEMOGRAPHICS_KEYS = new Set([
+    'age',
+    'region',
+    'worker',
+    'customer'
+]);
+
+const ALLOWED_CONSENT_KEYS = new Set([
+    'personalInfoConsent',
+    'sensitiveInfoConsent',
+    'contactOnlySubmission',
+    'consentVersion',
+    'consentedAt',
+    'assessmentDataIncluded',
+    'transmittedFieldSet'
 ]);
 
 const ALLOWED_ASSESSMENT_KEYS = new Set([
@@ -54,6 +80,8 @@ const ALLOWED_ASSESSMENT_KEYS = new Set([
     'scoringPolicyId',
     'scaleScores',
     'scales',
+    'scores',
+    'risk',
     'phq9',
     'gad7',
     'isik',
@@ -65,8 +93,127 @@ const ALLOWED_ASSESSMENT_KEYS = new Set([
     'assessmentVersion'
 ]);
 
+const ALLOWED_SCORES_KEYS = new Set([
+    'phq',
+    'phqLevel',
+    'phqQ9',
+    'gad',
+    'gadLevel',
+    'isi',
+    'isiLevel',
+    'bepsi',
+    'sbqr',
+    'bepsik',
+    'isik',
+    'phq9',
+    'gad7'
+]);
+
+const ALLOWED_BEPSI_KEYS = new Set([
+    'assessmentId',
+    'scoringPolicyId',
+    'responseSum',
+    'meanScore',
+    'displayMean',
+    'resultCode',
+    'resultLabel',
+    'sum',
+    'mean',
+    'responses',
+    'answers'
+]);
+
+const ALLOWED_SBQR_KEYS = new Set([
+    'assessmentId',
+    'scoringPolicyId',
+    'totalScore',
+    'resultCode',
+    'resultLabel',
+    'isAboveCutoff',
+    'screeningCutoff',
+    'responses',
+    'answers'
+]);
+
+const ALLOWED_RISK_KEYS = new Set([
+    'level',
+    'label',
+    'reasons'
+]);
+
+const ALLOWED_RETENTION_KEYS = new Set([
+    'policy',
+    'retentionPolicyReference'
+]);
+
+// Prohibited security property names (lowercased without punctuation)
+const FORBIDDEN_SECURITY_KEY_NAMES = new Set([
+    'privatekey',
+    'private_key',
+    'rsaprivatekey',
+    'secretkey',
+    'servicesecret',
+    'apikey',
+    'token',
+    'upstashtoken',
+    'secret',
+    'vercelbypasssecret',
+    'x-vercel-protection-bypass',
+    'authorization',
+    'bearer',
+    'rawciphertext',
+    'isadmin',
+    'role',
+    'assigneduserid',
+    'assignedadmin',
+    'autoassign',
+    'referralid',
+    'attachmentid',
+    'internalsurveyid',
+    'internalimportid'
+]);
+
 // Prohibited definitive clinical words
 const PROHIBITED_DEFINITIVE_WORDS = ['안전함', '위험 없음', '자살 고위험 확정', '진단됨'];
+
+class UnknownFieldCollector {
+    constructor() {
+        this.byPath = {};
+        this.totalCount = 0;
+    }
+
+    add(pathStr, fieldName) {
+        if (!this.byPath[pathStr]) {
+            this.byPath[pathStr] = [];
+        }
+        if (!this.byPath[pathStr].includes(fieldName)) {
+            this.byPath[pathStr].push(fieldName);
+            this.totalCount++;
+        }
+    }
+
+    hasErrors() {
+        return this.totalCount > 0;
+    }
+
+    toErrorDetails() {
+        const unknownFieldNames = [];
+        const unknownPaths = Object.keys(this.byPath);
+        for (const p of unknownPaths) {
+            for (const fn of this.byPath[p]) {
+                if (!unknownFieldNames.includes(fn)) {
+                    unknownFieldNames.push(fn);
+                }
+            }
+        }
+        return {
+            unknownFieldNames,
+            unknownPaths,
+            unknownFieldCount: this.totalCount,
+            unknownFieldsByPath: this.byPath
+        };
+    }
+}
 
 export class SurveyPayloadValidator {
     /**
@@ -77,6 +224,312 @@ export class SurveyPayloadValidator {
         this.sbqrApproved = options.sbqrApproved !== undefined
             ? options.sbqrApproved
             : (process.env.SBQR_GATE_APPROVED === 'true');
+    }
+
+    /**
+     * Recursively assert no security secrets, admin overrides, or filesystem paths.
+     * @private
+     */
+    _checkSecurityViolations(obj, currentPath = '$', collector) {
+        if (!obj || typeof obj !== 'object') {
+            if (typeof obj === 'string') {
+                if (obj.includes('BEGIN PRIVATE KEY') || obj.includes('BEGIN RSA PRIVATE KEY')) {
+                    collector.add(currentPath, '[PLAINTEXT_PRIVATE_KEY]');
+                } else if (/^(?:[a-zA-Z]:[\\\/]|\/(?:etc|var|usr|home|tmp|root|bin|sbin)[\\\/])/.test(obj)) {
+                    collector.add(currentPath, '[FILESYSTEM_PATH]');
+                }
+            }
+            return;
+        }
+
+        for (const [key, value] of Object.entries(obj)) {
+            const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const fieldPath = currentPath === '$' ? `$.${key}` : `${currentPath}.${key}`;
+
+            if (FORBIDDEN_SECURITY_KEY_NAMES.has(normalizedKey)) {
+                collector.add(currentPath, key);
+            }
+
+            if (value && typeof value === 'object') {
+                this._checkSecurityViolations(value, fieldPath, collector);
+            } else if (typeof value === 'string') {
+                if (value.includes('BEGIN PRIVATE KEY') || value.includes('BEGIN RSA PRIVATE KEY')) {
+                    collector.add(fieldPath, '[PLAINTEXT_PRIVATE_KEY]');
+                } else if (/^(?:[a-zA-Z]:[\\\/]|\/(?:etc|var|usr|home|tmp|root|bin|sbin)[\\\/])/.test(value)) {
+                    collector.add(fieldPath, '[FILESYSTEM_PATH]');
+                }
+            }
+        }
+    }
+
+    /**
+     * Inspect all hierarchical levels for unauthorized unknown fields.
+     * @private
+     */
+    _collectUnknownFields(payload) {
+        const collector = new UnknownFieldCollector();
+
+        // 1. Security scan
+        this._checkSecurityViolations(payload, '$', collector);
+
+        // 2. Top-level keys check
+        for (const key of Object.keys(payload)) {
+            if (!ALLOWED_TOP_LEVEL_KEYS.has(key)) {
+                collector.add('$', key);
+            }
+        }
+
+        // 3. Contact / Identity keys check
+        const contactObj = payload.contact || payload.identity;
+        if (contactObj && typeof contactObj === 'object') {
+            const basePath = payload.identity ? '$.identity' : '$.contact';
+            for (const cKey of Object.keys(contactObj)) {
+                if (!ALLOWED_CONTACT_KEYS.has(cKey)) {
+                    collector.add(basePath, cKey);
+                }
+            }
+
+            if (contactObj.demographics && typeof contactObj.demographics === 'object') {
+                const demoPath = `${basePath}.demographics`;
+                for (const dKey of Object.keys(contactObj.demographics)) {
+                    if (!ALLOWED_DEMOGRAPHICS_KEYS.has(dKey)) {
+                        collector.add(demoPath, dKey);
+                    }
+                }
+            }
+        }
+
+        // 4. Consent / ConsentEvidence keys check
+        const consentObj = payload.consentEvidence || payload.consent;
+        if (consentObj && typeof consentObj === 'object') {
+            const consentPath = payload.consent ? '$.consent' : '$.consentEvidence';
+            for (const cKey of Object.keys(consentObj)) {
+                if (!ALLOWED_CONSENT_KEYS.has(cKey)) {
+                    collector.add(consentPath, cKey);
+                }
+            }
+        }
+
+        // 5. Retention keys check
+        if (payload.retention && typeof payload.retention === 'object') {
+            for (const rKey of Object.keys(payload.retention)) {
+                if (!ALLOWED_RETENTION_KEYS.has(rKey)) {
+                    collector.add('$.retention', rKey);
+                }
+            }
+        }
+
+        // 6. Assessment keys check
+        const assessment = payload.assessment;
+        if (assessment && typeof assessment === 'object') {
+            for (const aKey of Object.keys(assessment)) {
+                if (!ALLOWED_ASSESSMENT_KEYS.has(aKey)) {
+                    collector.add('$.assessment', aKey);
+                }
+            }
+
+            // Scores sub-object
+            if (assessment.scores && typeof assessment.scores === 'object') {
+                for (const sKey of Object.keys(assessment.scores)) {
+                    if (!ALLOWED_SCORES_KEYS.has(sKey)) {
+                        collector.add('$.assessment.scores', sKey);
+                    }
+                }
+
+                if (assessment.scores.bepsi && typeof assessment.scores.bepsi === 'object') {
+                    for (const bKey of Object.keys(assessment.scores.bepsi)) {
+                        if (!ALLOWED_BEPSI_KEYS.has(bKey)) {
+                            collector.add('$.assessment.scores.bepsi', bKey);
+                        }
+                    }
+                }
+
+                if (assessment.scores.sbqr && typeof assessment.scores.sbqr === 'object') {
+                    for (const sbKey of Object.keys(assessment.scores.sbqr)) {
+                        if (!ALLOWED_SBQR_KEYS.has(sbKey)) {
+                            collector.add('$.assessment.scores.sbqr', sbKey);
+                        }
+                    }
+                }
+            }
+
+            // Risk sub-object
+            if (assessment.risk && typeof assessment.risk === 'object') {
+                for (const rKey of Object.keys(assessment.risk)) {
+                    if (!ALLOWED_RISK_KEYS.has(rKey)) {
+                        collector.add('$.assessment.risk', rKey);
+                    }
+                }
+            }
+        }
+
+        return collector;
+    }
+
+    /**
+     * Normalize Track A legacy aliases into Track B canonical schema.
+     * Original aliases are strictly removed from internal storage objects.
+     * @private
+     */
+    _normalizePayload(payload) {
+        // 1. requestedAt -> submittedAt
+        if (payload.requestedAt !== undefined) {
+            if (!payload.submittedAt) {
+                payload.submittedAt = payload.requestedAt;
+            }
+            delete payload.requestedAt;
+        }
+
+        // 2. retentionPolicyReference -> retention
+        if (payload.retentionPolicyReference !== undefined) {
+            if (!payload.retention) {
+                payload.retention = { policy: payload.retentionPolicyReference };
+            }
+            delete payload.retentionPolicyReference;
+        }
+
+        // 3. identity -> contact
+        if (payload.identity && typeof payload.identity === 'object') {
+            if (!payload.contact) {
+                const id = payload.identity;
+                payload.contact = {
+                    clientName: id.name || id.clientName || '',
+                    phone: id.phone || '',
+                    preferredTime: id.preferredTime || '',
+                    counselingRequestText: id.note || id.counselingRequestText || '',
+                    demographics: id.demographics || null,
+                    region: id.demographics?.region || id.region || ''
+                };
+            }
+            delete payload.identity;
+        }
+
+        if (payload.contact && typeof payload.contact === 'object') {
+            if (payload.contact.name !== undefined) {
+                if (!payload.contact.clientName) {
+                    payload.contact.clientName = payload.contact.name;
+                }
+                delete payload.contact.name;
+            }
+            if (payload.contact.note !== undefined) {
+                if (!payload.contact.counselingRequestText) {
+                    payload.contact.counselingRequestText = payload.contact.note;
+                }
+                delete payload.contact.note;
+            }
+        }
+
+        // 4. consent -> consentEvidence
+        if (payload.consent && typeof payload.consent === 'object') {
+            if (!payload.consentEvidence) {
+                payload.consentEvidence = {
+                    personalInfoConsent: Boolean(payload.consent.personalInfoConsent),
+                    sensitiveInfoConsent: Boolean(payload.consent.sensitiveInfoConsent),
+                    contactOnlySubmission: Boolean(payload.consent.contactOnlySubmission),
+                    consentVersion: payload.consent.consentVersion || 'v1.0-2026',
+                    consentedAt: payload.consent.consentedAt || new Date().toISOString(),
+                    assessmentDataIncluded: Boolean(payload.consent.assessmentDataIncluded)
+                };
+            }
+            delete payload.consent;
+        }
+
+        // 5. assessment scale conversion (scores -> canonical scaleScores)
+        if (payload.assessment && typeof payload.assessment === 'object') {
+            const assessment = payload.assessment;
+            if (assessment.scores && typeof assessment.scores === 'object') {
+                const s = assessment.scores;
+                const canonicalScales = assessment.scaleScores || {};
+
+                // PHQ-9
+                if (s.phq !== undefined || s.phqLevel !== undefined) {
+                    canonicalScales['phq-9'] = canonicalScales['phq-9'] || {
+                        assessmentId: 'phq-9',
+                        totalScore: s.phq,
+                        severity: s.phqLevel,
+                        q9Score: s.phqQ9
+                    };
+                    canonicalScales.phq9 = canonicalScales['phq-9'];
+                }
+
+                // GAD-7
+                if (s.gad !== undefined || s.gadLevel !== undefined) {
+                    canonicalScales['gad-7'] = canonicalScales['gad-7'] || {
+                        assessmentId: 'gad-7',
+                        totalScore: s.gad,
+                        severity: s.gadLevel
+                    };
+                    canonicalScales.gad7 = canonicalScales['gad-7'];
+                }
+
+                // ISI-K
+                if (s.isi !== undefined || s.isiLevel !== undefined) {
+                    canonicalScales['isi-k'] = canonicalScales['isi-k'] || {
+                        assessmentId: 'isi-k',
+                        totalScore: s.isi,
+                        severity: s.isiLevel
+                    };
+                    canonicalScales.isik = canonicalScales['isi-k'];
+                }
+
+                // BEPSI-K
+                const bepsiSrc = s.bepsi || s.bepsik || s['bepsi-k'];
+                if (bepsiSrc && typeof bepsiSrc === 'object') {
+                    canonicalScales['bepsi-k'] = canonicalScales['bepsi-k'] || {
+                        assessmentId: 'bepsi-k',
+                        scoringPolicyId: bepsiSrc.scoringPolicyId || SURVEY_SCORING_POLICIES.BEPSI_K_REVISED_QUARTILE_1_6_2_2,
+                        responseSum: bepsiSrc.responseSum,
+                        meanScore: bepsiSrc.meanScore,
+                        displayMean: bepsiSrc.displayMean,
+                        resultCode: bepsiSrc.resultCode,
+                        resultLabel: bepsiSrc.resultLabel
+                    };
+                    canonicalScales.bepsik = canonicalScales['bepsi-k'];
+                }
+
+                // SBQ-R
+                const sbqSrc = s.sbqr || s['sbq-r'];
+                if (sbqSrc && typeof sbqSrc === 'object') {
+                    canonicalScales['sbq-r'] = canonicalScales['sbq-r'] || {
+                        assessmentId: 'sbq-r',
+                        scoringPolicyId: sbqSrc.scoringPolicyId || SURVEY_SCORING_POLICIES.SBQR_GENERAL_POPULATION_CUTOFF_7,
+                        totalScore: sbqSrc.totalScore,
+                        resultCode: sbqSrc.resultCode,
+                        resultLabel: sbqSrc.resultLabel,
+                        isAboveCutoff: sbqSrc.isAboveCutoff,
+                        screeningCutoff: sbqSrc.screeningCutoff || 7
+                    };
+                    canonicalScales.sbqr = canonicalScales['sbq-r'];
+                }
+
+                assessment.scaleScores = canonicalScales;
+                payload.scaleScores = canonicalScales;
+            }
+        }
+
+        // 6. Synthesize or update transmittedFieldSet if missing
+        if (payload.consentEvidence) {
+            if (!Array.isArray(payload.consentEvidence.transmittedFieldSet)) {
+                const declared = [];
+                if (payload.contact) {
+                    for (const k of Object.keys(payload.contact)) {
+                        if (payload.contact[k] !== undefined && payload.contact[k] !== null && payload.contact[k] !== '') {
+                            declared.push(k);
+                        }
+                    }
+                }
+                if (payload.assessment) {
+                    for (const k of Object.keys(payload.assessment)) {
+                        declared.push(k);
+                    }
+                }
+                payload.consentEvidence.transmittedFieldSet = declared;
+            } else {
+                if (payload.assessment?.scaleScores && !payload.consentEvidence.transmittedFieldSet.includes('scaleScores')) {
+                    payload.consentEvidence.transmittedFieldSet.push('scaleScores');
+                }
+            }
+        }
     }
 
     /**
@@ -93,17 +546,21 @@ export class SurveyPayloadValidator {
             );
         }
 
-        // 1. Check prohibited unknown top-level keys
-        for (const key of Object.keys(payload)) {
-            if (!ALLOWED_TOP_LEVEL_KEYS.has(key)) {
-                throw new SurveyOperationError(
-                    SURVEY_ERROR_CODES.PROHIBITED_UNKNOWN_FIELDS,
-                    `Prohibited top-level property in payload: ${key}`
-                );
-            }
+        // 1. Strict unknown fields & security violations collection
+        const collector = this._collectUnknownFields(payload);
+        if (collector.hasErrors()) {
+            const details = collector.toErrorDetails();
+            throw new SurveyOperationError(
+                SURVEY_ERROR_CODES.PROHIBITED_UNKNOWN_FIELDS,
+                `Prohibited unknown fields detected: count=${details.unknownFieldCount}, paths=[${details.unknownPaths.join(', ')}]`,
+                details
+            );
         }
 
-        // 2. Validate core envelope identifiers
+        // 2. Normalize approved legacy aliases to canonical shape
+        this._normalizePayload(payload);
+
+        // 3. Validate core envelope identifiers
         if (!payload.submissionId || typeof payload.submissionId !== 'string') {
             throw new SurveyOperationError(SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA, 'Missing submissionId');
         }
@@ -119,7 +576,7 @@ export class SurveyPayloadValidator {
 
         const assessmentId = payload.assessmentId.toLowerCase();
 
-        // 3. Validate Consent Evidence
+        // 4. Validate Consent Evidence
         const consent = payload.consentEvidence;
         if (!consent || typeof consent !== 'object') {
             throw new SurveyOperationError(
@@ -136,7 +593,7 @@ export class SurveyPayloadValidator {
         }
         const declaredFields = new Set(consent.transmittedFieldSet);
 
-        // 4. Personal Information Consent Verification
+        // 5. Personal Information Consent Verification
         const contact = payload.contact || {};
         const contactKeys = Object.keys(contact).filter(k => contact[k] !== undefined && contact[k] !== null && contact[k] !== '');
 
@@ -164,7 +621,7 @@ export class SurveyPayloadValidator {
             }
         }
 
-        // 5. Sensitive Assessment Data Consent Verification
+        // 6. Sensitive Assessment Data Consent Verification
         const assessment = payload.assessment;
         const hasAssessmentData = assessment && typeof assessment === 'object' && Object.keys(assessment).length > 0;
 
@@ -191,7 +648,7 @@ export class SurveyPayloadValidator {
                 }
             }
 
-            // 6. Strict SBQ-R Gate Inspection (Fast-quarantine for unapproved legacy gate)
+            // 7. Strict SBQ-R Gate Inspection (Fast-quarantine for unapproved legacy gate)
             if (assessmentId === SURVEY_ASSESSMENT_IDS.SBQ_R) {
                 const hasCanonicalPolicy = payload.scoringPolicyId === SURVEY_SCORING_POLICIES.SBQR_GENERAL_POPULATION_CUTOFF_7 ||
                                           payload.assessment?.scoringPolicyId === SURVEY_SCORING_POLICIES.SBQR_GENERAL_POPULATION_CUTOFF_7;
@@ -205,7 +662,7 @@ export class SurveyPayloadValidator {
                 }
             }
 
-            // 7. Scale-Specific Validation for the 5 Contract Assessments
+            // 8. Scale-Specific Validation for the 5 Contract Assessments
             this._validateScaleSpecificPayload(assessmentId, payload);
         }
 
