@@ -56,7 +56,7 @@ const PAGE_ICONS: Record<Page, React.ElementType> = {
     //  officialDocuments: FileText,
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePage, onNavigateToReferral, onLogout, onToggleAgent, sessionTime, pendingCount, voicePendingCount }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePage, onNavigateToReferral, onLogout, onToggleAgent, sessionTime, pendingCount, voicePendingCount, surveyPendingCount = 0 }) => {
     const isCollapsed = false; // 항상 확장된 상태 유지
 
     // Helper to format time
