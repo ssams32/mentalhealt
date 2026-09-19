@@ -132,9 +132,9 @@ export class SurveyImportRepository {
         return this.persistData(SURVEY_STORAGE_FILES.SURVEY_SUBMISSIONS, list);
     }
 
-    findSubmissionById(internalSurveyId) {
+    findSubmissionById(id) {
         const list = this.getSurveySubmissions();
-        return list.find(s => s.internalSurveyId === internalSurveyId) || null;
+        return list.find(s => s.internalSurveyId === id || s.submissionId === id) || null;
     }
 
     async updateSubmissionReferralLink(internalSurveyId, referralId) {
