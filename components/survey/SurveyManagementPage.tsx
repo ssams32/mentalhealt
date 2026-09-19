@@ -38,7 +38,9 @@ import {
     Flame,
     HelpCircle,
     UserX,
-    Filter
+    Filter,
+    TrendingUp,
+    Percent
 } from 'lucide-react';
 
 interface SurveyManagementPageProps {
@@ -55,7 +57,7 @@ interface AssignableStaff {
 }
 
 type MainTab = 'applicants' | 'system';
-type FilterTab = 'all' | 'today' | 'unassigned' | 'my_assigned' | 'pending_review' | 'priority' | 'in_progress' | 'completed';
+type FilterTab = 'all' | 'consultation_requested' | 'screening_only' | 'additional_review' | 'completed';
 
 export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     currentUser,
@@ -116,6 +118,21 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
     // 5. File Preview Modal
     const [previewFile, setPreviewFile] = useState<Attachment | null>(null);
+
+    // 6. Admin: Purge Demo Data Modal
+    const [isPurgeDemoModalOpen, setIsPurgeDemoModalOpen] = useState<boolean>(false);
+    const [purgeDryRunLoading, setPurgeDryRunLoading] = useState<boolean>(false);
+    const [purgeDryRunResult, setPurgeDryRunResult] = useState<any | null>(null);
+    const [purgeReason, setPurgeReason] = useState<string>('');
+    const [purgeConfirmationPhrase, setPurgeConfirmationPhrase] = useState<string>('');
+    const [isPurging, setIsPurging] = useState<boolean>(false);
+
+    // 7. Admin: Individual Subject Deletion Modal
+    const [isDeleteSubjectModalOpen, setIsDeleteSubjectModalOpen] = useState<boolean>(false);
+    const [deleteSubjectItem, setDeleteSubjectItem] = useState<SurveyImportItem | null>(null);
+    const [deleteSubjectReason, setDeleteSubjectReason] = useState<string>('');
+    const [deleteSubjectConfirmId, setDeleteSubjectConfirmId] = useState<string>('');
+    const [isDeletingSubject, setIsDeletingSubject] = useState<boolean>(false);
 
     // Permissions
     const canAccessSystemTab = currentUser.role === 'admin' ||
@@ -329,6 +346,86 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         }
     };
 
+    // --- Action: Admin Purge Demo Data ---
+    const handleOpenPurgeDemoModal = async () => {
+        setIsPurgeDemoModalOpen(true);
+        setPurgeReason('');
+        setPurgeConfirmationPhrase('');
+        setPurgeDryRunLoading(true);
+        try {
+            const res = await apiClient.purgeDemoSurveysDryRun();
+            setPurgeDryRunResult(res);
+        } catch (err: any) {
+            if (showToast) showToast(err.message || '더미 데이터 dry-run 조회에 실패했습니다.', 'error');
+        } finally {
+            setPurgeDryRunLoading(false);
+        }
+    };
+
+    const handleConfirmPurgeDemo = async () => {
+        if (!purgeReason.trim()) {
+            if (showToast) showToast('삭제 사유를 입력해야 합니다.', 'error');
+            return;
+        }
+        if (purgeConfirmationPhrase !== 'DELETE DEMO DATA') {
+            if (showToast) showToast('확인 문구가 일치하지 않습니다. (DELETE DEMO DATA)', 'error');
+            return;
+        }
+
+        try {
+            setIsPurging(true);
+            const res = await apiClient.purgeDemoSurveys(purgeReason, purgeConfirmationPhrase);
+            if (showToast) {
+                showToast(`더미 데이터 ${res.purgedCount || 0}건이 안전하게 정리되었습니다.`, 'success');
+            }
+            setIsPurgeDemoModalOpen(false);
+            await loadData(null);
+        } catch (err: any) {
+            if (showToast) showToast(err.message || '더미 데이터 삭제에 실패했습니다.', 'error');
+        } finally {
+            setIsPurging(false);
+        }
+    };
+
+    // --- Action: Admin Individual Delete Subject ---
+    const handleOpenDeleteSubjectModal = (item: SurveyImportItem) => {
+        setDeleteSubjectItem(item);
+        setDeleteSubjectReason('');
+        setDeleteSubjectConfirmId('');
+        setIsDeleteSubjectModalOpen(true);
+    };
+
+    const handleConfirmDeleteSubject = async () => {
+        if (!deleteSubjectItem) return;
+        if (!deleteSubjectReason.trim()) {
+            if (showToast) showToast('삭제 사유를 입력해야 합니다.', 'error');
+            return;
+        }
+        if (deleteSubjectConfirmId !== deleteSubjectItem.submissionId) {
+            if (showToast) showToast('접수 ID 확인 입력이 일치하지 않습니다.', 'error');
+            return;
+        }
+
+        try {
+            setIsDeletingSubject(true);
+            await apiClient.deleteSurveySubmission(
+                deleteSubjectItem.submissionId,
+                deleteSubjectReason,
+                deleteSubjectConfirmId
+            );
+            if (showToast) {
+                showToast(`대상자(${deleteSubjectItem.submissionId})와 관련 자료가 삭제되었습니다.`, 'success');
+            }
+            setIsDeleteSubjectModalOpen(false);
+            setDeleteSubjectItem(null);
+            await loadData(null);
+        } catch (err: any) {
+            if (showToast) showToast(err.message || '대상자 삭제에 실패했습니다.', 'error');
+        } finally {
+            setIsDeletingSubject(false);
+        }
+    };
+
     // --- Helper: Date & Filtering ---
     const todayStr = useMemo(() => new Date().toISOString().substring(0, 10), []);
 
@@ -337,40 +434,82 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         return dateStr.substring(0, 10) === todayStr;
     };
 
-    // Business Summary Metrics
+    // Business Summary Metrics (고유 submissionId 기준 집계)
     const metrics = useMemo(() => {
-        const todayCount = imports.filter(i => isToday(i.submittedAt || i.importedAt)).length;
-        const totalCount = imports.length;
-        const unassignedCount = imports.filter(i => !i.assignedUserId).length;
-        const pendingReviewCount = imports.filter(i =>
-            i.consultationStatus === '신규접수대기' || i.referralStatus === 'PENDING_STAFF_REVIEW' || (!i.assignedUserId && !i.isSbqrQuarantined)
+        const uniqueSubIds = Array.from(new Set(imports.map(i => i.submissionId).filter(Boolean)));
+        const totalScreeningCompleted = uniqueSubIds.length;
+
+        // 고유 submissionId별 대표 객체
+        const uniqueItems = uniqueSubIds.map(id => imports.find(i => i.submissionId === id)!);
+
+        // 상담 요청자 (consultationRequested === true)
+        const consultationRequested = uniqueItems.filter(i =>
+            i.consultationRequested === true || i.requestType === 'CONSULTATION_REQUEST'
         ).length;
-        const myAssignedCount = imports.filter(i =>
+
+        // 상담 미요청자 (전체 검사 완료자 - 상담 요청자)
+        const consultationNotRequested = Math.max(0, totalScreeningCompleted - consultationRequested);
+
+        // 상담 전환율 (상담 요청자 / 전체 검사 완료자 * 100) (분모 0이면 0%)
+        const conversionRate = totalScreeningCompleted > 0
+            ? Math.round((consultationRequested / totalScreeningCompleted) * 1000) / 10
+            : 0;
+
+        // 담당자 검토 대기 (SCREENING_ONLY 제외, CONSULTATION_REQUEST만 포함)
+        const pendingStaffReview = uniqueItems.filter(i => {
+            const isConsultation = i.consultationRequested === true || i.requestType === 'CONSULTATION_REQUEST';
+            if (!isConsultation) return false;
+            return i.consultationStatus === '신규접수대기' ||
+                i.referralStatus === 'PENDING_STAFF_REVIEW' ||
+                i.processingStatus === 'PENDING_STAFF_REVIEW' ||
+                (!i.assignedUserId && !i.isSbqrQuarantined);
+        }).length;
+
+        // 내게 배정된 건
+        const myAssigned = uniqueItems.filter(i =>
             i.assignedUserId && (i.assignedUserId === currentUser.id || i.assignedUserId === currentUser.username)
         ).length;
-        const reportReadyCount = imports.filter(i => i.hasReport).length;
+
+        // 리포트 준비 완료
+        const reportReady = uniqueItems.filter(i => i.hasReport).length;
+
+        // 보관 건수 통계 (누적 / 현재 보관 / 삭제)
+        const currentStoredCount = uniqueSubIds.length;
+        const cumulativeProcessed = statusSummary?.statistics?.cumulativeProcessed ?? (statusSummary?.totalImports || totalScreeningCompleted);
+        const deletedCount = statusSummary?.statistics?.deletedCount ?? 0;
 
         return {
-            todayCount,
-            totalCount,
-            unassignedCount,
-            pendingReviewCount,
-            myAssignedCount,
-            reportReadyCount
+            totalScreeningCompleted,
+            consultationRequested,
+            consultationNotRequested,
+            conversionRate,
+            pendingStaffReview,
+            myAssigned,
+            reportReady,
+            currentStoredCount,
+            cumulativeProcessed,
+            deletedCount
         };
-    }, [imports, todayStr, currentUser]);
+    }, [imports, statusSummary, currentUser]);
 
-    // Filtered Applicant List
+    // Filtered Applicant List (5대 탭)
     const filteredImports = useMemo(() => {
         return imports.filter(item => {
             // Tab filter
-            if (filterTab === 'today' && !isToday(item.submittedAt || item.importedAt)) return false;
-            if (filterTab === 'unassigned' && item.assignedUserId) return false;
-            if (filterTab === 'my_assigned' && (item.assignedUserId !== currentUser.id && item.assignedUserId !== currentUser.username)) return false;
-            if (filterTab === 'pending_review' && (item.consultationStatus !== '신규접수대기' && item.referralStatus !== 'PENDING_STAFF_REVIEW')) return false;
-            if (filterTab === 'priority' && (item.assignmentPriority === 'NORMAL' && (item.totalScore === null || item.totalScore < 15))) return false;
-            if (filterTab === 'in_progress' && item.consultationStatus !== '상담진행' && item.consultationStatus !== '상담배정') return false;
-            if (filterTab === 'completed' && item.consultationStatus !== '상담완료' && item.consultationStatus !== '종결') return false;
+            if (filterTab === 'consultation_requested') {
+                const isReq = item.consultationRequested === true || item.requestType === 'CONSULTATION_REQUEST';
+                if (!isReq) return false;
+            } else if (filterTab === 'screening_only') {
+                const isScreeningOnly = item.consultationRequested === false || item.requestType === 'SCREENING_ONLY';
+                if (!isScreeningOnly) return false;
+            } else if (filterTab === 'additional_review') {
+                const needsReview = item.isSbqrQuarantined || (item.totalScore !== null && item.totalScore >= 15);
+                if (!needsReview) return false;
+            } else if (filterTab === 'completed') {
+                const isDone = item.consultationStatus === '상담완료' || item.consultationStatus === '종결' || item.processingStatus === 'COMPLETED';
+                if (!isDone) return false;
+            }
+            // 'all' passes through
 
             // Search query
             if (searchQuery.trim()) {
@@ -387,7 +526,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
             return true;
         });
-    }, [imports, filterTab, searchQuery, todayStr, currentUser]);
+    }, [imports, filterTab, searchQuery]);
 
     // Selected item object
     const currentSelectedItem = useMemo(() => {
@@ -481,6 +620,24 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">합성 시험자료</span>;
     };
 
+    // Helper: Request Type Badge
+    const renderRequestTypeBadge = (item?: any) => {
+        if (!item) return null;
+        const isConsultation = item.consultationRequested === true || item.requestType === 'CONSULTATION_REQUEST';
+        if (isConsultation) {
+            return (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-200">
+                    상담요청
+                </span>
+            );
+        }
+        return (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-slate-100 text-slate-700 border border-slate-200">
+                검사완료
+            </span>
+        );
+    };
+
     // Helper: Assessment Scale Korean Title
     const getAssessmentTitle = (scaleId?: string) => {
         switch ((scaleId || '').toLowerCase()) {
@@ -510,20 +667,31 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     <div>
                         <h1 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
                             온라인 설문 관리
-                            {metrics.todayCount > 0 && (
-                                <span className="text-[11px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-md animate-pulse">
-                                    신규 접수 {metrics.todayCount}건
+                            {metrics.totalScreeningCompleted > 0 && (
+                                <span className="text-[11px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-md">
+                                    총 {metrics.totalScreeningCompleted}명 완료
                                 </span>
                             )}
                         </h1>
                         <p className="text-xs text-slate-500 font-medium mt-0.5">
-                            온라인 상담신청 내역과 검사결과를 확인하고, 담당자 배정과 처리상태를 관리합니다.
+                            온라인 선별검사(SCREENING_ONLY) 및 상담신청(CONSULTATION_REQUEST) 내역을 관리합니다.
                         </p>
                     </div>
                 </div>
 
                 {/* Primary Toolbar Actions */}
                 <div className="flex items-center gap-2.5">
+                    {currentUser.role === 'admin' && (
+                        <button
+                            onClick={handleOpenPurgeDemoModal}
+                            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl shadow-sm hover:shadow transition"
+                            title="관리자 전용: sub-demo-* 더미 데이터 안전 일괄 정리"
+                        >
+                            <Trash2 className="w-4 h-4 text-rose-600" />
+                            더미 데이터 정리
+                        </button>
+                    )}
+
                     <button
                         onClick={() => setIsExportModalOpen(true)}
                         className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl shadow-sm hover:shadow transition"
@@ -562,92 +730,100 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                 </div>
             </header>
 
-            {/* 2. Business Summary Cards */}
+            {/* 2. Business Summary Cards (7개 표준 지표) */}
             <div className="px-6 pt-5 pb-3 shrink-0">
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
-                    {/* Card 1: 오늘 신규 접수 */}
-                    <div
-                        onClick={() => setFilterTab('today')}
-                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${filterTab === 'today' ? 'bg-emerald-50/80 border-emerald-300 shadow-sm ring-2 ring-emerald-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
-                    >
-                        <div className="flex items-center justify-between text-slate-500">
-                            <span className="text-[11px] font-bold">오늘 신규 접수</span>
-                            <Calendar className="w-4 h-4 text-emerald-600" />
-                        </div>
-                        <div className="mt-1.5 flex items-baseline gap-1.5">
-                            <span className="text-2xl font-black text-slate-900">{metrics.todayCount}</span>
-                            <span className="text-xs text-slate-400 font-medium">건</span>
-                        </div>
-                    </div>
-
-                    {/* Card 2: 전체 상담신청 */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                    {/* Card 1: 전체 검사 완료자 */}
                     <div
                         onClick={() => setFilterTab('all')}
-                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${filterTab === 'all' ? 'bg-teal-50/80 border-teal-300 shadow-sm ring-2 ring-teal-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
+                        className={`p-3 rounded-2xl border transition-all cursor-pointer ${filterTab === 'all' ? 'bg-teal-50/80 border-teal-300 shadow-sm ring-2 ring-teal-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
                     >
                         <div className="flex items-center justify-between text-slate-500">
-                            <span className="text-[11px] font-bold">전체 상담신청</span>
+                            <span className="text-[11px] font-bold">전체 검사 완료자</span>
                             <ClipboardList className="w-4 h-4 text-teal-600" />
                         </div>
-                        <div className="mt-1.5 flex items-baseline gap-1.5">
-                            <span className="text-2xl font-black text-slate-900">{metrics.totalCount}</span>
-                            <span className="text-xs text-slate-400 font-medium">건</span>
+                        <div className="mt-1 flex items-baseline gap-1">
+                            <span className="text-xl font-black text-slate-900">{metrics.totalScreeningCompleted}</span>
+                            <span className="text-xs text-slate-400 font-medium">명</span>
                         </div>
                     </div>
 
-                    {/* Card 3: 미배정 */}
+                    {/* Card 2: 상담 요청자 */}
                     <div
-                        onClick={() => setFilterTab('unassigned')}
-                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${filterTab === 'unassigned' ? 'bg-rose-50/80 border-rose-300 shadow-sm ring-2 ring-rose-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
+                        onClick={() => setFilterTab('consultation_requested')}
+                        className={`p-3 rounded-2xl border transition-all cursor-pointer ${filterTab === 'consultation_requested' ? 'bg-blue-50/80 border-blue-300 shadow-sm ring-2 ring-blue-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
                     >
                         <div className="flex items-center justify-between text-slate-500">
-                            <span className="text-[11px] font-bold">미배정 건</span>
-                            <UserX className="w-4 h-4 text-rose-500" />
+                            <span className="text-[11px] font-bold">상담 요청자</span>
+                            <UserCheck className="w-4 h-4 text-blue-600" />
                         </div>
-                        <div className="mt-1.5 flex items-baseline gap-1.5">
-                            <span className="text-2xl font-black text-rose-600">{metrics.unassignedCount}</span>
-                            <span className="text-xs text-slate-400 font-medium">건</span>
+                        <div className="mt-1 flex items-baseline gap-1">
+                            <span className="text-xl font-black text-blue-600">{metrics.consultationRequested}</span>
+                            <span className="text-xs text-slate-400 font-medium">명</span>
                         </div>
                     </div>
 
-                    {/* Card 4: 담당자 검토 대기 */}
+                    {/* Card 3: 상담 미요청자 */}
                     <div
-                        onClick={() => setFilterTab('pending_review')}
-                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${filterTab === 'pending_review' ? 'bg-amber-50/80 border-amber-300 shadow-sm ring-2 ring-amber-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
+                        onClick={() => setFilterTab('screening_only')}
+                        className={`p-3 rounded-2xl border transition-all cursor-pointer ${filterTab === 'screening_only' ? 'bg-slate-100 border-slate-400 shadow-sm ring-2 ring-slate-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
+                    >
+                        <div className="flex items-center justify-between text-slate-500">
+                            <span className="text-[11px] font-bold">상담 미요청자</span>
+                            <UserX className="w-4 h-4 text-slate-500" />
+                        </div>
+                        <div className="mt-1 flex items-baseline gap-1">
+                            <span className="text-xl font-black text-slate-700">{metrics.consultationNotRequested}</span>
+                            <span className="text-xs text-slate-400 font-medium">명</span>
+                        </div>
+                    </div>
+
+                    {/* Card 4: 상담 전환율 */}
+                    <div className="p-3 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
+                        <div className="flex items-center justify-between text-slate-500">
+                            <span className="text-[11px] font-bold">상담 전환율</span>
+                            <TrendingUp className="w-4 h-4 text-emerald-600" />
+                        </div>
+                        <div className="mt-1 flex items-baseline gap-1">
+                            <span className="text-xl font-black text-emerald-600">{metrics.conversionRate}%</span>
+                        </div>
+                    </div>
+
+                    {/* Card 5: 담당자 검토 대기 */}
+                    <div
+                        onClick={() => setFilterTab('consultation_requested')}
+                        className="p-3 rounded-2xl bg-white border border-slate-200/80 hover:border-slate-300 shadow-sm cursor-pointer"
                     >
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">담당자 검토 대기</span>
                             <Clock className="w-4 h-4 text-amber-500" />
                         </div>
-                        <div className="mt-1.5 flex items-baseline gap-1.5">
-                            <span className="text-2xl font-black text-amber-600">{metrics.pendingReviewCount}</span>
+                        <div className="mt-1 flex items-baseline gap-1">
+                            <span className="text-xl font-black text-amber-600">{metrics.pendingStaffReview}</span>
                             <span className="text-xs text-slate-400 font-medium">건</span>
                         </div>
                     </div>
 
-                    {/* Card 5: 내게 배정된 건 */}
-                    <div
-                        onClick={() => setFilterTab('my_assigned')}
-                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${filterTab === 'my_assigned' ? 'bg-indigo-50/80 border-indigo-300 shadow-sm ring-2 ring-indigo-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
-                    >
+                    {/* Card 6: 내게 배정된 건 */}
+                    <div className="p-3 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">내게 배정된 건</span>
                             <UserCheck className="w-4 h-4 text-indigo-600" />
                         </div>
-                        <div className="mt-1.5 flex items-baseline gap-1.5">
-                            <span className="text-2xl font-black text-indigo-600">{metrics.myAssignedCount}</span>
+                        <div className="mt-1 flex items-baseline gap-1">
+                            <span className="text-xl font-black text-indigo-600">{metrics.myAssigned}</span>
                             <span className="text-xs text-slate-400 font-medium">건</span>
                         </div>
                     </div>
 
-                    {/* Card 6: 리포트 준비 완료 */}
-                    <div className="p-3.5 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
+                    {/* Card 7: 리포트 준비 완료 */}
+                    <div className="p-3 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">리포트 준비 완료</span>
                             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                         </div>
-                        <div className="mt-1.5 flex items-baseline gap-1.5">
-                            <span className="text-2xl font-black text-slate-900">{metrics.reportReadyCount}</span>
+                        <div className="mt-1 flex items-baseline gap-1">
+                            <span className="text-xl font-black text-slate-900">{metrics.reportReady}</span>
                             <span className="text-xs text-slate-400 font-medium">건</span>
                         </div>
                     </div>
@@ -694,13 +870,10 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                         {/* Filter Tabs */}
                         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
                             {[
-                                { id: 'all', label: '전체' },
-                                { id: 'today', label: '오늘 접수' },
-                                { id: 'unassigned', label: '미배정' },
-                                { id: 'my_assigned', label: '내게 배정' },
-                                { id: 'pending_review', label: '검토 대기' },
-                                { id: 'priority', label: '우선 확인' },
-                                { id: 'in_progress', label: '상담 진행' },
+                                { id: 'all', label: '전체 검사자' },
+                                { id: 'consultation_requested', label: '상담 요청' },
+                                { id: 'screening_only', label: '상담 미요청' },
+                                { id: 'additional_review', label: '추가 확인 권고' },
                                 { id: 'completed', label: '처리 완료' }
                             ].map(tab => (
                                 <button
@@ -785,6 +958,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     </div>
                                                     <div className="flex items-center gap-1.5 flex-wrap justify-end">
                                                         {renderFixtureBadge(item)}
+                                                        {renderRequestTypeBadge(item)}
                                                         {renderTransferStatusBadge(item)}
                                                         {renderStatusBadge(item.consultationStatus, item.isSbqrQuarantined)}
                                                     </div>
@@ -883,6 +1057,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     </h2>
                                                     {renderPriorityBadge(currentSelectedItem.assignmentPriority)}
                                                     {renderFixtureBadge(currentSelectedItem)}
+                                                    {renderRequestTypeBadge(currentSelectedItem)}
                                                     {renderTransferStatusBadge(currentSelectedItem)}
                                                     {renderStatusBadge(currentSelectedItem.consultationStatus, currentSelectedItem.isSbqrQuarantined)}
                                                 </div>
@@ -897,6 +1072,17 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
                                         {/* Action Buttons Bar */}
                                         <div className="flex items-center gap-2">
+                                            {currentUser.role === 'admin' && (
+                                                <button
+                                                    onClick={() => handleOpenDeleteSubjectModal(currentSelectedItem)}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl border border-rose-200 shadow-sm transition"
+                                                    title="관리자 전용: 대상자 및 관련 자료 완전 삭제"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                    대상자 삭제
+                                                </button>
+                                            )}
+
                                             <button
                                                 onClick={() => handleOpenAssignModal(currentSelectedItem)}
                                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200 shadow-sm transition"
@@ -1897,6 +2083,185 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     file={previewFile}
                     onClose={() => setPreviewFile(null)}
                 />
+            )}
+
+            {/* 6. Admin Purge Demo Data Modal */}
+            {isPurgeDemoModalOpen && (
+                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                            <h3 className="text-base font-black text-rose-700 flex items-center gap-2">
+                                <Trash2 className="w-5 h-5 text-rose-600" />
+                                더미 설문 데이터를 삭제하시겠습니까?
+                            </h3>
+                            <button
+                                onClick={() => setIsPurgeDemoModalOpen(false)}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <div className="mt-4 space-y-4 text-xs">
+                            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 leading-relaxed font-medium">
+                                선택한 더미 대상자와 연결된 의뢰, PDF 및 첨부자료가 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
+                            </div>
+
+                            {/* Dry-run Result Box */}
+                            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                                <div className="flex items-center justify-between font-bold text-slate-700">
+                                    <span>삭제 대상 더미 자료 (Dry-Run 결과)</span>
+                                    {purgeDryRunLoading ? (
+                                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-teal-600" />
+                                    ) : (
+                                        <span className="text-rose-600 font-mono font-black">{purgeDryRunResult?.targetsCount || 0}건 대상</span>
+                                    )}
+                                </div>
+                                {!purgeDryRunLoading && purgeDryRunResult?.targets && (
+                                    <div className="max-h-24 overflow-y-auto space-y-1 font-mono text-[11px] text-slate-600 custom-scrollbar">
+                                        {purgeDryRunResult.targets.map((t: string) => (
+                                            <div key={t} className="flex items-center gap-1.5">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                                                <span>{t}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Reason Input */}
+                            <div>
+                                <label className="block font-bold text-slate-700 mb-1">
+                                    삭제 사유 * (필수 입력)
+                                </label>
+                                <input
+                                    type="text"
+                                    value={purgeReason}
+                                    onChange={e => setPurgeReason(e.target.value)}
+                                    placeholder="예: 2026.6.1 MVP 로컬 시험 더미 데이터 일괄 정리"
+                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:border-rose-500 focus:outline-none"
+                                />
+                            </div>
+
+                            {/* Confirmation Phrase */}
+                            <div>
+                                <label className="block font-bold text-slate-700 mb-1">
+                                    확인 문구 입력 * (아래 문구를 정확히 입력하세요)
+                                </label>
+                                <div className="text-[11px] font-mono font-bold text-rose-700 mb-1.5">
+                                    DELETE DEMO DATA
+                                </div>
+                                <input
+                                    type="text"
+                                    value={purgeConfirmationPhrase}
+                                    onChange={e => setPurgeConfirmationPhrase(e.target.value)}
+                                    placeholder="DELETE DEMO DATA"
+                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono font-medium text-slate-800 focus:border-rose-500 focus:outline-none"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                            <button
+                                type="button"
+                                onClick={() => setIsPurgeDemoModalOpen(false)}
+                                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                            >
+                                취소
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleConfirmPurgeDemo}
+                                disabled={isPurging || !purgeReason.trim() || purgeConfirmationPhrase !== 'DELETE DEMO DATA' || (purgeDryRunResult?.targetsCount || 0) === 0}
+                                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md transition disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {isPurging ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                                더미 데이터 삭제
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 7. Admin Individual Subject Deletion Modal */}
+            {isDeleteSubjectModalOpen && deleteSubjectItem && (
+                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                            <h3 className="text-base font-black text-rose-700 flex items-center gap-2">
+                                <Trash2 className="w-5 h-5 text-rose-600" />
+                                대상자 및 연결자료 완전 삭제
+                            </h3>
+                            <button
+                                onClick={() => setIsDeleteSubjectModalOpen(false)}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <div className="mt-4 space-y-4 text-xs">
+                            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <div className="text-slate-500">삭제 대상자: <strong className="text-slate-900">{deleteSubjectItem.maskedClientName}</strong></div>
+                                <div className="text-slate-500 mt-1">접수 ID: <span className="font-mono text-rose-600 font-bold">{deleteSubjectItem.submissionId}</span></div>
+                            </div>
+
+                            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-[11px] leading-relaxed">
+                                <strong>주의:</strong> 본 대상자와 연결된 의뢰대장 초안, 저장된 PDF 리포트 파일, 첨부자료 메타데이터, 개인정보 동의서 및 검색 인덱스가 완전히 삭제됩니다.
+                            </div>
+
+                            {/* Reason */}
+                            <div>
+                                <label className="block font-bold text-slate-700 mb-1">
+                                    삭제 사유 * (필수 입력)
+                                </label>
+                                <input
+                                    type="text"
+                                    value={deleteSubjectReason}
+                                    onChange={e => setDeleteSubjectReason(e.target.value)}
+                                    placeholder="삭제 사유를 구체적으로 입력하세요..."
+                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:border-rose-500 focus:outline-none"
+                                />
+                            </div>
+
+                            {/* Confirm Submission ID */}
+                            <div>
+                                <label className="block font-bold text-slate-700 mb-1">
+                                    접수 ID 재입력 * (실수 방지 확인)
+                                </label>
+                                <div className="text-[11px] font-mono text-slate-500 mb-1">
+                                    {deleteSubjectItem.submissionId}
+                                </div>
+                                <input
+                                    type="text"
+                                    value={deleteSubjectConfirmId}
+                                    onChange={e => setDeleteSubjectConfirmId(e.target.value)}
+                                    placeholder="접수 ID를 그대로 복사/입력하세요"
+                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono font-medium text-slate-800 focus:border-rose-500 focus:outline-none"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                            <button
+                                type="button"
+                                onClick={() => setIsDeleteSubjectModalOpen(false)}
+                                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                            >
+                                취소
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleConfirmDeleteSubject}
+                                disabled={isDeletingSubject || !deleteSubjectReason.trim() || deleteSubjectConfirmId !== deleteSubjectItem.submissionId}
+                                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md transition disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {isDeletingSubject ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                                대상자 영구 삭제
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

@@ -34,7 +34,11 @@ const ALLOWED_TOP_LEVEL_KEYS = new Set([
     'assessment',
     'retention',
     'retentionPolicyReference',
-    'scaleScores'
+    'scaleScores',
+    'requestType',
+    'consultationRequested',
+    'consultationRequestedAt',
+    'screeningCompletedAt'
 ]);
 
 const ALLOWED_CONTACT_KEYS = new Set([
@@ -372,6 +376,28 @@ export class SurveyPayloadValidator {
      * @private
      */
     _normalizePayload(payload) {
+        // 0. requestType & consultationRequested canonicalization
+        if (!payload.requestType) {
+            payload.requestType = payload.consultationRequested ? 'CONSULTATION_REQUEST' : 'SCREENING_ONLY';
+        }
+        if (payload.consultationRequested === undefined) {
+            payload.consultationRequested = payload.requestType === 'CONSULTATION_REQUEST';
+        }
+
+        // Canonical removal of worker & customer from demographics and contact
+        if (payload.contact?.demographics) {
+            delete payload.contact.demographics.worker;
+            delete payload.contact.demographics.customer;
+        }
+        if (payload.identity?.demographics) {
+            delete payload.identity.demographics.worker;
+            delete payload.identity.demographics.customer;
+        }
+        if (payload.contact) {
+            delete payload.contact.worker;
+            delete payload.contact.customer;
+        }
+
         // 1. requestedAt -> submittedAt
         if (payload.requestedAt !== undefined) {
             if (!payload.submittedAt) {
@@ -555,6 +581,53 @@ export class SurveyPayloadValidator {
                 `Prohibited unknown fields detected: count=${details.unknownFieldCount}, paths=[${details.unknownPaths.join(', ')}]`,
                 details
             );
+        }
+
+        // 1b. Validate requestType & consultationRequested contract
+        if (payload.requestType !== undefined) {
+            if (payload.requestType !== 'SCREENING_ONLY' && payload.requestType !== 'CONSULTATION_REQUEST') {
+                throw new SurveyOperationError(
+                    SURVEY_ERROR_CODES.UNKNOWN_REQUEST_TYPE || SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                    `Unknown requestType: "${payload.requestType}". Must be 'SCREENING_ONLY' or 'CONSULTATION_REQUEST'`
+                );
+            }
+        }
+
+        if (payload.consultationRequested !== undefined) {
+            if (typeof payload.consultationRequested !== 'boolean') {
+                throw new SurveyOperationError(
+                    SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                    'consultationRequested must be a boolean'
+                );
+            }
+        }
+
+        if (payload.requestType === 'SCREENING_ONLY') {
+            if (payload.consultationRequested === true) {
+                throw new SurveyOperationError(
+                    SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                    'SCREENING_ONLY cannot have consultationRequested=true'
+                );
+            }
+            if (payload.consultationRequestedAt !== undefined && payload.consultationRequestedAt !== null && payload.consultationRequestedAt !== '') {
+                throw new SurveyOperationError(
+                    SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                    'SCREENING_ONLY cannot have consultationRequestedAt'
+                );
+            }
+        } else if (payload.requestType === 'CONSULTATION_REQUEST') {
+            if (payload.consultationRequested === false) {
+                throw new SurveyOperationError(
+                    SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                    'CONSULTATION_REQUEST must have consultationRequested=true'
+                );
+            }
+            if (!payload.consultationRequestedAt || isNaN(Date.parse(payload.consultationRequestedAt))) {
+                throw new SurveyOperationError(
+                    SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                    'CONSULTATION_REQUEST requires a valid consultationRequestedAt timestamp'
+                );
+            }
         }
 
         // 2. Normalize approved legacy aliases to canonical shape

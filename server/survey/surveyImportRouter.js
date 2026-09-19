@@ -53,6 +53,26 @@ function requireSurveyImportPermission(req, res, next) {
 }
 
 /**
+ * Permission guard for Administrator-only actions
+ */
+function requireAdmin(req, res, next) {
+    if (!req.auth) {
+        return res.status(401).json({
+            error: { code: 'UNAUTHENTICATED', message: '로그인이 필요합니다.' }
+        });
+    }
+
+    const role = (req.auth.role || req.auth.userRole || 'user').toLowerCase();
+    if (role !== 'admin') {
+        return res.status(403).json({
+            error: { code: 'FORBIDDEN', message: '관리자(Admin) 권한이 필요합니다.' }
+        });
+    }
+
+    return next();
+}
+
+/**
  * Factory to create Survey Router
  * 
  * @param {Object} deps
@@ -256,7 +276,13 @@ export function createSurveyImportRouter(deps = {}) {
                 const ref = refMap.get(item.submissionId);
                 const reportAttachment = ref?.attachments?.find(a =>
                     a.type === 'application/pdf' || (a.url && a.url.startsWith('/attachments'))
-                ) || null;
+                ) || sub?.attachment || null;
+
+                const requestType = sub?.requestType || item.requestType || (sub?.consultationRequested ? 'CONSULTATION_REQUEST' : 'SCREENING_ONLY');
+                const consultationRequested = sub?.consultationRequested !== undefined
+                    ? Boolean(sub.consultationRequested)
+                    : (item.consultationRequested !== undefined ? Boolean(item.consultationRequested) : requestType === 'CONSULTATION_REQUEST');
+                const isScreeningOnly = requestType === 'SCREENING_ONLY';
 
                 return {
                     internalImportId: item.internalImportId,
@@ -272,6 +298,14 @@ export function createSurveyImportRouter(deps = {}) {
                     lastErrorCode: item.lastErrorCode,
                     assessmentId: sub?.assessmentId || 'unknown',
                     isSbqrQuarantined: sub?.isSbqrQuarantined || false,
+                    // New Data Contract Fields
+                    requestType,
+                    consultationRequested,
+                    consultationRequestedAt: sub?.consultationRequestedAt || item.consultationRequestedAt || null,
+                    screeningCompletedAt: sub?.screeningCompletedAt || item.screeningCompletedAt || sub?.importedAt || item.importedAt,
+                    processingStatus: sub?.processingStatus || item.processingStatus || (isScreeningOnly ? 'SCREENING_COMPLETED' : 'PENDING_STAFF_REVIEW'),
+                    assignmentStatus: sub?.assignmentStatus || item.assignmentStatus || (isScreeningOnly ? 'not_required' : 'unassigned'),
+                    isSynthetic: Boolean(item.submissionId.startsWith('sub-demo-') || sub?.isSynthetic || item.isSynthetic),
                     // Masked identity fields for list view
                     maskedClientName: maskName(sub?.contact?.clientName),
                     maskedPhone: maskPhone(sub?.contact?.phone),
@@ -279,7 +313,7 @@ export function createSurveyImportRouter(deps = {}) {
                     totalScore: sub?.assessment?.totalScore ?? null,
                     meanScore: sub?.assessment?.meanScore ?? null,
                     severity: sub?.assessment?.severity ?? null,
-                    consultationStatus: sub?.consultationStatus || '-',
+                    consultationStatus: sub?.consultationStatus || (isScreeningOnly ? '검사완료' : '신규접수대기'),
                     counselingRequestText: sub?.contact?.counselingRequestText || '',
                     submittedAt: sub?.contact?.submittedAt || sub?.importedAt || item.importedAt,
                     contactOnly: sub?.contactOnly || false,
@@ -288,7 +322,7 @@ export function createSurveyImportRouter(deps = {}) {
                     refNo: ref?.refNo || null,
                     referralStatus: ref?.referralStatus || null,
                     closureStatus: ref?.closureStatus || null,
-                    hasReport: Boolean(reportAttachment),
+                    hasReport: Boolean(reportAttachment || sub?.attachmentId),
                     reportAttachment,
                     // Assignment fields
                     assignedUserId: sub?.assignedUserId || (ref ? ref.assignee : null),
@@ -652,17 +686,27 @@ export function createSurveyImportRouter(deps = {}) {
                 (a.name && String(a.name).endsWith('.pdf')) ||
                 (a.id && String(a.id).endsWith('.pdf')) ||
                 (a.url && String(a.url).includes('.pdf'))
-            );
+            ) || sub?.attachment || null;
 
             const targetDir = deps.attachmentsDir || referralService?.attachmentsDir || process.env.ATTACHMENTS_DIR;
             let filePath = null;
 
-            if (targetDir && ref && attachment) {
-                const safeFolder = (ref.referralId || 'surveys').replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
-                const candidate1 = pathMod.default.join(targetDir, safeFolder, attachment.id);
-                if (fsMod.default.existsSync(candidate1)) {
-                    filePath = candidate1;
-                } else {
+            const foldersToSearch = [];
+            if (ref?.referralId) foldersToSearch.push(ref.referralId);
+            if (sub?.internalSurveyId) foldersToSearch.push(sub.internalSurveyId);
+            if (sub?.submissionId) foldersToSearch.push(sub.submissionId);
+            if (id) foldersToSearch.push(id);
+
+            if (targetDir && attachment) {
+                for (const f of foldersToSearch) {
+                    const safeFolder = f.replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
+                    const candidate1 = pathMod.default.join(targetDir, safeFolder, attachment.id || 'survey-report.pdf');
+                    if (fsMod.default.existsSync(candidate1)) {
+                        filePath = candidate1;
+                        break;
+                    }
+                }
+                if (!filePath && attachment.id) {
                     const candidate2 = pathMod.default.join(targetDir, attachment.id);
                     if (fsMod.default.existsSync(candidate2)) {
                         filePath = candidate2;
@@ -671,14 +715,17 @@ export function createSurveyImportRouter(deps = {}) {
             }
 
             // Fallback: search safeFolder for pdf
-            if (!filePath && targetDir && ref) {
-                const safeFolder = (ref.referralId || 'surveys').replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
-                const folderPath = pathMod.default.join(targetDir, safeFolder);
-                if (fsMod.default.existsSync(folderPath)) {
-                    const files = fsMod.default.readdirSync(folderPath);
-                    const pdfFile = files.find(f => f.endsWith('.pdf'));
-                    if (pdfFile) {
-                        filePath = pathMod.default.join(folderPath, pdfFile);
+            if (!filePath && targetDir) {
+                for (const f of foldersToSearch) {
+                    const safeFolder = f.replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
+                    const folderPath = pathMod.default.join(targetDir, safeFolder);
+                    if (fsMod.default.existsSync(folderPath)) {
+                        const files = fsMod.default.readdirSync(folderPath);
+                        const pdfFile = files.find(file => file.endsWith('.pdf'));
+                        if (pdfFile) {
+                            filePath = pathMod.default.join(folderPath, pdfFile);
+                            break;
+                        }
                     }
                 }
             }
@@ -717,6 +764,135 @@ export function createSurveyImportRouter(deps = {}) {
 
     router.get('/submissions/:id/report', requireAuth, requireSurveyImportPermission, handleGetReport);
     router.get('/:id/report', requireAuth, requireSurveyImportPermission, handleGetReport);
+
+    // ──────────────────────────────────────────────────────────
+    // 11. Admin Deletion Endpoints (Admin-only: 401 unauth, 403 non-admin)
+    // ──────────────────────────────────────────────────────────
+
+    // POST /api/surveys/admin/purge-demo/dry-run
+    router.post('/admin/purge-demo/dry-run', requireAuth, requireAdmin, async (req, res) => {
+        try {
+            const actorId = req.auth.userId || req.auth.id || 'admin';
+            const reason = req.body?.reason || '더미 데이터 삭제 계획 확인';
+            const plan = await surveyRepository.purgeDemoSubmissions({
+                actorId,
+                reason,
+                dryRun: true
+            });
+            res.json({ success: true, plan });
+        } catch (err) {
+            const status = err.code === 'DEMO_PURGE_CONTAINS_REAL_DATA' ? 400 : 500;
+            res.status(status).json({
+                error: { code: err.code || 'DRY_RUN_FAILED', message: err.message }
+            });
+        }
+    });
+
+    // POST /api/surveys/admin/purge-demo
+    router.post('/admin/purge-demo', requireAuth, requireAdmin, async (req, res) => {
+        try {
+            const { confirmation, reason, dryRun } = req.body || {};
+
+            if (dryRun === true) {
+                const actorId = req.auth.userId || req.auth.id || 'admin';
+                const plan = await surveyRepository.purgeDemoSubmissions({
+                    actorId,
+                    reason: reason || '더미 데이터 삭제 계획 확인',
+                    dryRun: true
+                });
+                return res.json({ success: true, plan });
+            }
+
+            if (!reason || typeof reason !== 'string' || !reason.trim()) {
+                return res.status(400).json({
+                    error: {
+                        code: 'MISSING_DELETION_REASON',
+                        message: '삭제 사유를 입력해야 합니다.'
+                    }
+                });
+            }
+
+            if (!confirmation || confirmation.trim() !== 'DELETE DEMO DATA') {
+                return res.status(400).json({
+                    error: {
+                        code: 'INVALID_CONFIRMATION_PHRASE',
+                        message: '확인 문구가 일치하지 않습니다. "DELETE DEMO DATA"를 정확히 입력해야 합니다.'
+                    }
+                });
+            }
+
+            const actorId = req.auth.userId || req.auth.id || 'admin';
+            const result = await surveyRepository.purgeDemoSubmissions({
+                actorId,
+                reason: reason.trim(),
+                dryRun: false
+            });
+
+            res.json({
+                success: true,
+                message: `더미 데이터 ${result.purgedCount}건이 안전하게 삭제되었습니다.`,
+                result
+            });
+        } catch (err) {
+            const status = err.code === 'DEMO_PURGE_CONTAINS_REAL_DATA' ? 400 : 500;
+            res.status(status).json({
+                error: { code: err.code || 'PURGE_FAILED', message: err.message }
+            });
+        }
+    });
+
+    // DELETE /api/surveys/admin/submissions/:id
+    router.delete('/admin/submissions/:id', requireAuth, requireAdmin, async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { confirmSubmissionId, reason } = req.body || {};
+
+            if (!reason || typeof reason !== 'string' || !reason.trim()) {
+                return res.status(400).json({
+                    error: {
+                        code: 'MISSING_DELETION_REASON',
+                        message: '삭제 사유를 입력해야 합니다.'
+                    }
+                });
+            }
+
+            if (confirmSubmissionId && confirmSubmissionId !== id) {
+                return res.status(400).json({
+                    error: {
+                        code: 'SUBMISSION_ID_MISMATCH',
+                        message: '확인용 submissionId가 일치하지 않습니다.'
+                    }
+                });
+            }
+
+            if (surveyImportService.getStatusSummary().isImportRunning) {
+                return res.status(409).json({
+                    error: {
+                        code: 'PROCESSING_IN_PROGRESS',
+                        message: '설문 가져오기 작업 진행 중에는 삭제할 수 없습니다.'
+                    }
+                });
+            }
+
+            const actorId = req.auth.userId || req.auth.id || 'admin';
+            const result = await surveyRepository.deleteSubmissionCascading({
+                submissionId: id,
+                actorId,
+                reason: reason.trim()
+            });
+
+            res.json({
+                success: true,
+                message: `대상자 (${id}) 삭제가 완료되었습니다.`,
+                result
+            });
+        } catch (err) {
+            const status = err.code === 'ACTIVE_LEASE_EXISTS' ? 400 : 500;
+            res.status(status).json({
+                error: { code: err.code || 'DELETE_FAILED', message: err.message }
+            });
+        }
+    });
 
     return router;
 }

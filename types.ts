@@ -314,6 +314,15 @@ export interface SurveyImportItem {
     assignmentPriority?: 'NORMAL' | 'PRIORITY_REVIEW' | 'IMMEDIATE_REVIEW';
     assignedAt?: string | null;
     version?: number;
+    requestType?: 'SCREENING_ONLY' | 'CONSULTATION_REQUEST';
+    consultationRequested?: boolean;
+    consultationRequestedAt?: string | null;
+    screeningCompletedAt?: string | null;
+    processingStatus?: string;
+    assignmentStatus?: 'not_required' | 'unassigned' | 'assigned' | 'reassigned';
+    isSynthetic?: boolean;
+    hasReport?: boolean;
+    reportAttachment?: any;
 }
 
 export interface SurveyStatusSummary {
@@ -326,6 +335,16 @@ export interface SurveyStatusSummary {
     isImportRunning: boolean;
     currentBatchId: string | null;
     totalSubmissions: number;
+    totalScreeningCompleted?: number;
+    consultationRequested?: number;
+    consultationNotRequested?: number;
+    conversionRate?: number;
+    pendingStaffReview?: number;
+    myAssigned?: number;
+    reportReady?: number;
+    currentStoredCount?: number;
+    cumulativeProcessed?: number;
+    deletedCount?: number;
 }
 
 

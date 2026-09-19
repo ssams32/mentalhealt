@@ -62,6 +62,14 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Auto-load .env if available in Node 20+
+try {
+    const envPath = path.join(__dirname, '.env');
+    if (fs.existsSync(envPath) && typeof process.loadEnvFile === 'function') {
+        process.loadEnvFile(envPath);
+    }
+} catch (ignore) {}
+
 const app = express();
 // [포트 설정] 프론트엔드 8888, 백엔드 8889 체계 확정
 const PORT = process.env.PORT || 8889;
@@ -562,7 +570,8 @@ const surveyRepository = new SurveyImportRepository({
     getData,
     persistData,
     assignmentRepository: surveyAssignmentRepository,
-    sourceEnvironment: surveyTrackAMode
+    sourceEnvironment: surveyTrackAMode,
+    attachmentsDir: ATTACHMENTS_DIR
 });
 
 // Common parameters

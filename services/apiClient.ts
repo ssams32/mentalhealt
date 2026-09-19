@@ -636,6 +636,27 @@ class ApiClient {
         return { blob, filename };
     }
 
+    async purgeDemoSurveysDryRun(reason: string = '더미 데이터 삭제 계획 확인'): Promise<{ success: boolean; plan: any }> {
+        return this.request('/surveys/admin/purge-demo/dry-run', {
+            method: 'POST',
+            body: JSON.stringify({ reason })
+        });
+    }
+
+    async purgeDemoSurveys(reason: string, confirmation: string): Promise<{ success: boolean; message: string; result: any }> {
+        return this.request('/surveys/admin/purge-demo', {
+            method: 'POST',
+            body: JSON.stringify({ reason, confirmation })
+        });
+    }
+
+    async deleteSurveySubmission(id: string, reason: string, confirmSubmissionId?: string): Promise<{ success: boolean; message: string; result: any }> {
+        return this.request(`/surveys/admin/submissions/${id}`, {
+            method: 'DELETE',
+            body: JSON.stringify({ reason, confirmSubmissionId: confirmSubmissionId || id })
+        });
+    }
+
     // ──────────────────────────────────────────────────────────
     // [Track B: Notifications] 사내 인앱 알림 API
     // ──────────────────────────────────────────────────────────

@@ -94,6 +94,57 @@ export class SurveyReferralService {
     }
 
     /**
+     * Generate standalone screening report PDF without creating a referral.
+     */
+    async generateScreeningReportOnly({
+        payload,
+        internalSurveyId,
+        submissionId,
+        refNo = 'SCREENING-ONLY',
+        actorId = 'system'
+    }) {
+        const reportResult = this.reportGenerator.generateScreeningReportPdf({
+            refNo,
+            referralId: internalSurveyId || submissionId,
+            internalSurveyId,
+            submissionId,
+            payload,
+            consentEvidence: payload.consentEvidence,
+            actorId
+        });
+
+        const safeFolder = (internalSurveyId || submissionId).replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
+        const targetFolder = path.join(this.attachmentsDir, safeFolder);
+        if (!fs.existsSync(targetFolder)) {
+            fs.mkdirSync(targetFolder, { recursive: true });
+        }
+
+        const physicalFileId = reportResult.filename;
+        const targetFilePath = path.join(targetFolder, physicalFileId);
+        await fs.promises.writeFile(targetFilePath, reportResult.buffer);
+
+        const readBackBuffer = await fs.promises.readFile(targetFilePath);
+        if (!readBackBuffer || readBackBuffer.length !== reportResult.size) {
+            throw new Error(`Screening report attachment read-back verification failed for ${targetFilePath}`);
+        }
+
+        const attachmentMetadata = {
+            id: physicalFileId,
+            name: '온라인 마음건강 검진 결과보고서',
+            url: `/attachments/${safeFolder}/${encodeURIComponent(physicalFileId)}`,
+            type: 'application/pdf',
+            size: reportResult.size,
+            uploadedAt: reportResult.generatedAt,
+            fileHash: reportResult.fileHash
+        };
+
+        return {
+            attachment: attachmentMetadata,
+            filePath: targetFilePath
+        };
+    }
+
+    /**
      * Create or retrieve a referral draft from a validated survey submission.
      * Enforces external submissionId idempotency and generates screening report PDF.
      */
@@ -105,7 +156,8 @@ export class SurveyReferralService {
         assignedDepartmentId = null,
         assignmentPriority = 'NORMAL',
         sourceEnvironment = null,
-        actorId = 'system'
+        actorId = 'system',
+        existingAttachment = null
     }) {
         if (!payload || !submissionId) {
             throw new Error('createReferralFromSurvey requires valid payload and submissionId');
@@ -174,45 +226,44 @@ export class SurveyReferralService {
             }
         }
 
-        // 4. Generate Server-Side Screening Report PDF Attachment
-        const reportResult = this.reportGenerator.generateScreeningReportPdf({
-            refNo: assignedRefNo,
-            referralId,
-            internalSurveyId,
-            submissionId,
-            payload,
-            consentEvidence: payload.consentEvidence,
-            actorId
-        });
+        // 4 & 5. Attach PDF (Reuse existing attachment or generate new)
+        let attachmentMetadata = existingAttachment;
+        if (!attachmentMetadata) {
+            const reportResult = this.reportGenerator.generateScreeningReportPdf({
+                refNo: assignedRefNo,
+                referralId,
+                internalSurveyId,
+                submissionId,
+                payload,
+                consentEvidence: payload.consentEvidence,
+                actorId
+            });
 
-        // 5. Store PDF Attachment File in ATTACHMENTS_DIR
-        const safeFolder = referralId.replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
-        const targetFolder = path.join(this.attachmentsDir, safeFolder);
-        if (!fs.existsSync(targetFolder)) {
-            fs.mkdirSync(targetFolder, { recursive: true });
+            const safeFolder = referralId.replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
+            const targetFolder = path.join(this.attachmentsDir, safeFolder);
+            if (!fs.existsSync(targetFolder)) {
+                fs.mkdirSync(targetFolder, { recursive: true });
+            }
+
+            const physicalFileId = reportResult.filename;
+            const targetFilePath = path.join(targetFolder, physicalFileId);
+            await fs.promises.writeFile(targetFilePath, reportResult.buffer);
+
+            const readBackBuffer = await fs.promises.readFile(targetFilePath);
+            if (!readBackBuffer || readBackBuffer.length !== reportResult.size) {
+                throw new Error(`Screening report attachment read-back verification failed for ${targetFilePath}`);
+            }
+
+            attachmentMetadata = {
+                id: physicalFileId,
+                name: '온라인 마음건강 검진 결과보고서',
+                url: `/attachments/${safeFolder}/${encodeURIComponent(physicalFileId)}`,
+                type: 'application/pdf',
+                size: reportResult.size,
+                uploadedAt: reportResult.generatedAt,
+                fileHash: reportResult.fileHash
+            };
         }
-
-        // Strict neutral physical filename: survey-report_<UUID>.pdf
-        // Excludes name, phone, assessment identifier, score, risk label, or referral number
-        const physicalFileId = reportResult.filename;
-        const targetFilePath = path.join(targetFolder, physicalFileId);
-        await fs.promises.writeFile(targetFilePath, reportResult.buffer);
-
-        // Read-back verification of the stored PDF file
-        const readBackBuffer = await fs.promises.readFile(targetFilePath);
-        if (!readBackBuffer || readBackBuffer.length !== reportResult.size) {
-            throw new Error(`Screening report attachment read-back verification failed for ${targetFilePath}`);
-        }
-
-        const attachmentMetadata = {
-            id: physicalFileId,
-            name: '온라인 마음건강 검진 결과보고서',
-            url: `/attachments/${safeFolder}/${encodeURIComponent(physicalFileId)}`,
-            type: 'application/pdf',
-            size: reportResult.size,
-            uploadedAt: reportResult.generatedAt,
-            fileHash: reportResult.fileHash
-        };
 
         // 6. Build Referral Draft (PENDING_STAFF_REVIEW)
         const contact = payload.contact || {};

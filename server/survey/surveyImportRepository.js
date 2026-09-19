@@ -4,6 +4,8 @@
  * and pending referral candidates using existing JSON file store conventions.
  */
 
+import fs from 'fs';
+import path from 'path';
 import crypto from 'crypto';
 import {
     SURVEY_STORAGE_FILES,
@@ -16,6 +18,7 @@ export class SurveyImportRepository {
      * @param {Object} deps
      * @param {Function} deps.getData
      * @param {Function} deps.persistData
+     * @param {string} [deps.attachmentsDir]
      */
     constructor(deps = {}) {
         if (!deps.getData || !deps.persistData) {
@@ -25,6 +28,7 @@ export class SurveyImportRepository {
         this.persistData = deps.persistData;
         this.assignmentRepository = deps.assignmentRepository || null;
         this.sourceEnvironment = deps.sourceEnvironment || 'mock';
+        this.attachmentsDir = deps.attachmentsDir || null;
     }
 
     _nowIso() {
@@ -396,21 +400,38 @@ export class SurveyImportRepository {
         const retentionDays = payload.retention?.retentionDays || 365;
         const retentionUntil = new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000).toISOString();
 
+        const requestType = payload.requestType || (payload.consultationRequested ? 'CONSULTATION_REQUEST' : 'SCREENING_ONLY');
+        const isScreeningOnly = requestType === 'SCREENING_ONLY';
+        const consultationRequested = isScreeningOnly ? false : Boolean(payload.consultationRequested);
+        const consultationRequestedAt = isScreeningOnly ? null : (payload.consultationRequestedAt || null);
+        const screeningCompletedAt = payload.screeningCompletedAt || payload.submittedAt || now;
+
+        const processingStatus = isScreeningOnly
+            ? 'SCREENING_COMPLETED'
+            : (isSbqrQuarantined ? 'QUARANTINED' : 'PENDING_STAFF_REVIEW');
+        const assignmentStatus = isScreeningOnly ? 'not_required' : 'unassigned';
+        const consultationStatus = isScreeningOnly ? '검사완료' : (isSbqrQuarantined ? '격리(SBQ-R 대기)' : '신규접수대기');
+
         // 1. Survey Submission Record
         const surveySubmissions = this.getSurveySubmissions();
         const surveyRecord = {
             internalSurveyId,
             submissionId,
+            requestType,
+            consultationRequested,
+            consultationRequestedAt,
+            screeningCompletedAt,
             assessmentId: payload.assessmentId,
             assessmentVersion: payload.assessmentVersion,
             contactOnly: !!payload.contactOnly,
             assessmentDataIncluded: !!(payload.assessment && Object.keys(payload.assessment).length > 0),
             importedAt: now,
-            consultationStatus: isSbqrQuarantined ? '격리(SBQ-R 대기)' : '신규접수대기',
+            processingStatus,
+            consultationStatus,
             assignedUserId: null,
             assignedByUserId: null,
             assignedAt: null,
-            assignmentStatus: 'unassigned',
+            assignmentStatus,
             assignmentPriority: 'NORMAL',
             assignmentUpdatedAt: null,
             version: 1,
@@ -444,9 +465,9 @@ export class SurveyImportRepository {
         consentList.push(consentEvidence);
         await this.saveConsentEvidenceList(consentList);
 
-        // 3. Register into PendingReferrals candidate pool for staff review (unless SBQ-R quarantined)
+        // 3. Register into PendingReferrals candidate pool ONLY for CONSULTATION_REQUEST (not SCREENING_ONLY, not quarantined)
         let pendingReferralId = null;
-        if (!isSbqrQuarantined && payload.contact && (payload.contact.clientName || payload.contact.phone)) {
+        if (!isScreeningOnly && !isSbqrQuarantined && payload.contact && (payload.contact.clientName || payload.contact.phone)) {
             const pendingList = this.getData('PendingReferrals', []);
             pendingReferralId = `pref_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
             
@@ -482,6 +503,12 @@ export class SurveyImportRepository {
             keyVersion: envelope.keyVersion,
             externalStatus: SURVEY_EXTERNAL_STATUS.LEASED,
             internalStatus: ledgerStatus,
+            requestType,
+            consultationRequested,
+            consultationRequestedAt,
+            screeningCompletedAt,
+            processingStatus,
+            assignmentStatus,
             importedAt: now,
             lastAttemptAt: now
         });
@@ -507,6 +534,427 @@ export class SurveyImportRepository {
             internalSurveyId,
             ledger,
             pendingReferralId
+        };
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // 6. CONSULTATION_REQUEST Promotion
+    // ──────────────────────────────────────────────────────────
+
+    /**
+     * Promote an existing SCREENING_ONLY record to CONSULTATION_REQUEST.
+     * Enforces idempotency and guarantees zero duplicate subject records.
+     */
+    async promoteToConsultationRequest({ submissionId, consultationRequestedAt, actorId = 'system' }) {
+        if (!submissionId) {
+            throw new Error('submissionId is required for promotion');
+        }
+
+        const now = this._nowIso();
+        const subs = this.getSurveySubmissions();
+        const subIndex = subs.findIndex(s => s.submissionId === submissionId || s.internalSurveyId === submissionId);
+        if (subIndex === -1) {
+            return { notFound: true, submissionId };
+        }
+
+        const currentSub = subs[subIndex];
+        // Idempotency: if already CONSULTATION_REQUEST, return without duplicate
+        if (currentSub.requestType === 'CONSULTATION_REQUEST' && currentSub.consultationRequested === true) {
+            return {
+                submission: currentSub,
+                alreadyPromoted: true,
+                isDuplicate: true
+            };
+        }
+
+        const requestedAt = consultationRequestedAt || now;
+        const updatedSub = {
+            ...currentSub,
+            requestType: 'CONSULTATION_REQUEST',
+            consultationRequested: true,
+            consultationRequestedAt: requestedAt,
+            assignmentStatus: 'unassigned',
+            processingStatus: 'PENDING_STAFF_REVIEW',
+            consultationStatus: '신규접수대기',
+            updatedAt: now,
+            version: (currentSub.version || 1) + 1
+        };
+        subs[subIndex] = updatedSub;
+        await this.saveSurveySubmissions(subs);
+
+        // Update ledger
+        const ledgerList = this.getImportsLedger();
+        const lIndex = ledgerList.findIndex(l => l.submissionId === submissionId);
+        if (lIndex !== -1) {
+            ledgerList[lIndex] = {
+                ...ledgerList[lIndex],
+                requestType: 'CONSULTATION_REQUEST',
+                consultationRequested: true,
+                consultationRequestedAt: requestedAt,
+                assignmentStatus: 'unassigned',
+                processingStatus: 'PENDING_STAFF_REVIEW',
+                updatedAt: now
+            };
+            await this.saveImportsLedger(ledgerList);
+        }
+
+        await this.recordWorkflowStep({
+            submissionId,
+            internalSurveyId: updatedSub.internalSurveyId,
+            step: 'CONSULTATION_PROMOTED',
+            details: { promotedAt: now, actorId }
+        });
+
+        await this.recordAuditEvent({
+            actorId,
+            action: 'SURVEY_CONSULTATION_PROMOTED',
+            submissionId,
+            internalSurveyId: updatedSub.internalSurveyId,
+            result: 'SUCCESS'
+        });
+
+        return {
+            submission: updatedSub,
+            alreadyPromoted: false,
+            promoted: true
+        };
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // 7. Cascading Deletion & Demo Data Purge
+    // ──────────────────────────────────────────────────────────
+
+    /**
+     * Cascading deletion of a single submission and all connected assets.
+     * ZERO PII audit logging.
+     */
+    async deleteSubmissionCascading({ submissionId, actorId = 'admin', reason = 'Admin deletion', isSynthetic = false }) {
+        if (!submissionId) {
+            throw new Error('submissionId is required for deletion');
+        }
+
+        const subs = this.getSurveySubmissions();
+        const subIndex = subs.findIndex(s => s.submissionId === submissionId || s.internalSurveyId === submissionId);
+        const ledgerList = this.getImportsLedger();
+        const ledgerIndex = ledgerList.findIndex(l => l.submissionId === submissionId);
+
+        if (subIndex === -1 && ledgerIndex === -1) {
+            // Idempotent: already deleted
+            return {
+                success: true,
+                alreadyDeleted: true,
+                deletedRecordCount: 0,
+                deletedFileCount: 0,
+                submissionId
+            };
+        }
+
+        const sub = subIndex !== -1 ? subs[subIndex] : null;
+        const ledger = ledgerIndex !== -1 ? ledgerList[ledgerIndex] : null;
+
+        // Check active lease
+        if (ledger && ledger.externalStatus === SURVEY_EXTERNAL_STATUS.LEASED) {
+            if (ledger.leaseUntil && new Date(ledger.leaseUntil).getTime() > Date.now()) {
+                const err = new Error(`Cannot delete submission ${submissionId}: active lease exists`);
+                err.code = 'ACTIVE_LEASE_EXISTS';
+                throw err;
+            }
+        }
+
+        let deletedRecordCount = 0;
+        let deletedFileCount = 0;
+
+        // 1. Remove from SurveySubmissions
+        if (subIndex !== -1) {
+            subs.splice(subIndex, 1);
+            await this.saveSurveySubmissions(subs);
+            deletedRecordCount++;
+        }
+
+        // 2. Remove from ExternalSubmissionImports
+        if (ledgerIndex !== -1) {
+            ledgerList.splice(ledgerIndex, 1);
+            await this.saveImportsLedger(ledgerList);
+            deletedRecordCount++;
+        }
+
+        // 3. Remove from SurveyConsentEvidence
+        const consents = this.getConsentEvidenceList();
+        const remainingConsents = consents.filter(c => c.submissionId !== submissionId && c.internalSurveyId !== sub?.internalSurveyId);
+        if (remainingConsents.length !== consents.length) {
+            deletedRecordCount += (consents.length - remainingConsents.length);
+            await this.saveConsentEvidenceList(remainingConsents);
+        }
+
+        // 4. Remove connected Referral(s)
+        const referrals = this.getData('Referrals', []);
+        const refIndex = referrals.findIndex(r =>
+            r && (r.sourceSubmissionId === submissionId || r.externalIdx === submissionId || (sub?.referralId && r.referralId === sub.referralId))
+        );
+        let connectedReferral = null;
+        if (refIndex !== -1) {
+            connectedReferral = referrals[refIndex];
+            referrals.splice(refIndex, 1);
+            await this.persistData('Referrals', referrals);
+            deletedRecordCount++;
+        }
+
+        // 5. Remove connected PendingReferrals
+        const pendingList = this.getData('PendingReferrals', []);
+        const remainingPending = pendingList.filter(p =>
+            p && p.submissionId !== submissionId && p.surveySubmissionId !== sub?.internalSurveyId
+        );
+        if (remainingPending.length !== pendingList.length) {
+            deletedRecordCount += (pendingList.length - remainingPending.length);
+            await this.persistData('PendingReferrals', remainingPending);
+        }
+
+        // 6. Remove SurveyWorkflowJournal entries
+        const journals = this.getWorkflowJournal();
+        const remainingJournals = journals.filter(j => j.submissionId !== submissionId);
+        if (remainingJournals.length !== journals.length) {
+            deletedRecordCount += (journals.length - remainingJournals.length);
+            await this.saveWorkflowJournal(remainingJournals);
+        }
+
+        // 7. Delete physical files from disk
+        if (this.attachmentsDir && fs.existsSync(this.attachmentsDir)) {
+            const foldersToCheck = new Set();
+            if (sub?.internalSurveyId) foldersToCheck.add(sub.internalSurveyId);
+            if (submissionId) foldersToCheck.add(submissionId);
+            if (connectedReferral?.referralId) foldersToCheck.add(connectedReferral.referralId);
+
+            for (const folderName of foldersToCheck) {
+                const safeFolder = folderName.replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
+                const targetDir = path.join(this.attachmentsDir, safeFolder);
+                if (fs.existsSync(targetDir)) {
+                    try {
+                        const files = fs.readdirSync(targetDir);
+                        for (const f of files) {
+                            fs.unlinkSync(path.join(targetDir, f));
+                            deletedFileCount++;
+                        }
+                        fs.rmdirSync(targetDir);
+                    } catch (ignore) {}
+                }
+            }
+
+            if (sub?.attachmentId) {
+                try {
+                    const findAndDelete = (dir) => {
+                        if (!fs.existsSync(dir)) return;
+                        const items = fs.readdirSync(dir, { withFileTypes: true });
+                        for (const item of items) {
+                            const full = path.join(dir, item.name);
+                            if (item.isDirectory()) {
+                                findAndDelete(full);
+                            } else if (item.name === sub.attachmentId || item.name.includes(submissionId)) {
+                                fs.unlinkSync(full);
+                                deletedFileCount++;
+                            }
+                        }
+                    };
+                    findAndDelete(this.attachmentsDir);
+                } catch (ignore) {}
+            }
+        }
+
+        // 8. Sanitize SurveyImportAudit to remove PII of deleted submission
+        const audits = this.getAuditLogs();
+        const remainingAudits = audits.filter(a => a.submissionId !== submissionId);
+        if (remainingAudits.length !== audits.length) {
+            await this.persistData(SURVEY_STORAGE_FILES.SURVEY_IMPORT_AUDIT, remainingAudits);
+        }
+
+        // 9. Update stats metadata (cumulative tracker)
+        const statsMeta = this.getData('WebsiteSyncMetadata', {});
+        const currentStats = statsMeta.onlineSurveyStats || { cumulativeProcessed: 0, totalDeleted: 0 };
+        currentStats.totalDeleted = (currentStats.totalDeleted || 0) + 1;
+        statsMeta.onlineSurveyStats = currentStats;
+        await this.persistData('WebsiteSyncMetadata', statsMeta);
+
+        // 10. Record Safe Audit Event (ZERO PII)
+        const deletionJobId = `del_${crypto.randomUUID()}`;
+        const syntheticFlag = Boolean(isSynthetic || submissionId.startsWith('sub-demo-') || sub?.isSynthetic);
+
+        await this.recordAuditEvent({
+            actorId: actorId || 'admin',
+            action: 'ONLINE_SCREENING_SUBJECT_DELETED',
+            result: 'SUCCESS',
+            deletionJobId,
+            reason: String(reason || 'ADMIN_REQUEST').substring(0, 200),
+            deletedRecordCount,
+            deletedFileCount,
+            isSynthetic: syntheticFlag
+        });
+
+        return {
+            success: true,
+            submissionId,
+            deletionJobId,
+            deletedRecordCount,
+            deletedFileCount,
+            isSynthetic: syntheticFlag
+        };
+    }
+
+    /**
+     * Purge dummy / synthetic survey submissions with dry-run support.
+     * Strictly aborts if any real data is in the targets.
+     */
+    async purgeDemoSubmissions({ actorId = 'admin', reason = 'Demo data purge', dryRun = false }) {
+        if (!reason || typeof reason !== 'string' || !reason.trim()) {
+            const err = new Error('삭제 사유를 입력해야 합니다.');
+            err.code = 'MISSING_DELETION_REASON';
+            throw err;
+        }
+
+        const subs = this.getSurveySubmissions();
+        const ledgerList = this.getImportsLedger();
+
+        const isDemoIdentifier = (id, obj = {}) => {
+            if (!id || typeof id !== 'string') return false;
+            return id.startsWith('sub-demo-') || obj.isSynthetic === true || obj.synthetic === true;
+        };
+
+        const targetSubIds = new Set();
+        for (const s of subs) {
+            if (isDemoIdentifier(s.submissionId, s)) {
+                targetSubIds.add(s.submissionId);
+            }
+        }
+        for (const l of ledgerList) {
+            if (isDemoIdentifier(l.submissionId, l)) {
+                targetSubIds.add(l.submissionId);
+            }
+        }
+
+        const demoIdList = Array.from(targetSubIds);
+
+        // REAL DATA CHECK: verify EVERY candidate is truly demo
+        for (const id of demoIdList) {
+            if (!id.startsWith('sub-demo-')) {
+                const s = subs.find(item => item.submissionId === id);
+                const l = ledgerList.find(item => item.submissionId === id);
+                if ((!s || !s.isSynthetic) && (!l || !l.isSynthetic)) {
+                    const err = new Error(`실제 데이터가 감지되어 더미 일괄 삭제를 거부합니다: ${id}`);
+                    err.code = 'DEMO_PURGE_CONTAINS_REAL_DATA';
+                    throw err;
+                }
+            }
+        }
+
+        const referrals = this.getData('Referrals', []);
+        const connectedReferrals = referrals.filter(r =>
+            r && (demoIdList.includes(r.sourceSubmissionId) || demoIdList.includes(r.externalIdx))
+        );
+
+        if (dryRun) {
+            return {
+                dryRun: true,
+                targetCount: demoIdList.length,
+                submissionIds: demoIdList,
+                connectedReferralsCount: connectedReferrals.length,
+                connectedFilesCount: demoIdList.length,
+                plannedActions: [
+                    `ExternalSubmissionImports: ${demoIdList.length}건 삭제 예정`,
+                    `SurveySubmissions: ${demoIdList.length}건 삭제 예정`,
+                    `Referrals (연결 의뢰): ${connectedReferrals.length}건 삭제 예정`,
+                    `첨부 PDF 파일 및 디렉토리 정리 예정`,
+                    `감사로그: ONLINE_SCREENING_DEMO_DATA_PURGED 기록 예정`
+                ],
+                willExecute: false
+            };
+        }
+
+        let totalDeletedRecords = 0;
+        let totalDeletedFiles = 0;
+
+        for (const subId of demoIdList) {
+            const res = await this.deleteSubmissionCascading({
+                submissionId: subId,
+                actorId,
+                reason,
+                isSynthetic: true
+            });
+            totalDeletedRecords += (res.deletedRecordCount || 0);
+            totalDeletedFiles += (res.deletedFileCount || 0);
+        }
+
+        const deletionJobId = `purge_${crypto.randomUUID()}`;
+        await this.recordAuditEvent({
+            actorId: actorId || 'admin',
+            action: 'ONLINE_SCREENING_DEMO_DATA_PURGED',
+            result: 'SUCCESS',
+            deletionJobId,
+            reason: String(reason).substring(0, 200),
+            deletedRecordCount: totalDeletedRecords,
+            deletedFileCount: totalDeletedFiles,
+            isSynthetic: true
+        });
+
+        return {
+            success: true,
+            purgedCount: demoIdList.length,
+            deletedRecordCount: totalDeletedRecords,
+            deletedFileCount: totalDeletedFiles,
+            deletionJobId
+        };
+    }
+
+    /**
+     * Compute aggregate metrics by unique submissionId.
+     */
+    getStatistics(userId = null) {
+        const subs = this.getSurveySubmissions();
+        const ledger = this.getImportsLedger();
+
+        const uniqueSubIds = new Set();
+        for (const s of subs) if (s.submissionId) uniqueSubIds.add(s.submissionId);
+        for (const l of ledger) if (l.submissionId) uniqueSubIds.add(l.submissionId);
+
+        const totalScreeningCompleted = uniqueSubIds.size;
+
+        let consultationRequested = 0;
+        let pendingStaffReview = 0;
+        let myAssigned = 0;
+        let reportReady = 0;
+
+        for (const s of subs) {
+            if (s.consultationRequested === true || s.requestType === 'CONSULTATION_REQUEST') {
+                consultationRequested++;
+                if (s.processingStatus === 'PENDING_STAFF_REVIEW' || s.assignmentStatus === 'unassigned') {
+                    pendingStaffReview++;
+                }
+            }
+            if (userId && (s.assignedUserId === userId || s.assignedUser?.id === userId)) {
+                myAssigned++;
+            }
+            if (s.attachmentId || s.referralId || s.assessmentDataIncluded) {
+                reportReady++;
+            }
+        }
+
+        const consultationNotRequested = Math.max(0, totalScreeningCompleted - consultationRequested);
+        const conversionRate = totalScreeningCompleted > 0
+            ? Number(((consultationRequested / totalScreeningCompleted) * 100).toFixed(1))
+            : 0;
+
+        const statsMeta = this.getData('WebsiteSyncMetadata', {});
+        const totalDeleted = statsMeta.onlineSurveyStats?.totalDeleted || 0;
+        const cumulativeProcessed = totalScreeningCompleted + totalDeleted;
+
+        return {
+            totalScreeningCompleted,
+            consultationRequested,
+            consultationNotRequested,
+            conversionRate,
+            pendingStaffReview,
+            myAssigned,
+            reportReady,
+            currentStoredCount: totalScreeningCompleted,
+            cumulativeProcessed,
+            deletedCount: totalDeleted
         };
     }
 }
