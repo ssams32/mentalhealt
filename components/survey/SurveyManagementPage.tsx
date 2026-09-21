@@ -434,36 +434,105 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         return dateStr.substring(0, 10) === todayStr;
     };
 
+    const isConsultationRequest = (item: any) => {
+        if (!item) return false;
+        return item.consultationRequested === true || item.requestType === 'CONSULTATION_REQUEST';
+    };
+
+    const isInvalidSurveyRecord = (item: any) => {
+        if (!item || !item.submissionId) return true;
+        const hasRequestType = item.requestType !== undefined && item.requestType !== null && item.requestType !== '';
+        const hasConsultationRequested = item.consultationRequested !== undefined && item.consultationRequested !== null;
+        if (!hasRequestType && !hasConsultationRequested) return true;
+        if (!item.assessmentId || item.assessmentId === 'UNKNOWN') return true;
+        return false;
+    };
+
+    const isScreeningOnly = (item: any) => {
+        if (isInvalidSurveyRecord(item)) return false;
+        if (isConsultationRequest(item)) return false;
+        return item.requestType === 'SCREENING_ONLY';
+    };
+
+    const isPendingStaffReview = (item: any) => {
+        return isConsultationRequest(item) && item.processingStatus === 'PENDING_STAFF_REVIEW';
+    };
+
+    const getRecordTimestamp = (item: any): number => {
+        const dates = [item?.updatedAt, item?.importedAt, item?.submittedAt, item?.createdAt];
+        for (const d of dates) {
+            if (d) {
+                const time = new Date(d).getTime();
+                if (!isNaN(time) && time > 0) return time;
+            }
+        }
+        return 0;
+    };
+
+    const getConsultationTime = (item: any): number => {
+        if (item?.consultationRequestedAt) {
+            const time = new Date(item.consultationRequestedAt).getTime();
+            if (!isNaN(time) && time > 0) return time;
+        }
+        return 0;
+    };
+
+    const shouldReplaceRepresentative = (current: any, candidate: any): boolean => {
+        const currentIsReq = isConsultationRequest(current);
+        const candIsReq = isConsultationRequest(candidate);
+        if (candIsReq && !currentIsReq) return true;
+        if (!candIsReq && currentIsReq) return false;
+
+        const candReqTime = getConsultationTime(candidate);
+        const currReqTime = getConsultationTime(current);
+        if (candReqTime !== currReqTime) {
+            return candReqTime > currReqTime;
+        }
+
+        const candTime = getRecordTimestamp(candidate);
+        const currTime = getRecordTimestamp(current);
+        if (candTime !== currTime) {
+            return candTime > currTime;
+        }
+
+        return false;
+    };
+
     // Business Summary Metrics (고유 submissionId 기준 집계)
     const metrics = useMemo(() => {
         const uniqueSubIds = Array.from(new Set(imports.map(i => i.submissionId).filter(Boolean)));
         const totalScreeningCompleted = uniqueSubIds.length;
 
-        // 고유 submissionId별 대표 객체
-        const uniqueItems = uniqueSubIds.map(id => imports.find(i => i.submissionId === id)!);
+        // 고유 submissionId별 대표 객체 (우선순위: 상담요청 -> consultationRequestedAt 최신 -> 유효 최신시각)
+        const subMap = new Map<string, any>();
+        imports.forEach(item => {
+            if (!item?.submissionId) return;
+            const existing = subMap.get(item.submissionId);
+            if (!existing) {
+                subMap.set(item.submissionId, item);
+            } else if (shouldReplaceRepresentative(existing, item)) {
+                subMap.set(item.submissionId, item);
+            }
+        });
+        const uniqueItems = Array.from(subMap.values());
 
-        // 상담 요청자 (consultationRequested === true)
-        const consultationRequested = uniqueItems.filter(i =>
-            i.consultationRequested === true || i.requestType === 'CONSULTATION_REQUEST'
-        ).length;
+        // 유효 검사자 목록 (오류 레코드 제외)
+        const validUniqueItems = uniqueItems.filter(i => !isInvalidSurveyRecord(i));
 
-        // 상담 미요청자 (전체 검사 완료자 - 상담 요청자)
-        const consultationNotRequested = Math.max(0, totalScreeningCompleted - consultationRequested);
+        // 상담 요청자 (consultationRequested === true || requestType === 'CONSULTATION_REQUEST')
+        const consultationRequested = validUniqueItems.filter(isConsultationRequest).length;
 
-        // 상담 전환율 (상담 요청자 / 전체 검사 완료자 * 100) (분모 0이면 0%)
-        const conversionRate = totalScreeningCompleted > 0
-            ? Math.round((consultationRequested / totalScreeningCompleted) * 1000) / 10
+        // 상담 미요청자 (SCREENING_ONLY 전용)
+        const consultationNotRequested = validUniqueItems.filter(isScreeningOnly).length;
+
+        // 상담 전환율 (분모: 상담요청자 + 상담미요청자)
+        const conversionDenominator = consultationRequested + consultationNotRequested;
+        const conversionRate = conversionDenominator > 0
+            ? Math.round((consultationRequested / conversionDenominator) * 1000) / 10
             : 0;
 
-        // 담당자 검토 대기 (SCREENING_ONLY 제외, CONSULTATION_REQUEST만 포함)
-        const pendingStaffReview = uniqueItems.filter(i => {
-            const isConsultation = i.consultationRequested === true || i.requestType === 'CONSULTATION_REQUEST';
-            if (!isConsultation) return false;
-            return i.consultationStatus === '신규접수대기' ||
-                i.referralStatus === 'PENDING_STAFF_REVIEW' ||
-                i.processingStatus === 'PENDING_STAFF_REVIEW' ||
-                (!i.assignedUserId && !i.isSbqrQuarantined);
-        }).length;
+        // 담당자 검토 대기 (isConsultationRequest && processingStatus === 'PENDING_STAFF_REVIEW')
+        const pendingStaffReview = validUniqueItems.filter(isPendingStaffReview).length;
 
         // 내게 배정된 건
         const myAssigned = uniqueItems.filter(i =>
@@ -497,11 +566,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         return imports.filter(item => {
             // Tab filter
             if (filterTab === 'consultation_requested') {
-                const isReq = item.consultationRequested === true || item.requestType === 'CONSULTATION_REQUEST';
-                if (!isReq) return false;
+                if (!isConsultationRequest(item)) return false;
             } else if (filterTab === 'screening_only') {
-                const isScreeningOnly = item.consultationRequested === false || item.requestType === 'SCREENING_ONLY';
-                if (!isScreeningOnly) return false;
+                if (!isScreeningOnly(item)) return false;
             } else if (filterTab === 'additional_review') {
                 const needsReview = item.isSbqrQuarantined || (item.totalScore !== null && item.totalScore >= 15);
                 if (!needsReview) return false;
