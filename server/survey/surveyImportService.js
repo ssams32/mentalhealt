@@ -146,6 +146,14 @@ export class SurveyImportService {
                     errorCode: SURVEY_ERROR_CODES.EXTERNAL_API_UNAVAILABLE,
                     batchId
                 });
+                // SAFE OBSERVABILITY PATCH: Log upstream error details without sensitive data
+                console.error('[SURVEY_IMPORT_UPSTREAM_ERROR]', {
+                  name: typeof err?.name === 'string' ? err.name : 'UnknownError',
+                  message: typeof err?.message === 'string' ? err.message : 'Unknown upstream error',
+                  trackACode: typeof err?.trackACode === 'string' ? err.trackACode : null,
+                  statusCode: Number.isInteger(err?.statusCode) ? err.statusCode : null,
+                  batchId
+                });
                 throw new SurveyOperationError(
                     SURVEY_ERROR_CODES.EXTERNAL_API_UNAVAILABLE,
                     '외부 설문 수집 서비스에 연결할 수 없습니다.'
