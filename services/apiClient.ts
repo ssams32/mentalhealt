@@ -92,12 +92,22 @@ class ApiClient {
                     errorBody = await response.json();
                 } catch (ignore) {}
 
-                const errMsg = errorBody?.error || errorBody?.message || `HTTP Error: ${response.status} ${response.statusText}`;
+                const structuredError = errorBody?.error;
+                let errMsg: string;
+                if (typeof structuredError === 'string') {
+                    errMsg = structuredError;
+                } else if (typeof structuredError?.message === 'string') {
+                    errMsg = structuredError.message;
+                } else if (typeof errorBody?.message === 'string') {
+                    errMsg = errorBody.message;
+                } else {
+                    errMsg = `HTTP Error: ${response.status} ${response.statusText}`;
+                }
                 const err = new Error(errMsg) as any;
                 err.status = response.status;
-                err.code = errorBody?.code;
-                err.serverItem = errorBody?.serverItem;
-                err.currentVersion = errorBody?.currentVersion;
+                err.code = structuredError?.code || errorBody?.code;
+                err.serverItem = structuredError?.serverItem || errorBody?.serverItem;
+                err.currentVersion = structuredError?.currentVersion || errorBody?.currentVersion;
                 throw err;
             }
 
