@@ -33,7 +33,7 @@ export class TrackAClient {
         this.workerId = config.workerId;
         this.timeoutMs = Number(config.timeoutMs) || 10000;
         this.defaultLeaseSeconds = Number(config.defaultLeaseSeconds) || 300;
-        this.vercelBypassSecret = config.vercelBypassSecret || process.env.TRACK_A_VERCEL_BYPASS_SECRET || '';
+        this.vercelBypassSecret = (config.vercelBypassSecret || process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '').trim();
 
         // Security check: enforce HTTPS in production
         if (process.env.NODE_ENV === 'production' && !this.baseUrl.startsWith('https://')) {
