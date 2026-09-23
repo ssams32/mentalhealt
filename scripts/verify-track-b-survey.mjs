@@ -395,6 +395,134 @@ async function runAllTests() {
         assert(!auditDump.includes('PRIVATE KEY'), 'Audit logs must NOT contain private key');
     });
 
+    // ──────────────────────────────────────────────────────────
+    // 6. TRACK_A_MAX_BATCH_SIZE & Effective Limit Policy
+    // ──────────────────────────────────────────────────────────
+    console.log('\n--- 6. TRACK_A_MAX_BATCH_SIZE & Effective Limit Policy ---');
+
+    await itAsync('A. maxBatchSize=1, requestedLimit=50 enforces effectiveLimit=1 on API call', async () => {
+        const { getData, persistData } = createInMemoryStore();
+        const repo = new SurveyImportRepository({ getData, persistData });
+        let capturedLimit = null;
+        const spyApi = {
+            async checkSubmissionGateStatus() { return { enabled: true }; },
+            async leasePendingSubmissions({ limit, leaseSeconds }) {
+                capturedLimit = limit;
+                return { submissions: [] };
+            }
+        };
+        const importService = new SurveyImportService({
+            repository: repo,
+            decryptionService,
+            validator,
+            externalApiClient: spyApi,
+            maxBatchSize: 1
+        });
+        assert.strictEqual(importService.maxBatchSize, 1);
+        await importService.runManualImport({ actorId: 'admin_test', limit: 50 });
+        assert.strictEqual(capturedLimit, 1, 'API call limit must be 1 when maxBatchSize=1 and requestedLimit=50');
+    });
+
+    await itAsync('B. maxBatchSize=50, requestedLimit=10 uses effectiveLimit=10 on API call', async () => {
+        const { getData, persistData } = createInMemoryStore();
+        const repo = new SurveyImportRepository({ getData, persistData });
+        let capturedLimit = null;
+        const spyApi = {
+            async checkSubmissionGateStatus() { return { enabled: true }; },
+            async leasePendingSubmissions({ limit, leaseSeconds }) {
+                capturedLimit = limit;
+                return { submissions: [] };
+            }
+        };
+        const importService = new SurveyImportService({
+            repository: repo,
+            decryptionService,
+            validator,
+            externalApiClient: spyApi,
+            maxBatchSize: 50
+        });
+        assert.strictEqual(importService.maxBatchSize, 50);
+        await importService.runManualImport({ actorId: 'admin_test', limit: 10 });
+        assert.strictEqual(capturedLimit, 10, 'API call limit must be 10 when requestedLimit=10 and maxBatchSize=50');
+    });
+
+    await itAsync('C. maxBatchSize=50, requestedLimit=50 uses effectiveLimit=50 on API call', async () => {
+        const { getData, persistData } = createInMemoryStore();
+        const repo = new SurveyImportRepository({ getData, persistData });
+        let capturedLimit = null;
+        const spyApi = {
+            async checkSubmissionGateStatus() { return { enabled: true }; },
+            async fetchPending({ limit, leaseSeconds }) {
+                capturedLimit = limit;
+                return { submissions: [] };
+            }
+        };
+        const importService = new SurveyImportService({
+            repository: repo,
+            decryptionService,
+            validator,
+            externalApiClient: spyApi,
+            maxBatchSize: 50
+        });
+        assert.strictEqual(importService.maxBatchSize, 50);
+        await importService.runManualImport({ actorId: 'admin_test', limit: 50 });
+        assert.strictEqual(capturedLimit, 50, 'API call limit must be 50 via fetchPending fallback');
+    });
+
+    it('D. Production configuration validation: rejects invalid and accepts 1..100 integers', () => {
+        function validateProductionBatch(val) {
+            const trimmed = typeof val === 'string' ? val.trim() : '';
+            const num = Number(trimmed);
+            const isValid = trimmed !== '' && /^\d+$/.test(trimmed) && Number.isInteger(num) && num >= 1 && num <= 100;
+            if (!isValid) {
+                throw new Error('[FATAL] Invalid TRACK_A_MAX_BATCH_SIZE in production mode.');
+            }
+            return num;
+        }
+
+        assert.strictEqual(validateProductionBatch('1'), 1);
+        assert.strictEqual(validateProductionBatch('100'), 100);
+        assert.throws(() => validateProductionBatch(undefined), /Invalid TRACK_A_MAX_BATCH_SIZE/);
+        assert.throws(() => validateProductionBatch(''), /Invalid TRACK_A_MAX_BATCH_SIZE/);
+        assert.throws(() => validateProductionBatch('   '), /Invalid TRACK_A_MAX_BATCH_SIZE/);
+        assert.throws(() => validateProductionBatch('0'), /Invalid TRACK_A_MAX_BATCH_SIZE/);
+        assert.throws(() => validateProductionBatch('-5'), /Invalid TRACK_A_MAX_BATCH_SIZE/);
+        assert.throws(() => validateProductionBatch('101'), /Invalid TRACK_A_MAX_BATCH_SIZE/);
+        assert.throws(() => validateProductionBatch('1.5'), /Invalid TRACK_A_MAX_BATCH_SIZE/);
+        assert.throws(() => validateProductionBatch('abc'), /Invalid TRACK_A_MAX_BATCH_SIZE/);
+    });
+
+    it('E. mock and staging fallback to default 50 when no valid batch size configured', () => {
+        const { getData, persistData } = createInMemoryStore();
+        const repo = new SurveyImportRepository({ getData, persistData });
+        const mockApi = new MockTrackAApi();
+        const svcDefault = new SurveyImportService({
+            repository: repo,
+            decryptionService,
+            validator,
+            externalApiClient: mockApi
+        });
+        assert.strictEqual(svcDefault.maxBatchSize, 50);
+
+        const svcInvalid = new SurveyImportService({
+            repository: repo,
+            decryptionService,
+            validator,
+            externalApiClient: mockApi,
+            maxBatchSize: 'invalid'
+        });
+        assert.strictEqual(svcInvalid.maxBatchSize, 50);
+
+        const svcFraction = new SurveyImportService({
+            repository: repo,
+            decryptionService,
+            validator,
+            externalApiClient: mockApi,
+            maxBatchSize: 1.5
+        });
+        assert.strictEqual(svcFraction.maxBatchSize, 50);
+    });
+
     console.log('\n============================================================');
     console.log(`📊 TRACK B VERIFICATION RESULTS: ${passed} Passed, ${failed} Failed (Total: ${passed + failed})`);
     console.log('============================================================\n');

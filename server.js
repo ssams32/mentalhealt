@@ -500,6 +500,15 @@ if (surveyTrackAMode === 'production') {
         console.error(`❌ [FATAL_CONFIG_ERROR] Production mode requires all mandatory variables. Missing or empty: ${missingVars.join(', ')}`);
         throw new Error(`[FATAL] Missing required production environment variables: ${missingVars.join(', ')}. Server fail-closed.`);
     }
+
+    const rawBatchSizeStr = process.env.TRACK_A_MAX_BATCH_SIZE;
+    const trimmedBatchStr = typeof rawBatchSizeStr === 'string' ? rawBatchSizeStr.trim() : '';
+    const numBatchSize = Number(trimmedBatchStr);
+    const isStrictInteger = trimmedBatchStr !== '' && /^\d+$/.test(trimmedBatchStr) && Number.isInteger(numBatchSize);
+    if (!isStrictInteger || numBatchSize < 1 || numBatchSize > 100) {
+        console.error(`❌ [FATAL_CONFIG_ERROR] Production mode requires TRACK_A_MAX_BATCH_SIZE to be an integer between 1 and 100.`);
+        throw new Error(`[FATAL] Invalid TRACK_A_MAX_BATCH_SIZE in production mode. Must be integer between 1 and 100. Server fail-closed.`);
+    }
 }
 
 // 3. Staging Mode Validation
@@ -580,6 +589,18 @@ const trackBServiceSecret = process.env.TRACK_B_SERVICE_SECRET || process.env.TR
 const trackBWorkerId = process.env.TRACK_B_WORKER_ID || (surveyTrackAMode === 'mock' ? 'track-b-mock-worker' : 'track-b-worker-1');
 const trackARequestTimeoutMs = Number(process.env.TRACK_A_REQUEST_TIMEOUT_MS) || 10000;
 const trackADefaultLeaseSeconds = Number(process.env.TRACK_A_DEFAULT_LEASE_SECONDS) || 600;
+let trackAMaxBatchSize = 50;
+if (surveyTrackAMode === 'production') {
+    trackAMaxBatchSize = Number(process.env.TRACK_A_MAX_BATCH_SIZE.trim());
+} else {
+    const rawBatchStr = typeof process.env.TRACK_A_MAX_BATCH_SIZE === 'string' ? process.env.TRACK_A_MAX_BATCH_SIZE.trim() : '';
+    const parsedBatch = Number(rawBatchStr);
+    if (rawBatchStr !== '' && /^\d+$/.test(rawBatchStr) && Number.isInteger(parsedBatch) && parsedBatch >= 1 && parsedBatch <= 100) {
+        trackAMaxBatchSize = parsedBatch;
+    } else {
+        trackAMaxBatchSize = 50;
+    }
+}
 
 // Validate Track A URL for staging and production
 if (surveyTrackAMode === 'staging' || surveyTrackAMode === 'production') {
@@ -632,6 +653,7 @@ const surveyImportService = new SurveyImportService({
     notificationRepository: internalNotificationRepository,
     workerId: trackBWorkerId,
     defaultLeaseSeconds: trackADefaultLeaseSeconds,
+    maxBatchSize: trackAMaxBatchSize,
     sourceEnvironment: surveyTrackAMode
 });
 

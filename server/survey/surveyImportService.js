@@ -44,6 +44,11 @@ export class SurveyImportService {
         this.notificationRepository = deps.notificationRepository || null;
         this.workerId = deps.workerId || process.env.TRACK_B_WORKER_ID || 'track-b-worker-1';
         this.defaultLeaseSeconds = Number(deps.defaultLeaseSeconds) || Number(process.env.TRACK_A_DEFAULT_LEASE_SECONDS) || DEFAULT_LEASE_SECONDS || 600;
+        const rawBatchSize = deps.maxBatchSize !== undefined ? deps.maxBatchSize : process.env.TRACK_A_MAX_BATCH_SIZE;
+        const parsedBatchSize = Number(rawBatchSize);
+        this.maxBatchSize = (rawBatchSize !== null && rawBatchSize !== '' && /^\d+$/.test(String(rawBatchSize).trim()) && Number.isInteger(parsedBatchSize) && parsedBatchSize >= 1 && parsedBatchSize <= 100)
+            ? parsedBatchSize
+            : 50;
         this.sourceEnvironment = deps.sourceEnvironment || process.env.SURVEY_TRACK_A_MODE || 'mock';
 
         this._isImportRunning = false;
@@ -124,17 +129,21 @@ export class SurveyImportService {
             console.log(`📡 [E2E_STEP 01/14] Track A 연결: 성공 (COUNSELING_SUBMISSION_ENABLED=true)`);
 
             // [E2E_STEP 02/14] pending 조회
-            console.log(`📥 [E2E_STEP 02/14] pending 조회: 시작 (limit: ${limit}, leaseSeconds: ${this.defaultLeaseSeconds})`);
+            const parsedLimit = Number(limit);
+            const requestedLimit = (Number.isInteger(parsedLimit) && parsedLimit >= 1) ? parsedLimit : 50;
+            const effectiveLimit = Math.min(requestedLimit, this.maxBatchSize);
+
+            console.log(`📥 [E2E_STEP 02/14] pending 조회: 시작 (limit: ${effectiveLimit}, leaseSeconds: ${this.defaultLeaseSeconds})`);
             let externalResponse;
             try {
                 if (typeof this.externalApiClient.leasePendingSubmissions === 'function') {
                     externalResponse = await this.externalApiClient.leasePendingSubmissions({
-                        limit,
+                        limit: effectiveLimit,
                         leaseSeconds: this.defaultLeaseSeconds
                     });
                 } else {
                     externalResponse = await this.externalApiClient.fetchPending({
-                        limit,
+                        limit: effectiveLimit,
                         leaseSeconds: this.defaultLeaseSeconds
                     });
                 }
