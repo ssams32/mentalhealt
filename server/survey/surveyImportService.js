@@ -233,6 +233,24 @@ export class SurveyImportService {
                 let payload;
                 try {
                     payload = this.decryptionService.decryptEnvelope(envelope);
+
+                    // Merge trusted envelope request metadata before payload validation.
+                    if (envelope.requestType === 'CONSULTATION_REQUEST') {
+                        payload.requestType = 'CONSULTATION_REQUEST';
+                        payload.consultationRequested = true;
+
+                        if (
+                            typeof envelope.consultationRequestedAt === 'string' &&
+                            envelope.consultationRequestedAt.trim() !== ''
+                        ) {
+                            payload.consultationRequestedAt = envelope.consultationRequestedAt;
+                        }
+                    } else if (
+                        envelope.requestType === 'SCREENING_ONLY' &&
+                        !payload.requestType
+                    ) {
+                        payload.requestType = 'SCREENING_ONLY';
+                    }
                     console.log(`🔓 [E2E_STEP 04/14] 복호화: 성공 (keyVersion=${envelope.keyVersion || 'k2026_01'}, submissionId=${subId})`);
                     await this.repository.createOrUpdateImportRecord({
                         submissionId: subId,
