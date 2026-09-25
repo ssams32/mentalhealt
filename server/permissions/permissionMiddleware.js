@@ -1,9 +1,65 @@
-import { hasVoiceCapability, getEffectiveVoiceCapabilities } from './voiceCapabilities.js';
+import { hasVoiceCapability, getEffectiveVoiceCapabilities, hasVoiceAiAccess } from './voiceCapabilities.js';
 
 /**
  * server/permissions/permissionMiddleware.js
  * Authorization guard middlewares for Voice Call endpoints and capabilities.
  */
+
+/**
+ * Enforce foundational access for Voice Recording AI.
+ * Allows: isAdministrator === true OR user.permissions includes VOICE_RECORDING_AI_ACCESS
+ * Rejects: unauthenticated (401), inactive account (403), lacking permission (403).
+ */
+export function requireVoiceAiAccess(options = {}) {
+    const auditLogger = options.auditLogger || null;
+
+    return (req, res, next) => {
+        if (!req.auth) {
+            return res.status(401).json({
+                error: {
+                    code: 'UNAUTHENTICATED',
+                    message: '로그인이 필요합니다.'
+                }
+            });
+        }
+
+        if (req.auth.status !== 'active') {
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: req.auth.id || 'unknown',
+                    action: 'VOICE_AI_ACCESS_DENIED',
+                    result: 'DENIED',
+                    reasonCode: 'ACCOUNT_INACTIVE'
+                });
+            }
+            return res.status(403).json({
+                error: {
+                    code: 'FORBIDDEN',
+                    message: '비활성화된 계정은 접근할 수 없습니다.'
+                }
+            });
+        }
+
+        if (!hasVoiceAiAccess(req.auth)) {
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: req.auth.id || 'unknown',
+                    action: 'VOICE_AI_ACCESS_DENIED',
+                    result: 'DENIED',
+                    reasonCode: 'NO_VOICE_AI_PERMISSION'
+                });
+            }
+            return res.status(403).json({
+                error: {
+                    code: 'FORBIDDEN',
+                    message: '음성 녹음 분석(AI) 기능에 접근할 권한이 없습니다.'
+                }
+            });
+        }
+
+        next();
+    };
+}
 
 /**
  * Enforce a specific Voice Call capability.

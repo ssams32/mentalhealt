@@ -36,6 +36,53 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
     const [addUserError, setAddUserError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
+    const [updatingVoiceAccessId, setUpdatingVoiceAccessId] = useState<string | null>(null);
+
+    const handleToggleVoiceAccess = async (user: User) => {
+        if (currentUser.role !== 'admin') return;
+        if (updatingVoiceAccessId) return;
+        if (user.status !== 'active') {
+            alert('비활성 또는 정지된 사용자에게는 권한을 부여할 수 없습니다.');
+            return;
+        }
+
+        const currentAccess = Array.isArray(user.permissions)
+            ? user.permissions.includes('VOICE_RECORDING_AI_ACCESS') || user.permissions.includes('voiceCalls')
+            : Boolean((user.permissions as any)?.VOICE_RECORDING_AI_ACCESS || (user.permissions as any)?.voiceCalls);
+
+        const nextGranted = !currentAccess;
+        const confirmMessage = nextGranted
+            ? `'${user.name}'(${user.id}) 사용자에게 [음성 녹음 분석(AI) 사용] 권한을 부여하시겠습니까?`
+            : `'${user.name}'(${user.id}) 사용자의 [음성 녹음 분석(AI) 사용] 권한을 회수하시겠습니까?`;
+
+        if (!window.confirm(confirmMessage)) return;
+
+        setUpdatingVoiceAccessId(user.id);
+        try {
+            const res = await apiClient.patchVoiceAccess(user.id, nextGranted);
+            if (res && res.success) {
+                setUsers(prev => prev.map(u => {
+                    if (u.id !== user.id) return u;
+                    return {
+                        ...u,
+                        permissions: res.user?.permissions || (
+                            Array.isArray(u.permissions)
+                                ? (nextGranted ? [...u.permissions.filter(p => p !== 'VOICE_RECORDING_AI_ACCESS'), 'VOICE_RECORDING_AI_ACCESS'] : u.permissions.filter(p => p !== 'VOICE_RECORDING_AI_ACCESS' && p !== 'voiceCalls'))
+                                : { ...(u.permissions || {}), VOICE_RECORDING_AI_ACCESS: nextGranted, voiceCalls: nextGranted }
+                        )
+                    };
+                }));
+                showToast?.(res.message || '음성 녹음 분석(AI) 권한이 변경되었습니다.');
+            } else {
+                alert(res?.error?.message || res?.error || '권한 변경에 실패했습니다.');
+            }
+        } catch (err: any) {
+            console.error('Error toggling voice AI permission:', err);
+            alert(err.message || '권한 변경 중 통신 오류가 발생했습니다.');
+        } finally {
+            setUpdatingVoiceAccessId(null);
+        }
+    };
 
     const sessionLogs = useMemo(() => logs.filter(l => l.loginTime && !l.action).sort((a, b) => new Date(b.loginTime).getTime() - new Date(a.loginTime).getTime()), [logs]);
     const activityLogs = useMemo(() => logs.filter(l => l.action).sort((a, b) => {
@@ -391,7 +438,7 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                         <table className="w-full text-sm text-left text-slate-600">
                             <thead className="bg-slate-50/50 text-xs text-slate-400 font-extrabold uppercase tracking-wider border-b border-slate-100">
                                 <tr>
-                                    {['ID', '이름', '소속팀', '권한', '상태', '생성일', '관리'].map(h => <th key={h} className="px-8 py-5">{h}</th>)}
+                                    {['ID', '이름', '소속팀', '권한', ...(currentUser.role === 'admin' ? ['음성 녹음 분석(AI) 사용'] : []), '상태', '생성일', '관리'].map(h => <th key={h} className="px-8 py-5">{h}</th>)}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
@@ -401,6 +448,42 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                                         <td className="px-8 py-5 font-medium">{u.name}</td>
                                         <td className="px-8 py-5">{TEAMS_CONFIG[u.team]?.title || u.team}</td>
                                         <td className="px-8 py-5"><span className={`px-3 py-1 text-xs font-bold rounded-lg ${u.role === 'admin' ? 'bg-red-100 text-red-700' : u.role === 'manager' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{u.role}</span></td>
+                                        {currentUser.role === 'admin' && (
+                                            <td className="px-8 py-5">
+                                                {u.role === 'admin' ? (
+                                                    <span className="px-3 py-1 text-xs font-bold rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200" title="관리자는 전권한 자동 허용">
+                                                        관리자 (자동)
+                                                    </span>
+                                                ) : (() => {
+                                                    const hasAccess = Array.isArray(u.permissions)
+                                                        ? u.permissions.includes('VOICE_RECORDING_AI_ACCESS') || u.permissions.includes('voiceCalls')
+                                                        : Boolean((u.permissions as any)?.VOICE_RECORDING_AI_ACCESS || (u.permissions as any)?.voiceCalls);
+                                                    const isInactive = u.status !== 'active';
+                                                    const isBusy = updatingVoiceAccessId === u.id;
+
+                                                    return (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleToggleVoiceAccess(u)}
+                                                            disabled={isInactive || isBusy}
+                                                            title={isInactive ? '비활성 사용자에게는 권한을 부여할 수 없습니다.' : hasAccess ? '클릭 시 권한 회수' : '클릭 시 권한 부여'}
+                                                            className={`px-3 py-1.5 text-xs font-extrabold rounded-xl transition flex items-center gap-1.5 ${
+                                                                isInactive
+                                                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-60'
+                                                                    : isBusy
+                                                                        ? 'bg-amber-100 text-amber-700 cursor-wait'
+                                                                        : hasAccess
+                                                                            ? 'bg-purple-100 text-purple-700 hover:bg-purple-200 shadow-sm border border-purple-200'
+                                                                            : 'bg-slate-100 text-slate-500 hover:bg-slate-200 border border-slate-200'
+                                                            }`}
+                                                        >
+                                                            <i className={`fas ${hasAccess ? 'fa-microphone text-purple-600' : 'fa-microphone-slash text-slate-400'}`}></i>
+                                                            {isBusy ? '처리 중...' : hasAccess ? '허용됨 (ON)' : '미부여 (OFF)'}
+                                                        </button>
+                                                    );
+                                                })()}
+                                            </td>
+                                        )}
                                         <td className="px-8 py-5">
                                             <span
                                                 onClick={() => currentUser.role === 'admin' && handleToggleUserStatus(u.id)}

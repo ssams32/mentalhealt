@@ -145,6 +145,12 @@ class ApiClient {
     async importUsers(users: any[]): Promise<any> {
         return this.request('/users/import', { method: 'POST', body: JSON.stringify(users) });
     }
+    async patchVoiceAccess(userId: string, granted: boolean): Promise<any> {
+        return this.request(`/users/${encodeURIComponent(userId)}/voice-access`, {
+            method: 'PATCH',
+            body: JSON.stringify({ granted })
+        });
+    }
 
     // Referrals
     async getReferrals(params?: { team?: string; closureStatus?: string; registrationStatus?: string; view?: string }): Promise<Referral[]> {

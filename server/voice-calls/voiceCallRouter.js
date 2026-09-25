@@ -18,6 +18,7 @@ import {
     JOYCALL_CANONICAL_CLASSIFICATION_METHODS,
     JOYCALL_CLASSIFICATION_STATUS
 } from '../joycall-intake/joyCallIntakeConstants.js';
+import { requireVoiceAiAccess } from '../permissions/permissionMiddleware.js';
 
 /**
  * Factory to create VoiceCall API Router with injected dependencies.
@@ -31,6 +32,7 @@ import {
  * @param {string} [deps.joyCallIncomingDir]
  * @param {Function} [deps.getData]
  * @param {Function} [deps.persistData]
+ * @param {Function} [deps.auditLogger]
  * @returns {express.Router}
  */
 export function createVoiceCallRouter(deps = {}) {
@@ -42,7 +44,8 @@ export function createVoiceCallRouter(deps = {}) {
         privateAudioDir,
         joyCallIncomingDir,
         getData,
-        persistData
+        persistData,
+        auditLogger
     } = deps;
 
     if (!voiceCallRepository) {
@@ -51,8 +54,12 @@ export function createVoiceCallRouter(deps = {}) {
 
     const router = express.Router();
 
-    // 1. GET /api/voice-calls/stats - 통화 분류 및 처리 현황 통계
-    router.get('/stats', requireAuth, (req, res) => {
+    // Universal authentication requirement for voice calls
+    router.use(requireAuth);
+    const voiceAiGuard = requireVoiceAiAccess({ auditLogger });
+
+    // 1. GET /api/voice-calls/stats - 통화 분류 및 처리 현황 통계 (일반 업무: requireAuth)
+    router.get('/stats', (req, res) => {
         try {
             const records = voiceCallRepository.list({ includeDeleted: false });
             
@@ -190,11 +197,19 @@ export function createVoiceCallRouter(deps = {}) {
     });
 
     // 3. GET /api/voice-calls/:id - 단일 통화 상세 조회
-    router.get('/:id', requireAuth, (req, res) => {
+    router.get('/:id', (req, res) => {
         try {
             const call = voiceCallRepository.findById(req.params.id);
             if (!call) {
                 return res.status(404).json({ error: '통화 녹음 정보를 찾을 수 없습니다.' });
+            }
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: req.auth?.id || 'unknown',
+                    targetId: req.params.id,
+                    action: 'VOICE_RECORDING_VIEWED',
+                    result: 'SUCCESS'
+                });
             }
             res.json(call);
         } catch (err) {
@@ -428,9 +443,46 @@ export function createVoiceCallRouter(deps = {}) {
         }
     });
 
-    // 8. POST /api/voice-calls/seed-samples - 파일럿 테스트용 샘플 녹음 데이터 주입
+    // 8. POST /api/voice-calls/seed-samples - 파일럿 테스트용 샘플 녹음 데이터 주입 (운영환경 차단, 개발/테스트 관리자 전용)
     router.post('/seed-samples', requireAuth, async (req, res) => {
         try {
+            // 1. Production environment check (Fail-closed: defaults to production if unset or empty)
+            const currentEnv = process.env.NODE_ENV || 'production';
+            if (currentEnv === 'production') {
+                if (typeof auditLogger === 'function') {
+                    auditLogger({
+                        actorUserId: req.auth?.id || 'unknown',
+                        action: 'VOICE_SEED_SAMPLES_BLOCKED',
+                        result: 'DENIED',
+                        reasonCode: 'PRODUCTION_ENVIRONMENT'
+                    });
+                }
+                return res.status(403).json({
+                    error: {
+                        code: 'FORBIDDEN',
+                        message: '운영 환경에서는 샘플 데이터를 생성할 수 없습니다.'
+                    }
+                });
+            }
+
+            // 2. Administrator role check in non-production environments
+            if (!req.auth || req.auth.role !== 'admin') {
+                if (typeof auditLogger === 'function') {
+                    auditLogger({
+                        actorUserId: req.auth?.id || 'unknown',
+                        action: 'VOICE_SEED_SAMPLES_BLOCKED',
+                        result: 'DENIED',
+                        reasonCode: 'ADMIN_REQUIRED'
+                    });
+                }
+                return res.status(403).json({
+                    error: {
+                        code: 'FORBIDDEN',
+                        message: '관리자만 샘플 데이터를 생성할 수 있습니다.'
+                    }
+                });
+            }
+
             const records = voiceCallRepository.list({ includeDeleted: false });
             if (records.length >= 3) {
                 return res.json({
@@ -535,6 +587,87 @@ export function createVoiceCallRouter(deps = {}) {
         } catch (err) {
             console.error('Error seeding sample calls:', err);
             res.status(500).json({ error: '샘플 통화 생성 실패: ' + err.message });
+        }
+    });
+
+    // 9. POST /api/voice-calls/:id/analyze - AI 분석 실행 (VOICE_RECORDING_AI_ACCESS 전용 보호)
+    router.post('/:id/analyze', voiceAiGuard, (req, res) => {
+        try {
+            const call = voiceCallRepository.findById(req.params.id);
+            if (!call) {
+                return res.status(404).json({ error: '통화 녹음 정보를 찾을 수 없습니다.' });
+            }
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: req.auth?.id || 'unknown',
+                    targetId: req.params.id,
+                    action: 'VOICE_AI_ANALYSIS_STARTED',
+                    result: 'SUCCESS'
+                });
+            }
+            res.json({
+                success: true,
+                message: 'AI 분석 요청이 성공적으로 접수되었습니다.',
+                callId: req.params.id,
+                status: 'queued'
+            });
+        } catch (err) {
+            res.status(500).json({ error: 'AI 분석 실행 실패: ' + err.message });
+        }
+    });
+
+    // 10. GET /api/voice-calls/:id/analysis - AI 분석 결과 조회 (VOICE_RECORDING_AI_ACCESS 전용 보호)
+    router.get('/:id/analysis', voiceAiGuard, (req, res) => {
+        try {
+            const call = voiceCallRepository.findById(req.params.id);
+            if (!call) {
+                return res.status(404).json({ error: '통화 녹음 정보를 찾을 수 없습니다.' });
+            }
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: req.auth?.id || 'unknown',
+                    targetId: req.params.id,
+                    action: 'VOICE_AI_RESULT_VIEWED',
+                    result: 'SUCCESS'
+                });
+            }
+            res.json({
+                success: true,
+                callId: req.params.id,
+                classification: call.callRecordType || call.callCategory || 'unknown',
+                summary: call.notes || null,
+                analyzedAt: call.updatedAt || call.receivedAt
+            });
+        } catch (err) {
+            res.status(500).json({ error: 'AI 분석 결과 조회 실패: ' + err.message });
+        }
+    });
+
+    // 11. GET /api/voice-calls/:id/analysis/download - AI 분석 결과 다운로드 (VOICE_RECORDING_AI_ACCESS 전용 보호)
+    router.get('/:id/analysis/download', voiceAiGuard, (req, res) => {
+        try {
+            const call = voiceCallRepository.findById(req.params.id);
+            if (!call) {
+                return res.status(404).json({ error: '통화 녹음 정보를 찾을 수 없습니다.' });
+            }
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: req.auth?.id || 'unknown',
+                    targetId: req.params.id,
+                    action: 'VOICE_AI_RESULT_DOWNLOADED',
+                    result: 'SUCCESS'
+                });
+            }
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Content-Disposition', `attachment; filename="analysis_${req.params.id}.json"`);
+            res.json({
+                callId: req.params.id,
+                classification: call.callRecordType || call.callCategory || 'unknown',
+                summary: call.notes || null,
+                analyzedAt: call.updatedAt || call.receivedAt
+            });
+        } catch (err) {
+            res.status(500).json({ error: 'AI 분석 결과 다운로드 실패: ' + err.message });
         }
     });
 

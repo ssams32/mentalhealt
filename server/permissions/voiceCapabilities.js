@@ -20,6 +20,37 @@ export const VOICE_CAPABILITIES = {
     MANAGE_SETTINGS: 'voice_call.manage_settings'
 };
 
+export const VOICE_RECORDING_AI_ACCESS = 'VOICE_RECORDING_AI_ACCESS';
+
+/**
+ * Check foundational Voice Recording AI feature access:
+ * isAdministrator === true OR authenticatedUser.permissions includes VOICE_RECORDING_AI_ACCESS
+ */
+export function hasVoiceAiAccess(user) {
+    if (!user || user.status !== 'active') {
+        return false;
+    }
+    if (user.role === 'admin') {
+        return true;
+    }
+    if (!user.permissions) {
+        return false;
+    }
+    if (Array.isArray(user.permissions)) {
+        return user.permissions.includes(VOICE_RECORDING_AI_ACCESS);
+    }
+    if (typeof user.permissions === 'object' && user.permissions !== null) {
+        if (typeof user.permissions[VOICE_RECORDING_AI_ACCESS] === 'boolean') {
+            return user.permissions[VOICE_RECORDING_AI_ACCESS];
+        }
+        if (typeof user.permissions.VOICE_RECORDING_AI_ACCESS === 'boolean') {
+            return user.permissions.VOICE_RECORDING_AI_ACCESS;
+        }
+        return Boolean(user.permissions.voiceCalls);
+    }
+    return false;
+}
+
 const ALL_CAPABILITIES = Object.values(VOICE_CAPABILITIES);
 
 /**
@@ -44,14 +75,20 @@ export function getEffectiveVoiceCapabilities(user, options = {}) {
         return [...ALL_CAPABILITIES];
     }
 
-    // 4. Permissions object validation (when permissions is defined or strictly enforced)
+    // 4. Permissions object/array validation (when permissions is defined or strictly enforced)
     if (user.permissions !== undefined) {
-        if (typeof user.permissions !== 'object' || user.permissions === null || Array.isArray(user.permissions)) {
+        if (!user.permissions || (typeof user.permissions !== 'object' && !Array.isArray(user.permissions))) {
             // Malformed permissions -> Strict Default Deny
             return [];
         }
-        // Permission.voiceCalls check (must be explicitly true when permissions are defined)
-        if (!user.permissions.voiceCalls) {
+        const hasPerm = Array.isArray(user.permissions)
+            ? (user.permissions.includes(VOICE_RECORDING_AI_ACCESS) || user.permissions.includes('voiceCalls'))
+            : (typeof user.permissions[VOICE_RECORDING_AI_ACCESS] === 'boolean'
+                ? user.permissions[VOICE_RECORDING_AI_ACCESS]
+                : (typeof user.permissions.VOICE_RECORDING_AI_ACCESS === 'boolean'
+                    ? user.permissions.VOICE_RECORDING_AI_ACCESS
+                    : Boolean(user.permissions.voiceCalls)));
+        if (!hasPerm) {
             return [];
         }
     } else if (options && options.requirePermissions) {

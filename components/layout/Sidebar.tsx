@@ -100,8 +100,13 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                             if (p === 'accounts') return true;
                             if (p === 'caseAnalysis') return true; // 모든 실무 직원이 사례분석시스템 메뉴 접근 가능
                             if (p === 'voiceCalls') {
-                                // 관리자, 매니저 또는 음성 권한 사용자에게 노출
-                                return currentUser.role === 'admin' || currentUser.role === 'manager' || (currentUser.permissions as any)?.voiceCalls;
+                                // 음성 녹음 분석(AI): 관리자 또는 VOICE_RECORDING_AI_ACCESS 명시적 권한 사용자에게만 노출
+                                if (!currentUser || currentUser.status !== 'active') return false;
+                                const isAdmin = currentUser.role === 'admin';
+                                const hasPermission = Array.isArray(currentUser.permissions)
+                                    ? currentUser.permissions.includes('VOICE_RECORDING_AI_ACCESS') || currentUser.permissions.includes('voiceCalls')
+                                    : Boolean((currentUser.permissions as any)?.VOICE_RECORDING_AI_ACCESS || (currentUser.permissions as any)?.voiceCalls);
+                                return isAdmin || hasPermission;
                             }
                             if (p === 'surveyManagement') {
                                 // 관리자, 매니저 또는 설문가져오기 권한 사용자에게 노출
@@ -111,6 +116,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                             return true;
                         }).map((page) => {
                             const config = PAGES_CONFIG[page];
+                            const pageTitle = page === 'voiceCalls' ? '음성 녹음 분석(AI)' : (config?.title || '');
                             const isActive = activePage === page;
                             const IconComponent = PAGE_ICONS[page];
 
@@ -120,12 +126,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                                     ${isActive
                                             ? 'bg-[var(--brand-light)] text-[var(--brand-primary)] font-bold shadow-sm'
                                             : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
-                                    title={isCollapsed ? config?.title || '' : ''}
+                                    title={isCollapsed ? pageTitle : ''}
                                 >
                                     <IconComponent size={20} className={`shrink-0 ${isActive ? 'text-[var(--brand-primary)]' : 'text-slate-400 group-hover:text-slate-600'}`} />
 
                                     {!isCollapsed && (
-                                        <span className="ml-3 text-sm truncate">{config?.title}</span>
+                                        <span className="ml-3 text-sm truncate">{pageTitle}</span>
                                     )}
 
                                     {page === 'home' && pendingCount && pendingCount > 0 && (

@@ -100,6 +100,38 @@ function App() {
     const referralsRef = useRef(referrals);
     useEffect(() => { referralsRef.current = referrals; }, [referrals]);
 
+    // Route guard for direct URL / hash navigation to voice features
+    useEffect(() => {
+        const handleRouteCheck = () => {
+            const path = window.location.pathname.toLowerCase();
+            const hash = window.location.hash.toLowerCase();
+            const isVoiceRoute = path.includes('/voice') || path.includes('/recording') || path.includes('/ai-analysis') || hash.includes('voice') || hash.includes('recording');
+            if (isVoiceRoute) {
+                const canAccess = currentUser && currentUser.status === 'active' && (
+                    currentUser.role === 'admin' ||
+                    (Array.isArray(currentUser.permissions)
+                        ? (currentUser.permissions.includes('VOICE_RECORDING_AI_ACCESS') || currentUser.permissions.includes('voiceCalls'))
+                        : Boolean((currentUser.permissions as any)?.VOICE_RECORDING_AI_ACCESS || (currentUser.permissions as any)?.voiceCalls))
+                );
+                if (canAccess) {
+                    setActivePage('voiceCalls');
+                } else {
+                    setActivePage('home');
+                    if (currentUser) {
+                        showToast('음성 녹음 분석(AI) 화면에 접근할 권한이 없습니다.', 'error');
+                    }
+                }
+            }
+        };
+        handleRouteCheck();
+        window.addEventListener('popstate', handleRouteCheck);
+        window.addEventListener('hashchange', handleRouteCheck);
+        return () => {
+            window.removeEventListener('popstate', handleRouteCheck);
+            window.removeEventListener('hashchange', handleRouteCheck);
+        };
+    }, [currentUser]);
+
     // Load data from Google Sheets on mount
     const [isOfflineFallback, setIsOfflineFallback] = useState(false);
 
@@ -767,7 +799,36 @@ function App() {
 
             case 'budget':
                 return <BudgetPage currentUser={currentUser} showToast={showToast} />;
-            case 'voiceCalls':
+            case 'voiceCalls': {
+                const isVoiceAiPermitted = currentUser && currentUser.status === 'active' && (
+                    currentUser.role === 'admin' ||
+                    (Array.isArray(currentUser.permissions)
+                        ? (currentUser.permissions.includes('VOICE_RECORDING_AI_ACCESS') || currentUser.permissions.includes('voiceCalls'))
+                        : Boolean((currentUser.permissions as any)?.VOICE_RECORDING_AI_ACCESS || (currentUser.permissions as any)?.voiceCalls))
+                );
+
+                if (!isVoiceAiPermitted) {
+                    setTimeout(() => {
+                        showToast('음성 녹음 분석(AI) 기능에 접근할 권한이 없습니다.', 'error');
+                        setActivePage('home');
+                    }, 0);
+                    return (
+                        <div className="flex flex-col items-center justify-center h-full p-12 text-center bg-slate-50">
+                            <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mb-4 text-2xl font-bold">
+                                403
+                            </div>
+                            <h2 className="text-xl font-bold text-slate-800 mb-2">접근 권한 제한</h2>
+                            <p className="text-slate-500 text-sm mb-6">음성 녹음 분석(AI) 기능은 관리자 또는 승인된 사용자만 접근할 수 있습니다.</p>
+                            <button
+                                onClick={() => setActivePage('home')}
+                                className="px-5 py-2.5 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-700"
+                            >
+                                홈으로 돌아가기
+                            </button>
+                        </div>
+                    );
+                }
+
                 return <CallAutomationPage
                     currentUser={currentUser}
                     referrals={referrals}
@@ -777,6 +838,7 @@ function App() {
                     }}
                     showToast={showToast}
                 />;
+            }
             case 'surveyManagement':
                 return <SurveyManagementPage
                     currentUser={currentUser}
