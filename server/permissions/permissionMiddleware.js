@@ -1,9 +1,65 @@
-import { hasVoiceCapability, getEffectiveVoiceCapabilities, hasVoiceAiAccess } from './voiceCapabilities.js';
+import { hasVoiceCapability, getEffectiveVoiceCapabilities, hasVoiceAiAccess, hasOnlineSurveyAccess } from './voiceCapabilities.js';
 
 /**
  * server/permissions/permissionMiddleware.js
  * Authorization guard middlewares for Voice Call endpoints and capabilities.
  */
+
+/**
+ * Enforce foundational access for Online Survey.
+ * Allows: isAdministrator === true OR (authenticatedUser.status === 'active' AND permissions includes ONLINE_SURVEY_ACCESS)
+ * Rejects: unauthenticated (401), inactive account (403), lacking permission (403).
+ */
+export function requireOnlineSurveyAccess(options = {}) {
+    const auditLogger = options.auditLogger || null;
+
+    return (req, res, next) => {
+        if (!req.auth) {
+            return res.status(401).json({
+                error: {
+                    code: 'UNAUTHENTICATED',
+                    message: '로그인이 필요합니다.'
+                }
+            });
+        }
+
+        if (req.auth.status !== 'active') {
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: req.auth.id || req.auth.userId || 'unknown',
+                    action: 'ONLINE_SURVEY_ACCESS_DENIED',
+                    result: 'DENIED',
+                    reasonCode: 'ACCOUNT_INACTIVE'
+                });
+            }
+            return res.status(403).json({
+                error: {
+                    code: 'FORBIDDEN',
+                    message: '비활성화된 계정은 접근할 수 없습니다.'
+                }
+            });
+        }
+
+        if (!hasOnlineSurveyAccess(req.auth)) {
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: req.auth.id || req.auth.userId || 'unknown',
+                    action: 'ONLINE_SURVEY_ACCESS_DENIED',
+                    result: 'DENIED',
+                    reasonCode: 'NO_ONLINE_SURVEY_PERMISSION'
+                });
+            }
+            return res.status(403).json({
+                error: {
+                    code: 'FORBIDDEN',
+                    message: '온라인 설문 기능에 접근할 권한이 없습니다.'
+                }
+            });
+        }
+
+        next();
+    };
+}
 
 /**
  * Enforce foundational access for Voice Recording AI.

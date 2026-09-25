@@ -5,6 +5,7 @@
 
 import express from 'express';
 import { SURVEY_ASSIGNMENT_PRIORITY, NOTIFICATION_TYPES, SURVEY_ERROR_CODES } from './surveyConstants.js';
+import { hasOnlineSurveyAccess } from '../permissions/voiceCapabilities.js';
 
 /**
  * Mask client personal name for list views (e.g. 홍길동 -> 홍*동, 이산 -> 이*)
@@ -26,53 +27,6 @@ function maskPhone(phone) {
 }
 
 /**
- * Permission guard for Survey Import Manager
- */
-function requireSurveyImportPermission(req, res, next) {
-    if (!req.auth) {
-        return res.status(401).json({
-            error: { code: 'UNAUTHENTICATED', message: '로그인이 필요합니다.' }
-        });
-    }
-
-    const role = (req.auth.role || 'user').toLowerCase();
-    const hasExplicitPerm = !!(req.auth.permissions && (
-        req.auth.permissions.surveyImport ||
-        req.auth.permissions.SURVEY_IMPORT_MANAGER ||
-        req.auth.permissions.SURVEY_EXPORT
-    ));
-
-    // Admin, Manager, or explicit permission
-    if (role === 'admin' || role === 'manager' || hasExplicitPerm) {
-        return next();
-    }
-
-    return res.status(403).json({
-        error: { code: 'FORBIDDEN', message: '온라인 설문 관리 및 가져오기 권한이 없습니다.' }
-    });
-}
-
-/**
- * Permission guard for Administrator-only actions
- */
-function requireAdmin(req, res, next) {
-    if (!req.auth) {
-        return res.status(401).json({
-            error: { code: 'UNAUTHENTICATED', message: '로그인이 필요합니다.' }
-        });
-    }
-
-    const role = (req.auth.role || req.auth.userRole || 'user').toLowerCase();
-    if (role !== 'admin') {
-        return res.status(403).json({
-            error: { code: 'FORBIDDEN', message: '관리자(Admin) 권한이 필요합니다.' }
-        });
-    }
-
-    return next();
-}
-
-/**
  * Factory to create Survey Router
  * 
  * @param {Object} deps
@@ -83,6 +37,7 @@ function requireAdmin(req, res, next) {
  * @param {import('../notifications/internalNotificationRepository.js').InternalNotificationRepository} [deps.notificationRepository]
  * @param {import('./surveyExportService.js').SurveyExportService} [deps.surveyExportService]
  * @param {Function} [deps.getUsers]
+ * @param {Function} [deps.auditLogger]
  */
 export function createSurveyImportRouter(deps = {}) {
     const {
@@ -93,11 +48,76 @@ export function createSurveyImportRouter(deps = {}) {
         notificationRepository,
         surveyExportService,
         referralService,
-        getUsers = () => []
+        getUsers = () => [],
+        auditLogger = null
     } = deps;
 
     if (!requireAuth || !surveyImportService || !surveyRepository) {
         throw new Error('createSurveyImportRouter requires requireAuth, surveyImportService, and surveyRepository');
+    }
+
+    /**
+     * Strict Permission guard for Online Survey feature access:
+     * - Admin auto-allowed
+     * - Active user with explicit ONLINE_SURVEY_ACCESS allowed
+     * - Default deny for inactive, missing permission, or malformed user
+     */
+    function requireSurveyImportPermission(req, res, next) {
+        if (!req.auth) {
+            return res.status(401).json({
+                error: { code: 'UNAUTHENTICATED', message: '로그인이 필요합니다.' }
+            });
+        }
+
+        if (req.auth.status !== 'active') {
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: req.auth.id || req.auth.userId || 'unknown',
+                    action: 'ONLINE_SURVEY_ACCESS_DENIED',
+                    result: 'DENIED',
+                    reasonCode: 'ACCOUNT_INACTIVE'
+                });
+            }
+            return res.status(403).json({
+                error: { code: 'FORBIDDEN', message: '비활성화된 계정은 접근할 수 없습니다.' }
+            });
+        }
+
+        if (!hasOnlineSurveyAccess(req.auth)) {
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: req.auth.id || req.auth.userId || 'unknown',
+                    action: 'ONLINE_SURVEY_ACCESS_DENIED',
+                    result: 'DENIED',
+                    reasonCode: 'NO_ONLINE_SURVEY_PERMISSION'
+                });
+            }
+            return res.status(403).json({
+                error: { code: 'FORBIDDEN', message: '온라인 설문 기능에 접근할 권한이 없습니다.' }
+            });
+        }
+
+        return next();
+    }
+
+    /**
+     * Permission guard for Administrator-only actions
+     */
+    function requireAdmin(req, res, next) {
+        if (!req.auth) {
+            return res.status(401).json({
+                error: { code: 'UNAUTHENTICATED', message: '로그인이 필요합니다.' }
+            });
+        }
+
+        const role = (req.auth.role || req.auth.userRole || 'user').toLowerCase();
+        if (role !== 'admin') {
+            return res.status(403).json({
+                error: { code: 'FORBIDDEN', message: '관리자(Admin) 권한이 필요합니다.' }
+            });
+        }
+
+        return next();
     }
 
     const router = express.Router();
@@ -262,6 +282,13 @@ export function createSurveyImportRouter(deps = {}) {
     // 3. GET /api/surveys/imports - Paginated import ledger list with masked names/phones
     router.get('/imports', requireAuth, requireSurveyImportPermission, (req, res) => {
         try {
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: req.auth?.id || req.auth?.userId || 'unknown',
+                    action: 'ONLINE_SURVEY_LIST_VIEWED',
+                    result: 'SUCCESS'
+                });
+            }
             const ledger = surveyRepository.getImportsLedger();
             const submissions = surveyRepository.getSurveySubmissions();
             const subMap = new Map(submissions.map(s => [s.submissionId, s]));
@@ -409,6 +436,14 @@ export function createSurveyImportRouter(deps = {}) {
 
             // Emit Audit Log
             const actorId = req.auth.userId || req.auth.id || req.auth.username || 'admin';
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: actorId,
+                    targetUserId: 'BATCH_EXPORT',
+                    action: 'ONLINE_SURVEY_EXCEL_DOWNLOADED',
+                    result: 'SUCCESS'
+                });
+            }
             await surveyRepository.recordAuditEvent({
                 actorId,
                 action: 'SURVEY_EXPORT_SUCCEEDED',
@@ -626,6 +661,14 @@ export function createSurveyImportRouter(deps = {}) {
             const journal = surveyRepository.getWorkflowJournal ? surveyRepository.getWorkflowJournal().filter(j => j.submissionId === submission.submissionId) : [];
 
             // Audit record for sensitive detail inspection
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: req.auth.userId || req.auth.id || 'admin',
+                    targetUserId: submission.submissionId,
+                    action: 'ONLINE_SURVEY_DETAIL_VIEWED',
+                    result: 'SUCCESS'
+                });
+            }
             await surveyRepository.recordAuditEvent({
                 actorId: req.auth.userId || req.auth.id || 'admin',
                 action: 'SURVEY_DETAIL_VIEWED',
@@ -741,6 +784,14 @@ export function createSurveyImportRouter(deps = {}) {
 
             // Audit record for report view
             const actorId = req.auth.userId || req.auth.id || req.auth.username || 'admin';
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: actorId,
+                    targetUserId: sub?.submissionId || id,
+                    action: 'ONLINE_SURVEY_PDF_DOWNLOADED',
+                    result: 'SUCCESS'
+                });
+            }
             if (typeof surveyRepository.recordAuditEvent === 'function') {
                 await surveyRepository.recordAuditEvent({
                     actorId,

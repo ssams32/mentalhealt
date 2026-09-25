@@ -109,8 +109,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                                 return isAdmin || hasPermission;
                             }
                             if (p === 'surveyManagement') {
-                                // 관리자, 매니저 또는 설문가져오기 권한 사용자에게 노출
-                                return currentUser.role === 'admin' || currentUser.role === 'manager' || (currentUser.permissions as any)?.surveyImport || (currentUser.permissions as any)?.SURVEY_IMPORT_MANAGER;
+                                // 온라인 설문: 관리자 또는 ONLINE_SURVEY_ACCESS 명시적 권한 활성 사용자에게만 노출
+                                if (!currentUser || currentUser.status !== 'active') return false;
+                                if (currentUser.role === 'admin') return true;
+                                return Array.isArray(currentUser.permissions)
+                                    ? currentUser.permissions.includes('ONLINE_SURVEY_ACCESS')
+                                    : Boolean((currentUser.permissions as any)?.ONLINE_SURVEY_ACCESS);
                             }
                             if (p === 'data') return currentUser.role === 'admin';
                             return true;

@@ -479,6 +479,27 @@ const voiceAuditLogger = (entry = {}) => {
     } catch (ignore) {}
 };
 
+const surveyAuditLogger = (entry = {}) => {
+    try {
+        const auditEntry = {
+            id: `audit_survey_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+            category: 'online_survey',
+            actorType: 'user',
+            actorUserId: String(entry.actorUserId || 'system'),
+            targetId: String(entry.targetId || entry.targetUserId || '-'),
+            action: String(entry.action || 'ONLINE_SURVEY_EVENT'),
+            timestamp: new Date().toISOString(),
+            result: entry.result || 'SUCCESS',
+            reasonCode: entry.reasonCode || null
+        };
+        console.log(`[SURVEY_AUDIT] ${auditEntry.action} actor=${auditEntry.actorUserId} target=${auditEntry.targetId} result=${auditEntry.result}`);
+        const currentLogs = getData('AuditEntries', []);
+        currentLogs.push(auditEntry);
+        if (currentLogs.length > 5000) currentLogs.shift();
+        saveData('AuditEntries', currentLogs);
+    } catch (ignore) {}
+};
+
 const audioStreamingRouter = createAudioStreamingRouter({
     requireAuth,
     voiceCallRepository,
@@ -696,7 +717,8 @@ const surveyImportRouter = createSurveyImportRouter({
     trackABaseUrl,
     trackBServiceSecret,
     trackBWorkerId,
-    surveyTrackAMode
+    surveyTrackAMode,
+    auditLogger: surveyAuditLogger
 });
 
 const notificationRouter = createNotificationRouter({
@@ -1007,6 +1029,129 @@ app.patch('/api/users/:id/voice-access', requireAuth, async (req, res) => {
         });
     } catch (err) {
         console.error('PATCH /api/users/:id/voice-access error:', err);
+        res.status(500).json({
+            error: {
+                code: 'INTERNAL_ERROR',
+                message: '권한 변경 처리 중 오류가 발생했습니다.'
+            }
+        });
+    }
+});
+
+// Admin-controlled Online Survey access grant/revoke
+app.patch('/api/users/:id/online-survey-access', requireAuth, async (req, res) => {
+    try {
+        if (!req.auth || req.auth.role !== 'admin') {
+            surveyAuditLogger({
+                actorUserId: req.auth?.id || 'unknown',
+                targetUserId: req.params.id,
+                action: 'ONLINE_SURVEY_ACCESS_DENIED',
+                result: 'DENIED',
+                reasonCode: 'ADMIN_REQUIRED'
+            });
+            return res.status(403).json({
+                error: {
+                    code: 'FORBIDDEN',
+                    message: '관리자만 사용자 권한을 변경할 수 있습니다.'
+                }
+            });
+        }
+
+        if (!req.body || typeof req.body.granted !== 'boolean') {
+            surveyAuditLogger({
+                actorUserId: req.auth?.id || 'unknown',
+                targetUserId: req.params.id,
+                action: 'ONLINE_SURVEY_ACCESS_DENIED',
+                result: 'DENIED',
+                reasonCode: 'INVALID_GRANTED_VALUE'
+            });
+            return res.status(400).json({
+                error: {
+                    code: 'INVALID_GRANTED_VALUE',
+                    message: 'granted 값은 true 또는 false여야 합니다.'
+                }
+            });
+        }
+
+        const granted = req.body.granted;
+        const targetId = req.params.id;
+        const users = getData('Users', []);
+        const targetIndex = users.findIndex(u => u && String(u.id) === String(targetId));
+
+        if (targetIndex === -1) {
+            return res.status(404).json({
+                error: {
+                    code: 'USER_NOT_FOUND',
+                    message: '대상 사용자를 찾을 수 없습니다.'
+                }
+            });
+        }
+
+        const targetUser = users[targetIndex];
+
+        if (targetUser.status !== 'active') {
+            return res.status(400).json({
+                error: {
+                    code: 'USER_NOT_ACTIVE',
+                    message: '비활성 또는 정지된 사용자에게는 권한을 부여할 수 없습니다.'
+                }
+            });
+        }
+
+        // Safe immutable permissions clone (preserves all other keys including VOICE_RECORDING_AI_ACCESS, voiceCalls, etc.)
+        let updatedPermissions;
+        if (Array.isArray(targetUser.permissions)) {
+            if (granted) {
+                updatedPermissions = targetUser.permissions.includes('ONLINE_SURVEY_ACCESS')
+                    ? [...targetUser.permissions]
+                    : [...targetUser.permissions, 'ONLINE_SURVEY_ACCESS'];
+            } else {
+                updatedPermissions = targetUser.permissions.filter(p => p !== 'ONLINE_SURVEY_ACCESS');
+            }
+        } else if (typeof targetUser.permissions === 'object' && targetUser.permissions !== null) {
+            updatedPermissions = {
+                ...targetUser.permissions,
+                ONLINE_SURVEY_ACCESS: granted
+            };
+        } else {
+            updatedPermissions = {
+                ONLINE_SURVEY_ACCESS: granted
+            };
+        }
+
+        // Atomic update: construct cloned user and cloned array without mutating existing records in place
+        const updatedUser = {
+            ...targetUser,
+            permissions: updatedPermissions
+        };
+
+        const updatedUsers = [
+            ...users.slice(0, targetIndex),
+            updatedUser,
+            ...users.slice(targetIndex + 1)
+        ];
+
+        await persistData('Users', updatedUsers);
+
+        const auditAction = granted ? 'ONLINE_SURVEY_PERMISSION_GRANTED' : 'ONLINE_SURVEY_PERMISSION_REVOKED';
+        surveyAuditLogger({
+            actorUserId: req.auth.id,
+            targetUserId: updatedUser.id,
+            action: auditAction,
+            result: 'SUCCESS',
+            reasonCode: granted ? 'ADMIN_GRANTED' : 'ADMIN_REVOKED'
+        });
+
+        const { password, ...safeUser } = updatedUser;
+        return res.json({
+            success: true,
+            message: granted
+                ? '온라인 설문 사용 권한을 부여했습니다.'
+                : '온라인 설문 사용 권한을 회수했습니다.',
+            user: safeUser
+        });
+    } catch (err) {
+        console.error('PATCH /api/users/:id/online-survey-access error:', err);
         res.status(500).json({
             error: {
                 code: 'INTERNAL_ERROR',

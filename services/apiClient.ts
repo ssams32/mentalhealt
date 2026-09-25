@@ -151,6 +151,12 @@ class ApiClient {
             body: JSON.stringify({ granted })
         });
     }
+    async patchOnlineSurveyAccess(userId: string, granted: boolean): Promise<any> {
+        return this.request(`/users/${encodeURIComponent(userId)}/online-survey-access`, {
+            method: 'PATCH',
+            body: JSON.stringify({ granted })
+        });
+    }
 
     // Referrals
     async getReferrals(params?: { team?: string; closureStatus?: string; registrationStatus?: string; view?: string }): Promise<Referral[]> {

@@ -36,28 +36,82 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
     const [addUserError, setAddUserError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
-    const [updatingVoiceAccessId, setUpdatingVoiceAccessId] = useState<string | null>(null);
+    const [updatingPerm, setUpdatingPerm] = useState<{ userId: string; permKey: 'online_survey' | 'voice_ai' } | null>(null);
+    const [permissionFilter, setPermissionFilter] = useState<'all' | 'survey' | 'voice' | 'unassigned' | 'inactive'>('all');
+    const [searchQuery, setSearchQuery] = useState('');
 
-    const handleToggleVoiceAccess = async (user: User) => {
+    const checkHasSurveyAccess = (u: User) => {
+        return Array.isArray(u.permissions)
+            ? u.permissions.includes('ONLINE_SURVEY_ACCESS')
+            : Boolean((u.permissions as any)?.ONLINE_SURVEY_ACCESS);
+    };
+
+    const checkHasVoiceAccess = (u: User) => {
+        return Array.isArray(u.permissions)
+            ? u.permissions.includes('VOICE_RECORDING_AI_ACCESS') || u.permissions.includes('voiceCalls')
+            : Boolean((u.permissions as any)?.VOICE_RECORDING_AI_ACCESS || (u.permissions as any)?.voiceCalls);
+    };
+
+    const handleToggleOnlineSurveyAccess = async (user: User) => {
         if (currentUser.role !== 'admin') return;
-        if (updatingVoiceAccessId) return;
+        if (updatingPerm?.userId === user.id && updatingPerm?.permKey === 'online_survey') return;
         if (user.status !== 'active') {
             alert('비활성 또는 정지된 사용자에게는 권한을 부여할 수 없습니다.');
             return;
         }
 
-        const currentAccess = Array.isArray(user.permissions)
-            ? user.permissions.includes('VOICE_RECORDING_AI_ACCESS') || user.permissions.includes('voiceCalls')
-            : Boolean((user.permissions as any)?.VOICE_RECORDING_AI_ACCESS || (user.permissions as any)?.voiceCalls);
-
+        const currentAccess = checkHasSurveyAccess(user);
         const nextGranted = !currentAccess;
         const confirmMessage = nextGranted
-            ? `'${user.name}'(${user.id}) 사용자에게 [음성 녹음 분석(AI) 사용] 권한을 부여하시겠습니까?`
-            : `'${user.name}'(${user.id}) 사용자의 [음성 녹음 분석(AI) 사용] 권한을 회수하시겠습니까?`;
+            ? `'${user.name}'(${user.id}) 사용자에게 온라인 설문 조회 및 처리 권한을 부여할까요?`
+            : `'${user.name}'(${user.id}) 사용자의 온라인 설문 조회 및 처리 권한을 회수할까요?`;
 
         if (!window.confirm(confirmMessage)) return;
 
-        setUpdatingVoiceAccessId(user.id);
+        setUpdatingPerm({ userId: user.id, permKey: 'online_survey' });
+        try {
+            const res = await apiClient.patchOnlineSurveyAccess(user.id, nextGranted);
+            if (res && res.success) {
+                setUsers(prev => prev.map(u => {
+                    if (u.id !== user.id) return u;
+                    return {
+                        ...u,
+                        permissions: res.user?.permissions || (
+                            Array.isArray(u.permissions)
+                                ? (nextGranted ? [...u.permissions.filter(p => p !== 'ONLINE_SURVEY_ACCESS'), 'ONLINE_SURVEY_ACCESS'] : u.permissions.filter(p => p !== 'ONLINE_SURVEY_ACCESS'))
+                                : { ...(u.permissions || {}), ONLINE_SURVEY_ACCESS: nextGranted }
+                        )
+                    };
+                }));
+                showToast?.(res.message || '온라인 설문 사용 권한이 변경되었습니다.');
+            } else {
+                alert(res?.error?.message || res?.error || '권한 변경에 실패했습니다.');
+            }
+        } catch (err: any) {
+            console.error('Error toggling online survey permission:', err);
+            alert(err.message || '권한 변경 중 통신 오류가 발생했습니다.');
+        } finally {
+            setUpdatingPerm(null);
+        }
+    };
+
+    const handleToggleVoiceAccess = async (user: User) => {
+        if (currentUser.role !== 'admin') return;
+        if (updatingPerm?.userId === user.id && updatingPerm?.permKey === 'voice_ai') return;
+        if (user.status !== 'active') {
+            alert('비활성 또는 정지된 사용자에게는 권한을 부여할 수 없습니다.');
+            return;
+        }
+
+        const currentAccess = checkHasVoiceAccess(user);
+        const nextGranted = !currentAccess;
+        const confirmMessage = nextGranted
+            ? `'${user.name}'(${user.id}) 사용자에게 음성 녹음 분석(AI) 사용 권한을 부여할까요?`
+            : `'${user.name}'(${user.id}) 사용자의 음성 녹음 분석(AI) 사용 권한을 회수할까요?`;
+
+        if (!window.confirm(confirmMessage)) return;
+
+        setUpdatingPerm({ userId: user.id, permKey: 'voice_ai' });
         try {
             const res = await apiClient.patchVoiceAccess(user.id, nextGranted);
             if (res && res.success) {
@@ -80,9 +134,46 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
             console.error('Error toggling voice AI permission:', err);
             alert(err.message || '권한 변경 중 통신 오류가 발생했습니다.');
         } finally {
-            setUpdatingVoiceAccessId(null);
+            setUpdatingPerm(null);
         }
     };
+
+    const filteredUsers = useMemo(() => {
+        return users.filter(u => {
+            if (searchQuery.trim()) {
+                const query = searchQuery.trim().toLowerCase();
+                const matchName = u.name?.toLowerCase().includes(query);
+                const matchId = u.id?.toLowerCase().includes(query);
+                const matchTeam = u.team?.toLowerCase().includes(query);
+                if (!matchName && !matchId && !matchTeam) return false;
+            }
+
+            if (permissionFilter === 'inactive') {
+                return u.status !== 'active';
+            }
+            if (permissionFilter === 'survey') {
+                return u.status === 'active' && (u.role === 'admin' || checkHasSurveyAccess(u));
+            }
+            if (permissionFilter === 'voice') {
+                return u.status === 'active' && (u.role === 'admin' || checkHasVoiceAccess(u));
+            }
+            if (permissionFilter === 'unassigned') {
+                return u.status === 'active' && u.role !== 'admin' && !checkHasSurveyAccess(u) && !checkHasVoiceAccess(u);
+            }
+            return true;
+        });
+    }, [users, searchQuery, permissionFilter]);
+
+    const permissionSummary = useMemo(() => {
+        const activeUsers = users.filter(u => u.status === 'active');
+        const surveyCount = activeUsers.filter(u => u.role === 'admin' || checkHasSurveyAccess(u)).length;
+        const voiceCount = activeUsers.filter(u => u.role === 'admin' || checkHasVoiceAccess(u)).length;
+        return {
+            totalActive: activeUsers.length,
+            surveyCount,
+            voiceCount
+        };
+    }, [users]);
 
     const sessionLogs = useMemo(() => logs.filter(l => l.loginTime && !l.action).sort((a, b) => new Date(b.loginTime).getTime() - new Date(a.loginTime).getTime()), [logs]);
     const activityLogs = useMemo(() => logs.filter(l => l.action).sort((a, b) => {
@@ -434,81 +525,302 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                 </div>
             ) : activeTab === 'users' ? (
                 <>
-                    <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden mb-8">
+                    {/* Permission Summary & Filters */}
+                    <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+                        {/* Summary Badges */}
+                        <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700">
+                                <i className="fas fa-users text-slate-400"></i>
+                                <span>활성 사용자 <strong className="text-slate-900">{permissionSummary.totalActive}</strong>명</span>
+                            </div>
+                            <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-teal-50 border border-teal-200 text-xs font-bold text-teal-800">
+                                <i className="fas fa-clipboard-check text-teal-600"></i>
+                                <span>온라인 설문 <strong className="text-teal-900">{permissionSummary.surveyCount}</strong>명</span>
+                            </div>
+                            <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-purple-50 border border-purple-200 text-xs font-bold text-purple-800">
+                                <i className="fas fa-microphone text-purple-600"></i>
+                                <span>음성 녹음 분석(AI) <strong className="text-purple-900">{permissionSummary.voiceCount}</strong>명</span>
+                            </div>
+                        </div>
+
+                        {/* Search & Filter Dropdown */}
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                            <div className="relative min-w-[200px]">
+                                <i className="fas fa-search absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                                <input
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    placeholder="이름 / ID / 팀 검색"
+                                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition"
+                                />
+                            </div>
+                            <select
+                                value={permissionFilter}
+                                onChange={(e) => setPermissionFilter(e.target.value as any)}
+                                className="px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer"
+                            >
+                                <option value="all">전체 사용자 ({users.length}명)</option>
+                                <option value="survey">온라인 설문 허용 ({permissionSummary.surveyCount}명)</option>
+                                <option value="voice">음성 AI 허용 ({permissionSummary.voiceCount}명)</option>
+                                <option value="unassigned">권한 미부여</option>
+                                <option value="inactive">비활성/정지 사용자</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Desktop Table View */}
+                    <div className="hidden md:block bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden mb-8">
                         <table className="w-full text-sm text-left text-slate-600">
                             <thead className="bg-slate-50/50 text-xs text-slate-400 font-extrabold uppercase tracking-wider border-b border-slate-100">
                                 <tr>
-                                    {['ID', '이름', '소속팀', '권한', ...(currentUser.role === 'admin' ? ['음성 녹음 분석(AI) 사용'] : []), '상태', '생성일', '관리'].map(h => <th key={h} className="px-8 py-5">{h}</th>)}
+                                    {['ID', '이름', '소속팀', '역할', ...(currentUser.role === 'admin' ? ['온라인 설문', '음성 녹음 분석(AI)'] : []), '상태', '생성일', '관리'].map(h => (
+                                        <th key={h} className="px-6 py-5 whitespace-nowrap">{h}</th>
+                                    ))}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
-                                {users.map(u => (
-                                    <tr key={u.id} className="hover:bg-slate-50/80 transition">
-                                        <td className="px-8 py-5 font-bold text-slate-900">{u.id}</td>
-                                        <td className="px-8 py-5 font-medium">{u.name}</td>
-                                        <td className="px-8 py-5">{TEAMS_CONFIG[u.team]?.title || u.team}</td>
-                                        <td className="px-8 py-5"><span className={`px-3 py-1 text-xs font-bold rounded-lg ${u.role === 'admin' ? 'bg-red-100 text-red-700' : u.role === 'manager' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{u.role}</span></td>
-                                        {currentUser.role === 'admin' && (
-                                            <td className="px-8 py-5">
-                                                {u.role === 'admin' ? (
-                                                    <span className="px-3 py-1 text-xs font-bold rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200" title="관리자는 전권한 자동 허용">
-                                                        관리자 (자동)
-                                                    </span>
-                                                ) : (() => {
-                                                    const hasAccess = Array.isArray(u.permissions)
-                                                        ? u.permissions.includes('VOICE_RECORDING_AI_ACCESS') || u.permissions.includes('voiceCalls')
-                                                        : Boolean((u.permissions as any)?.VOICE_RECORDING_AI_ACCESS || (u.permissions as any)?.voiceCalls);
-                                                    const isInactive = u.status !== 'active';
-                                                    const isBusy = updatingVoiceAccessId === u.id;
+                                {filteredUsers.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={currentUser.role === 'admin' ? 9 : 7} className="px-6 py-12 text-center text-slate-400">
+                                            검색된 사용자가 없습니다.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    filteredUsers.map(u => (
+                                        <tr key={u.id} className="hover:bg-slate-50/80 transition">
+                                            <td className="px-6 py-4 font-bold text-slate-900 whitespace-nowrap">{u.id}</td>
+                                            <td className="px-6 py-4 font-medium whitespace-nowrap">{u.name}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap">{TEAMS_CONFIG[u.team]?.title || u.team}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <span className={`px-2.5 py-1 text-xs font-bold rounded-lg ${u.role === 'admin' ? 'bg-red-100 text-red-700' : u.role === 'manager' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                    {u.role}
+                                                </span>
+                                            </td>
 
-                                                    return (
+                                            {/* Online Survey Permission Column */}
+                                            {currentUser.role === 'admin' && (
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    {u.role === 'admin' ? (
+                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200" title="관리자는 전권한 자동 허용">
+                                                            <i className="fas fa-shield-alt text-indigo-500"></i>
+                                                            관리자 (자동)
+                                                        </span>
+                                                    ) : (() => {
+                                                        const hasSurvey = checkHasSurveyAccess(u);
+                                                        const isInactive = u.status !== 'active';
+                                                        const isBusy = updatingPerm?.userId === u.id && updatingPerm?.permKey === 'online_survey';
+
+                                                        return (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleToggleOnlineSurveyAccess(u)}
+                                                                disabled={isInactive || isBusy}
+                                                                title={isInactive ? '비활성 사용자에게는 권한을 부여할 수 없습니다.' : hasSurvey ? '클릭 시 온라인 설문 권한 회수' : '클릭 시 온라인 설문 권한 부여'}
+                                                                className={`min-h-[44px] px-3.5 py-2 text-xs font-extrabold rounded-xl transition flex items-center gap-2 ${
+                                                                    isInactive
+                                                                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-60 border border-slate-200'
+                                                                        : isBusy
+                                                                            ? 'bg-amber-100 text-amber-700 cursor-wait border border-amber-300'
+                                                                            : hasSurvey
+                                                                                ? 'bg-teal-100 text-teal-800 hover:bg-teal-200 shadow-sm border border-teal-300'
+                                                                                : 'bg-slate-100 text-slate-500 hover:bg-slate-200 border border-slate-200'
+                                                                }`}
+                                                            >
+                                                                <i className={`fas ${isBusy ? 'fa-spinner fa-spin text-amber-600' : hasSurvey ? 'fa-clipboard-check text-teal-600' : 'fa-clipboard text-slate-400'}`}></i>
+                                                                <span>{isBusy ? '변경 중...' : isInactive ? '사용 불가' : hasSurvey ? '허용됨 (ON)' : '미부여 (OFF)'}</span>
+                                                            </button>
+                                                        );
+                                                    })()}
+                                                </td>
+                                            )}
+
+                                            {/* Voice AI Permission Column */}
+                                            {currentUser.role === 'admin' && (
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    {u.role === 'admin' ? (
+                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200" title="관리자는 전권한 자동 허용">
+                                                            <i className="fas fa-shield-alt text-indigo-500"></i>
+                                                            관리자 (자동)
+                                                        </span>
+                                                    ) : (() => {
+                                                        const hasVoice = checkHasVoiceAccess(u);
+                                                        const isInactive = u.status !== 'active';
+                                                        const isBusy = updatingPerm?.userId === u.id && updatingPerm?.permKey === 'voice_ai';
+
+                                                        return (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleToggleVoiceAccess(u)}
+                                                                disabled={isInactive || isBusy}
+                                                                title={isInactive ? '비활성 사용자에게는 권한을 부여할 수 없습니다.' : hasVoice ? '클릭 시 음성 AI 권한 회수' : '클릭 시 음성 AI 권한 부여'}
+                                                                className={`min-h-[44px] px-3.5 py-2 text-xs font-extrabold rounded-xl transition flex items-center gap-2 ${
+                                                                    isInactive
+                                                                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-60 border border-slate-200'
+                                                                        : isBusy
+                                                                            ? 'bg-amber-100 text-amber-700 cursor-wait border border-amber-300'
+                                                                            : hasVoice
+                                                                                ? 'bg-purple-100 text-purple-800 hover:bg-purple-200 shadow-sm border border-purple-300'
+                                                                                : 'bg-slate-100 text-slate-500 hover:bg-slate-200 border border-slate-200'
+                                                                }`}
+                                                            >
+                                                                <i className={`fas ${isBusy ? 'fa-spinner fa-spin text-amber-600' : hasVoice ? 'fa-microphone text-purple-600' : 'fa-microphone-slash text-slate-400'}`}></i>
+                                                                <span>{isBusy ? '변경 중...' : isInactive ? '사용 불가' : hasVoice ? '허용됨 (ON)' : '미부여 (OFF)'}</span>
+                                                            </button>
+                                                        );
+                                                    })()}
+                                                </td>
+                                            )}
+
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <span
+                                                    onClick={() => currentUser.role === 'admin' && handleToggleUserStatus(u.id)}
+                                                    className={`px-2.5 py-1 text-xs font-bold rounded-lg ${currentUser.role === 'admin' ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'} ${u.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}`}
+                                                >
+                                                    {u.status === 'active' ? '활성' : '정지'}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 text-slate-400 whitespace-nowrap">{u.createdDate}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                {currentUser.role === 'admin' ? (
+                                                    <div className="flex items-center gap-3">
+                                                        <button onClick={() => handleOpenEditModal(u)} className="text-blue-600 font-bold text-xs hover:underline">수정</button>
+                                                        <button onClick={() => handleResetPassword(u.id)} className="text-green-600 font-bold text-xs hover:underline">비번초기화</button>
+                                                        <button onClick={() => handleDeleteUser(u.id)} className="text-red-500 font-bold text-xs hover:underline">삭제</button>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-gray-400 text-xs">권한 없음</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Mobile User Cards View */}
+                    <div className="md:hidden space-y-4 mb-8">
+                        {filteredUsers.length === 0 ? (
+                            <div className="p-8 text-center text-slate-400 bg-white rounded-3xl border border-slate-100">
+                                검색된 사용자가 없습니다.
+                            </div>
+                        ) : (
+                            filteredUsers.map(u => {
+                                const hasSurvey = checkHasSurveyAccess(u);
+                                const hasVoice = checkHasVoiceAccess(u);
+                                const isInactive = u.status !== 'active';
+                                const isSurveyBusy = updatingPerm?.userId === u.id && updatingPerm?.permKey === 'online_survey';
+                                const isVoiceBusy = updatingPerm?.userId === u.id && updatingPerm?.permKey === 'voice_ai';
+
+                                return (
+                                    <div key={u.id} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+                                        {/* Card Header */}
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="font-extrabold text-slate-900 text-base">{u.name}</span>
+                                                    <span className="text-xs text-slate-400 font-mono">({u.id})</span>
+                                                </div>
+                                                <div className="text-xs text-slate-500 mt-0.5">
+                                                    {TEAMS_CONFIG[u.team]?.title || u.team}
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                                                <span className={`px-2.5 py-1 text-xs font-bold rounded-lg ${u.role === 'admin' ? 'bg-red-100 text-red-700' : u.role === 'manager' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                    {u.role}
+                                                </span>
+                                                <span
+                                                    onClick={() => currentUser.role === 'admin' && handleToggleUserStatus(u.id)}
+                                                    className={`px-2.5 py-1 text-xs font-bold rounded-lg ${currentUser.role === 'admin' ? 'cursor-pointer' : 'opacity-60'} ${u.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}`}
+                                                >
+                                                    {u.status === 'active' ? '활성' : '정지'}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Permissions Matrix */}
+                                        {currentUser.role === 'admin' && (
+                                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 space-y-2.5">
+                                                {/* Online Survey Permission */}
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                                                        <i className="fas fa-clipboard-list text-teal-600"></i>
+                                                        온라인 설문
+                                                    </span>
+                                                    {u.role === 'admin' ? (
+                                                        <span className="px-3 py-1.5 text-xs font-bold rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                            관리자 (자동)
+                                                        </span>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleToggleOnlineSurveyAccess(u)}
+                                                            disabled={isInactive || isSurveyBusy}
+                                                            className={`min-h-[44px] px-3.5 py-2 text-xs font-extrabold rounded-xl transition flex items-center gap-1.5 ${
+                                                                isInactive
+                                                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-60 border border-slate-200'
+                                                                    : isSurveyBusy
+                                                                        ? 'bg-amber-100 text-amber-700 cursor-wait border border-amber-300'
+                                                                        : hasSurvey
+                                                                            ? 'bg-teal-100 text-teal-800 hover:bg-teal-200 border border-teal-300'
+                                                                            : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                                                            }`}
+                                                        >
+                                                            <i className={`fas ${isSurveyBusy ? 'fa-spinner fa-spin text-amber-600' : hasSurvey ? 'fa-clipboard-check text-teal-600' : 'fa-clipboard text-slate-400'}`}></i>
+                                                            <span>{isSurveyBusy ? '변경 중...' : isInactive ? '사용 불가' : hasSurvey ? '허용됨 (ON)' : '미부여 (OFF)'}</span>
+                                                        </button>
+                                                    )}
+                                                </div>
+
+                                                {/* Voice AI Permission */}
+                                                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/60">
+                                                    <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                                                        <i className="fas fa-microphone text-purple-600"></i>
+                                                        음성 녹음 분석(AI)
+                                                    </span>
+                                                    {u.role === 'admin' ? (
+                                                        <span className="px-3 py-1.5 text-xs font-bold rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                            관리자 (자동)
+                                                        </span>
+                                                    ) : (
                                                         <button
                                                             type="button"
                                                             onClick={() => handleToggleVoiceAccess(u)}
-                                                            disabled={isInactive || isBusy}
-                                                            title={isInactive ? '비활성 사용자에게는 권한을 부여할 수 없습니다.' : hasAccess ? '클릭 시 권한 회수' : '클릭 시 권한 부여'}
-                                                            className={`px-3 py-1.5 text-xs font-extrabold rounded-xl transition flex items-center gap-1.5 ${
+                                                            disabled={isInactive || isVoiceBusy}
+                                                            className={`min-h-[44px] px-3.5 py-2 text-xs font-extrabold rounded-xl transition flex items-center gap-1.5 ${
                                                                 isInactive
-                                                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-60'
-                                                                    : isBusy
-                                                                        ? 'bg-amber-100 text-amber-700 cursor-wait'
-                                                                        : hasAccess
-                                                                            ? 'bg-purple-100 text-purple-700 hover:bg-purple-200 shadow-sm border border-purple-200'
-                                                                            : 'bg-slate-100 text-slate-500 hover:bg-slate-200 border border-slate-200'
+                                                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-60 border border-slate-200'
+                                                                    : isVoiceBusy
+                                                                        ? 'bg-amber-100 text-amber-700 cursor-wait border border-amber-300'
+                                                                        : hasVoice
+                                                                            ? 'bg-purple-100 text-purple-800 hover:bg-purple-200 border border-purple-300'
+                                                                            : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
                                                             }`}
                                                         >
-                                                            <i className={`fas ${hasAccess ? 'fa-microphone text-purple-600' : 'fa-microphone-slash text-slate-400'}`}></i>
-                                                            {isBusy ? '처리 중...' : hasAccess ? '허용됨 (ON)' : '미부여 (OFF)'}
+                                                            <i className={`fas ${isVoiceBusy ? 'fa-spinner fa-spin text-amber-600' : hasVoice ? 'fa-microphone text-purple-600' : 'fa-microphone-slash text-slate-400'}`}></i>
+                                                            <span>{isVoiceBusy ? '변경 중...' : isInactive ? '사용 불가' : hasVoice ? '허용됨 (ON)' : '미부여 (OFF)'}</span>
                                                         </button>
-                                                    );
-                                                })()}
-                                            </td>
+                                                    )}
+                                                </div>
+                                            </div>
                                         )}
-                                        <td className="px-8 py-5">
-                                            <span
-                                                onClick={() => currentUser.role === 'admin' && handleToggleUserStatus(u.id)}
-                                                className={`px-3 py-1 text-xs font-bold rounded-lg ${currentUser.role === 'admin' ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
-                                                    } ${u.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}`}
-                                            >
-                                                {u.status === 'active' ? '활성' : '정지'}
-                                            </span>
-                                        </td>
-                                        <td className="px-8 py-5 text-slate-400">{u.createdDate}</td>
-                                        <td className="px-8 py-5 flex items-center gap-3">
-                                            {currentUser.role === 'admin' ? (
-                                                <>
-                                                    <button onClick={() => handleOpenEditModal(u)} className="text-blue-600 font-bold text-xs hover:underline">수정</button>
-                                                    <button onClick={() => handleResetPassword(u.id)} className="text-green-600 font-bold text-xs hover:underline">비번초기화</button>
-                                                    <button onClick={() => handleDeleteUser(u.id)} className="text-red-500 font-bold text-xs hover:underline">삭제</button>
-                                                </>
-                                            ) : (
-                                                <span className="text-gray-400 text-xs">권한 없음</span>
+
+                                        {/* Card Actions */}
+                                        <div className="flex items-center justify-between pt-2 border-t border-slate-50 text-xs">
+                                            <span className="text-slate-400">{u.createdDate}</span>
+                                            {currentUser.role === 'admin' && (
+                                                <div className="flex items-center gap-3">
+                                                    <button onClick={() => handleOpenEditModal(u)} className="min-h-[44px] px-2 text-blue-600 font-bold hover:underline">수정</button>
+                                                    <button onClick={() => handleResetPassword(u.id)} className="min-h-[44px] px-2 text-green-600 font-bold hover:underline">비번초기화</button>
+                                                    <button onClick={() => handleDeleteUser(u.id)} className="min-h-[44px] px-2 text-red-500 font-bold hover:underline">삭제</button>
+                                                </div>
                                             )}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
                     </div>
 
                     <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
