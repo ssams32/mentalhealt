@@ -29,6 +29,7 @@ export class SurveyImportRepository {
         this.assignmentRepository = deps.assignmentRepository || null;
         this.sourceEnvironment = deps.sourceEnvironment || 'mock';
         this.attachmentsDir = deps.attachmentsDir || null;
+        this.auditLogger = deps.auditLogger || null;
     }
 
     _nowIso() {
@@ -239,14 +240,419 @@ export class SurveyImportRepository {
             result: 'SUCCESS'
         });
 
+        return updated;
+    }
+
+    /**
+     * Unassign staff from an imported survey.
+     * Allowed only if not registered (no referralId) and currently assigned.
+     */
+    async unassignStaff({ internalSurveyId, submissionId, actorId = 'admin', reason = '담당자 배정 취소' }) {
+        const targetId = internalSurveyId || submissionId;
+        const list = this.getSurveySubmissions();
+        const index = list.findIndex(s => (targetId && (s.internalSurveyId === targetId || s.submissionId === targetId)));
+        if (index === -1) {
+            const err = new Error(`Survey submission not found: ${targetId}`);
+            err.code = 'RECORD_NOT_FOUND';
+            throw err;
+        }
+
+        const current = list[index];
+
+        if (current.referralId) {
+            const err = new Error('이미 의뢰대장이 등록된 설문은 배정 취소할 수 없습니다.');
+            err.code = 'ALREADY_REGISTERED';
+            throw err;
+        }
+
+        if (!current.assignedUserId || current.assignmentStatus === 'unassigned') {
+            const err = new Error('이미 미배정 상태입니다.');
+            err.code = 'NOT_ASSIGNED';
+            throw err;
+        }
+
+        const previousAssignedUserId = current.assignedUserId;
+        const previousPriority = current.assignmentPriority || 'NORMAL';
+        const now = this._nowIso();
+
+        const updated = {
+            ...current,
+            assignedUserId: null,
+            assignedDepartmentId: '',
+            assignedByUserId: null,
+            assignedAt: null,
+            assignmentUpdatedAt: now,
+            assignmentStatus: 'unassigned',
+            consultationStatus: '신규접수대기',
+            reassignedAt: null,
+            version: (current.version || 1) + 1,
+            updatedAt: now,
+            previousAssignedUserId: null
+        };
+
+        list[index] = updated;
+        await this.saveSurveySubmissions(list);
+
+        // Record history
+        let historyItem = null;
+        if (this.assignmentRepository) {
+            historyItem = await this.assignmentRepository.recordAssignmentHistory({
+                surveySubmissionId: updated.internalSurveyId || updated.submissionId,
+                previousAssignedUserId,
+                newAssignedUserId: null,
+                changedByUserId: actorId,
+                reason,
+                previousPriority,
+                newPriority: 'NORMAL'
+            });
+        }
+
+        // Record audit
+        await this.recordAuditEvent({
+            actorId,
+            actorUserId: actorId,
+            action: 'ONLINE_SURVEY_UNASSIGNED',
+            internalSurveyId: current.internalSurveyId,
+            submissionId: current.submissionId,
+            previousAssignedUserId,
+            result: 'SUCCESS'
+        });
+
         return {
-            ...updated,
+            success: true,
             submission: updated,
-            historyItem,
-            isReassignment,
             previousAssignedUserId
         };
     }
+
+    /**
+     * Atomically bulk assign or reassign staff members to multiple submissions.
+     * Enforces 50 item limit, mode policy, and per-item atomicity with partial success results.
+     */
+    async bulkAssignStaff({
+        submissionIds = [],
+        targetUserId,
+        targetDepartmentId = '',
+        mode = 'unassigned-only',
+        note = null,
+        actorId = 'admin',
+        bulkRequestId = null
+    }) {
+        if (!Array.isArray(submissionIds) || submissionIds.length === 0) {
+            const err = new Error('배정할 대상자 목록(submissionIds)이 비어있습니다.');
+            err.code = 'INVALID_PARAM';
+            throw err;
+        }
+
+        if (submissionIds.length > 50) {
+            const err = new Error('일괄 배정은 한 번에 최대 50건까지만 가능합니다.');
+            err.code = 'BULK_ASSIGNMENT_LIMIT_EXCEEDED';
+            throw err;
+        }
+
+        const validModes = ['unassigned-only', 'include-reassignment'];
+        if (!validModes.includes(mode)) {
+            const err = new Error(`유효하지 않은 배정 모드입니다: ${mode}`);
+            err.code = 'INVALID_MODE';
+            throw err;
+        }
+
+        // Deduplicate IDs while preserving order
+        const uniqueIds = Array.from(new Set(submissionIds.map(id => String(id).trim()))).filter(Boolean);
+        const effectiveBulkReqId = bulkRequestId || `blk_${crypto.randomUUID()}`;
+        const sanitizedNote = note && typeof note === 'string' ? note.trim().substring(0, 200) : null;
+        const noteProvided = Boolean(sanitizedNote);
+
+        await this.recordAuditEvent({
+            actorId,
+            actorUserId: actorId,
+            action: 'ONLINE_SURVEY_BULK_ASSIGNMENT_STARTED',
+            bulkRequestId: effectiveBulkReqId,
+            targetUserId: String(targetUserId),
+            requestedCount: uniqueIds.length,
+            mode,
+            noteProvided,
+            result: 'STARTED'
+        });
+
+        let assigned = 0;
+        let reassigned = 0;
+        let skipped = 0;
+        let failed = 0;
+        const results = [];
+
+        for (const subId of uniqueIds) {
+            try {
+                // Fetch fresh submission state immediately prior to mutation
+                const subs = this.getSurveySubmissions();
+                const subIndex = subs.findIndex(s => s && (s.submissionId === subId || s.internalSurveyId === subId));
+
+                if (subIndex === -1) {
+                    skipped++;
+                    results.push({
+                        submissionId: subId,
+                        status: 'SKIPPED',
+                        reasonCode: 'NOT_FOUND_OR_NOT_ACCESSIBLE'
+                    });
+                    await this.recordAuditEvent({
+                        actorId,
+                        actorUserId: actorId,
+                        action: 'ONLINE_SURVEY_BULK_ASSIGNMENT_SKIPPED',
+                        bulkRequestId: effectiveBulkReqId,
+                        submissionId: subId,
+                        targetUserId: String(targetUserId),
+                        reasonCode: 'NOT_FOUND_OR_NOT_ACCESSIBLE',
+                        result: 'SKIPPED'
+                    });
+                    continue;
+                }
+
+                const current = subs[subIndex];
+
+                // 1. Check if already converted to referral
+                if (current.referralId) {
+                    skipped++;
+                    results.push({
+                        submissionId: subId,
+                        status: 'SKIPPED',
+                        reasonCode: 'ALREADY_REGISTERED'
+                    });
+                    await this.recordAuditEvent({
+                        actorId,
+                        actorUserId: actorId,
+                        action: 'ONLINE_SURVEY_BULK_ASSIGNMENT_SKIPPED',
+                        bulkRequestId: effectiveBulkReqId,
+                        submissionId: subId,
+                        targetUserId: String(targetUserId),
+                        reasonCode: 'ALREADY_REGISTERED',
+                        result: 'SKIPPED'
+                    });
+                    continue;
+                }
+
+                // 2. Check if deleted or cancelled
+                if (current.status === 'deleted' || current.deletionStatus === 'deleted') {
+                    skipped++;
+                    results.push({
+                        submissionId: subId,
+                        status: 'SKIPPED',
+                        reasonCode: 'CANCELLED'
+                    });
+                    await this.recordAuditEvent({
+                        actorId,
+                        actorUserId: actorId,
+                        action: 'ONLINE_SURVEY_BULK_ASSIGNMENT_SKIPPED',
+                        bulkRequestId: effectiveBulkReqId,
+                        submissionId: subId,
+                        targetUserId: String(targetUserId),
+                        reasonCode: 'CANCELLED',
+                        result: 'SKIPPED'
+                    });
+                    continue;
+                }
+
+                // 3. Check if expired
+                if (current.retentionUntil) {
+                    const expiryMs = new Date(current.retentionUntil).getTime();
+                    if (!isNaN(expiryMs) && expiryMs <= Date.now()) {
+                        skipped++;
+                        results.push({
+                            submissionId: subId,
+                            status: 'SKIPPED',
+                            reasonCode: 'EXPIRED'
+                        });
+                        await this.recordAuditEvent({
+                            actorId,
+                            actorUserId: actorId,
+                            action: 'ONLINE_SURVEY_BULK_ASSIGNMENT_SKIPPED',
+                            bulkRequestId: effectiveBulkReqId,
+                            submissionId: subId,
+                            targetUserId: String(targetUserId),
+                            reasonCode: 'EXPIRED',
+                            result: 'SKIPPED'
+                        });
+                        continue;
+                    }
+                }
+
+                const prevAssignee = current.assignedUserId || null;
+
+                // 4. Check if already assigned to the SAME assignee
+                if (prevAssignee && String(prevAssignee) === String(targetUserId)) {
+                    skipped++;
+                    results.push({
+                        submissionId: subId,
+                        status: 'SKIPPED',
+                        reasonCode: 'SAME_ASSIGNEE'
+                    });
+                    await this.recordAuditEvent({
+                        actorId,
+                        actorUserId: actorId,
+                        action: 'ONLINE_SURVEY_BULK_ASSIGNMENT_SKIPPED',
+                        bulkRequestId: effectiveBulkReqId,
+                        submissionId: subId,
+                        targetUserId: String(targetUserId),
+                        previousAssignedUserId: prevAssignee,
+                        reasonCode: 'SAME_ASSIGNEE',
+                        result: 'SKIPPED'
+                    });
+                    continue;
+                }
+
+                // 5. Mode policy: if unassigned-only and already assigned to another staff
+                if (prevAssignee && mode === 'unassigned-only') {
+                    skipped++;
+                    results.push({
+                        submissionId: subId,
+                        status: 'SKIPPED',
+                        reasonCode: 'ASSIGNMENT_CONFLICT'
+                    });
+                    await this.recordAuditEvent({
+                        actorId,
+                        actorUserId: actorId,
+                        action: 'ONLINE_SURVEY_BULK_ASSIGNMENT_SKIPPED',
+                        bulkRequestId: effectiveBulkReqId,
+                        submissionId: subId,
+                        targetUserId: String(targetUserId),
+                        previousAssignedUserId: prevAssignee,
+                        reasonCode: 'ASSIGNMENT_CONFLICT',
+                        result: 'SKIPPED'
+                    });
+                    continue;
+                }
+
+                // Proceed with assignment / reassignment
+                const isReassign = Boolean(prevAssignee && prevAssignee !== targetUserId);
+                const now = this._nowIso();
+
+                const updated = {
+                    ...current,
+                    assignedUserId: String(targetUserId),
+                    assignedDepartmentId: targetDepartmentId || current.assignedDepartmentId || '',
+                    assignedByUserId: actorId,
+                    assignedAt: current.assignedAt || now,
+                    reassignedAt: isReassign ? now : (current.reassignedAt || null),
+                    assignmentUpdatedAt: now,
+                    assignmentStatus: isReassign ? 'reassigned' : 'assigned',
+                    consultationStatus: '상담배정',
+                    assignmentNote: sanitizedNote || current.assignmentNote || '',
+                    version: (current.version || 1) + 1,
+                    updatedAt: now,
+                    previousAssignedUserId: prevAssignee
+                };
+
+                subs[subIndex] = updated;
+                await this.saveSurveySubmissions(subs);
+
+                // Record history
+                if (this.assignmentRepository) {
+                    await this.assignmentRepository.recordAssignmentHistory({
+                        surveySubmissionId: updated.internalSurveyId || updated.submissionId,
+                        previousAssignedUserId: prevAssignee,
+                        newAssignedUserId: String(targetUserId),
+                        changedByUserId: actorId,
+                        reason: sanitizedNote || (isReassign ? '일괄 재배정' : '일괄 신규 배정'),
+                        note: sanitizedNote || null,
+                        previousPriority: current.assignmentPriority || 'NORMAL',
+                        newPriority: updated.assignmentPriority || 'NORMAL'
+                    });
+                }
+
+                if (isReassign) {
+                    reassigned++;
+                    results.push({
+                        submissionId: subId,
+                        status: 'REASSIGNED',
+                        reasonCode: 'REASSIGNED'
+                    });
+                    await this.recordAuditEvent({
+                        actorId,
+                        actorUserId: actorId,
+                        action: 'ONLINE_SURVEY_BULK_REASSIGNED',
+                        bulkRequestId: effectiveBulkReqId,
+                        submissionId: subId,
+                        internalSurveyId: current.internalSurveyId,
+                        previousAssignedUserId: prevAssignee,
+                        targetUserId: String(targetUserId),
+                        result: 'SUCCESS'
+                    });
+                } else {
+                    assigned++;
+                    results.push({
+                        submissionId: subId,
+                        status: 'ASSIGNED',
+                        reasonCode: 'NEW_ASSIGNMENT'
+                    });
+                    await this.recordAuditEvent({
+                        actorId,
+                        actorUserId: actorId,
+                        action: 'ONLINE_SURVEY_BULK_ASSIGNED',
+                        bulkRequestId: effectiveBulkReqId,
+                        submissionId: subId,
+                        internalSurveyId: current.internalSurveyId,
+                        targetUserId: String(targetUserId),
+                        result: 'SUCCESS'
+                    });
+                }
+
+                if (noteProvided) {
+                    await this.recordAuditEvent({
+                        actorId,
+                        actorUserId: actorId,
+                        action: 'ONLINE_SURVEY_ASSIGNMENT_NOTE_RECORDED',
+                        bulkRequestId: effectiveBulkReqId,
+                        submissionId: subId,
+                        noteProvided: true,
+                        result: 'SUCCESS'
+                    });
+                }
+
+            } catch (itemErr) {
+                failed++;
+                results.push({
+                    submissionId: subId,
+                    status: 'FAILED',
+                    reasonCode: itemErr.code || 'INTERNAL_ERROR'
+                });
+                await this.recordAuditEvent({
+                    actorId,
+                    actorUserId: actorId,
+                    action: 'ONLINE_SURVEY_BULK_ASSIGNMENT_FAILED',
+                    bulkRequestId: effectiveBulkReqId,
+                    submissionId: subId,
+                    targetUserId: String(targetUserId),
+                    reasonCode: itemErr.code || 'INTERNAL_ERROR',
+                    result: 'FAILED'
+                });
+            }
+        }
+
+        // Summary audit
+        await this.recordAuditEvent({
+            actorId,
+            actorUserId: actorId,
+            action: 'ONLINE_SURVEY_BULK_ASSIGNMENT_SUMMARY',
+            bulkRequestId: effectiveBulkReqId,
+            targetUserId: String(targetUserId),
+            requestedCount: uniqueIds.length,
+            assignedCount: assigned,
+            reassignedCount: reassigned,
+            skippedCount: skipped,
+            failedCount: failed,
+            result: failed === 0 ? 'SUCCESS' : (assigned + reassigned > 0 ? 'PARTIAL_SUCCESS' : 'ALL_FAILED')
+        });
+
+        return {
+            requested: uniqueIds.length,
+            assigned,
+            reassigned,
+            skipped,
+            failed,
+            results,
+            bulkRequestId: effectiveBulkReqId
+        };
+    }
+
 
     /**
      * Update consultation processing status of a submission
@@ -313,18 +719,20 @@ export class SurveyImportRepository {
         return this.getData(SURVEY_STORAGE_FILES.SURVEY_IMPORT_AUDIT, []);
     }
 
-    async recordAuditEvent({ actorId, action, submissionId, internalSurveyId, result, errorCode, batchId }) {
+    async recordAuditEvent(eventData = {}) {
         const list = this.getAuditLogs();
         const event = {
             id: `aud_${crypto.randomUUID()}`,
             timestamp: this._nowIso(),
-            actorId: actorId || 'system',
-            action,
-            submissionId: submissionId || null,
-            internalSurveyId: internalSurveyId || null,
-            result: result || 'SUCCESS',
-            errorCode: errorCode || null,
-            batchId: batchId || null
+            actorId: eventData.actorId || eventData.actorUserId || 'system',
+            actorUserId: eventData.actorUserId || eventData.actorId || 'system',
+            action: eventData.action,
+            submissionId: eventData.submissionId || null,
+            internalSurveyId: eventData.internalSurveyId || null,
+            result: eventData.result || 'SUCCESS',
+            errorCode: eventData.errorCode || null,
+            batchId: eventData.batchId || null,
+            ...eventData
         };
         list.push(event);
         // Keep last 10,000 audit items
@@ -332,6 +740,9 @@ export class SurveyImportRepository {
             list.splice(0, list.length - 10000);
         }
         await this.persistData(SURVEY_STORAGE_FILES.SURVEY_IMPORT_AUDIT, list);
+        if (typeof this.auditLogger === 'function') {
+            try { this.auditLogger(event); } catch (ignore) {}
+        }
         return event;
     }
 
@@ -628,7 +1039,9 @@ export class SurveyImportRepository {
      * Cascading deletion of a single submission and all connected assets.
      * ZERO PII audit logging.
      */
-    async deleteSubmissionCascading({ submissionId, actorId = 'admin', reason = 'Admin deletion', isSynthetic = false }) {
+    async deleteSubmissionCascading(args) {
+        const params = typeof args === 'string' ? { submissionId: args } : (args || {});
+        const { submissionId, actorId = 'admin', reason = 'Admin deletion', isSynthetic = false } = params;
         if (!submissionId) {
             throw new Error('submissionId is required for deletion');
         }
@@ -686,18 +1099,16 @@ export class SurveyImportRepository {
             await this.saveConsentEvidenceList(remainingConsents);
         }
 
-        // 4. Remove connected Referral(s)
+        // 4. Independent Referral Retention: DO NOT cascade delete Referral records
         const referrals = this.getData('Referrals', []);
-        const refIndex = referrals.findIndex(r =>
-            r && (r.sourceSubmissionId === submissionId || r.externalIdx === submissionId || (sub?.referralId && r.referralId === sub.referralId))
-        );
-        let connectedReferral = null;
-        if (refIndex !== -1) {
-            connectedReferral = referrals[refIndex];
-            referrals.splice(refIndex, 1);
-            await this.persistData('Referrals', referrals);
-            deletedRecordCount++;
-        }
+        const connectedReferral = referrals.find(r =>
+            r && (
+                r.sourceSubmissionId === submissionId ||
+                r.externalIdx === submissionId ||
+                r.linkedSurveyId === submissionId ||
+                (sub?.referralId && (r.referralId === sub.referralId || r.id === sub.referralId))
+            )
+        ) || null;
 
         // 5. Remove connected PendingReferrals
         const pendingList = this.getData('PendingReferrals', []);
@@ -717,46 +1128,76 @@ export class SurveyImportRepository {
             await this.saveWorkflowJournal(remainingJournals);
         }
 
-        // 7. Delete physical files from disk
-        if (this.attachmentsDir && fs.existsSync(this.attachmentsDir)) {
-            const foldersToCheck = new Set();
-            if (sub?.internalSurveyId) foldersToCheck.add(sub.internalSurveyId);
-            if (submissionId) foldersToCheck.add(submissionId);
-            if (connectedReferral?.referralId) foldersToCheck.add(connectedReferral.referralId);
+        // 7. Delete physical files from disk ONLY IF NOT SHARED with a Referral
+        const isAttachmentSharedWithReferral = Boolean(
+            connectedReferral && (
+                (connectedReferral.referralId && sub?.referralId === connectedReferral.referralId) ||
+                (connectedReferral.id && sub?.referralId === connectedReferral.id) ||
+                connectedReferral.attachments?.some(a =>
+                    a && (a.id === sub?.attachmentId || a.id === sub?.attachment?.id || (sub?.attachment?.fileHash && a.fileHash === sub?.attachment?.fileHash))
+                )
+            )
+        );
 
-            for (const folderName of foldersToCheck) {
-                const safeFolder = folderName.replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
-                const targetDir = path.join(this.attachmentsDir, safeFolder);
-                if (fs.existsSync(targetDir)) {
+        if (isAttachmentSharedWithReferral) {
+            // RETAIN physical PDF files for the Referral!
+            await this.recordAuditEvent({
+                actorId: actorId || 'admin',
+                action: 'SHARED_ATTACHMENT_RETAINED',
+                submissionId,
+                referralId: connectedReferral.referralId || connectedReferral.id,
+                attachmentId: sub?.attachmentId || sub?.attachment?.id || null,
+                result: 'SUCCESS'
+            });
+        } else {
+            // Orphan attachment: safely delete from disk
+            if (this.attachmentsDir && fs.existsSync(this.attachmentsDir)) {
+                const foldersToCheck = new Set();
+                if (sub?.internalSurveyId) foldersToCheck.add(sub.internalSurveyId);
+                if (submissionId) foldersToCheck.add(submissionId);
+
+                for (const folderName of foldersToCheck) {
+                    const safeFolder = folderName.replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
+                    const targetDir = path.join(this.attachmentsDir, safeFolder);
+                    if (fs.existsSync(targetDir)) {
+                        try {
+                            const files = fs.readdirSync(targetDir);
+                            for (const f of files) {
+                                fs.unlinkSync(path.join(targetDir, f));
+                                deletedFileCount++;
+                            }
+                            fs.rmdirSync(targetDir);
+                        } catch (ignore) {}
+                    }
+                }
+
+                if (sub?.attachmentId) {
                     try {
-                        const files = fs.readdirSync(targetDir);
-                        for (const f of files) {
-                            fs.unlinkSync(path.join(targetDir, f));
-                            deletedFileCount++;
-                        }
-                        fs.rmdirSync(targetDir);
+                        const findAndDelete = (dir) => {
+                            if (!fs.existsSync(dir)) return;
+                            const items = fs.readdirSync(dir, { withFileTypes: true });
+                            for (const item of items) {
+                                const full = path.join(dir, item.name);
+                                if (item.isDirectory()) {
+                                    findAndDelete(full);
+                                } else if (item.name === sub.attachmentId || item.name.includes(submissionId)) {
+                                    fs.unlinkSync(full);
+                                    deletedFileCount++;
+                                }
+                            }
+                        };
+                        findAndDelete(this.attachmentsDir);
                     } catch (ignore) {}
                 }
             }
 
-            if (sub?.attachmentId) {
-                try {
-                    const findAndDelete = (dir) => {
-                        if (!fs.existsSync(dir)) return;
-                        const items = fs.readdirSync(dir, { withFileTypes: true });
-                        for (const item of items) {
-                            const full = path.join(dir, item.name);
-                            if (item.isDirectory()) {
-                                findAndDelete(full);
-                            } else if (item.name === sub.attachmentId || item.name.includes(submissionId)) {
-                                fs.unlinkSync(full);
-                                deletedFileCount++;
-                            }
-                        }
-                    };
-                    findAndDelete(this.attachmentsDir);
-                } catch (ignore) {}
-            }
+            await this.recordAuditEvent({
+                actorId: actorId || 'admin',
+                action: 'ORPHAN_ATTACHMENT_DELETED',
+                submissionId,
+                attachmentId: sub?.attachmentId || null,
+                result: 'SUCCESS'
+            });
         }
 
         // 8. Sanitize SurveyImportAudit to remove PII of deleted submission
@@ -794,7 +1235,101 @@ export class SurveyImportRepository {
             deletionJobId,
             deletedRecordCount,
             deletedFileCount,
+            sharedAttachmentRetained: isAttachmentSharedWithReferral,
             isSynthetic: syntheticFlag
+        };
+    }
+
+    /**
+     * Purge submissions whose retention period has expired (default 30 days).
+     * If submission has an active Referral, the survey raw submission is purged,
+     * but the Referral record, its data, and the physical PDF attachment are RETAINED.
+     * If no Referral exists, the orphan PDF attachment is deleted.
+     */
+    async purgeExpiredSubmissions({ actorId = 'system', retentionDays = 30, dryRun = false } = {}) {
+        const subs = this.getSurveySubmissions();
+        const now = Date.now();
+        const expiredSubs = [];
+
+        for (const s of subs) {
+            if (!s) continue;
+            let isExpired = false;
+            if (s.retentionUntil) {
+                const t = new Date(s.retentionUntil).getTime();
+                if (!Number.isNaN(t) && t > 0) {
+                    isExpired = t <= now;
+                }
+            } else {
+                const rawDateStr = s.submittedAt || s.importedAt;
+                if (rawDateStr) {
+                    const t = new Date(rawDateStr).getTime();
+                    if (!Number.isNaN(t) && t > 0) {
+                        const days = Number(s.retentionDays || retentionDays) || 30;
+                        isExpired = (now - t) >= (days * 24 * 60 * 60 * 1000);
+                    }
+                }
+            }
+            if (isExpired) {
+                expiredSubs.push(s);
+            }
+        }
+
+        if (dryRun) {
+            return {
+                dryRun: true,
+                expiredCount: expiredSubs.length,
+                expiredSubmissions: expiredSubs.map(s => ({
+                    submissionId: s.submissionId,
+                    hasReferral: Boolean(s.referralId)
+                }))
+            };
+        }
+
+        let purgedCount = 0;
+        let retainedSharedPdfCount = 0;
+        let deletedOrphanPdfCount = 0;
+        let failedCount = 0;
+
+        for (const expSub of expiredSubs) {
+            try {
+                const res = await this.deleteSubmissionCascading({
+                    submissionId: expSub.submissionId,
+                    actorId,
+                    reason: `Retention expired (${retentionDays} days)`
+                });
+                purgedCount++;
+                if (res.sharedAttachmentRetained) {
+                    retainedSharedPdfCount++;
+                } else if (res.deletedFileCount > 0) {
+                    deletedOrphanPdfCount++;
+                }
+                await this.recordAuditEvent({
+                    actorId,
+                    action: 'SURVEY_RETENTION_PURGED',
+                    submissionId: expSub.submissionId,
+                    referralId: expSub.referralId || null,
+                    result: 'SUCCESS'
+                });
+            } catch (err) {
+                failedCount++;
+                // Fail-closed: Never delete if error occurs
+                await this.recordAuditEvent({
+                    actorId,
+                    action: 'SURVEY_RETENTION_PURGE_FAILED',
+                    submissionId: expSub.submissionId,
+                    result: 'FAILED',
+                    reasonCode: err.code || 'PURGE_ERROR'
+                });
+            }
+        }
+
+        return {
+            success: true,
+            totalProcessed: expiredSubs.length,
+            purgedCount,
+            retainedSharedPdfCount,
+            deletedOrphanPdfCount,
+            failedCount
         };
     }
 

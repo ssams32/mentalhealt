@@ -579,8 +579,25 @@ class ApiClient {
         });
     }
 
-    async getSurveyImports(): Promise<{ total: number; imports: any[] }> {
-        return this.request('/surveys/imports');
+    async getSurveyImports(params?: {
+        fromDate?: string;
+        toDate?: string;
+        sortBy?: string;
+        statusFilter?: string;
+        staffFilter?: string;
+        q?: string;
+    }): Promise<{ total: number; imports: any[] }> {
+        const queryParams = new URLSearchParams();
+        if (params) {
+            if (params.fromDate) queryParams.set('fromDate', params.fromDate);
+            if (params.toDate) queryParams.set('toDate', params.toDate);
+            if (params.sortBy) queryParams.set('sortBy', params.sortBy);
+            if (params.statusFilter) queryParams.set('statusFilter', params.statusFilter);
+            if (params.staffFilter) queryParams.set('staffFilter', params.staffFilter);
+            if (params.q) queryParams.set('q', params.q);
+        }
+        const qs = queryParams.toString();
+        return this.request(`/surveys/imports${qs ? `?${qs}` : ''}`);
     }
 
     async getSurveySubmission(id: string): Promise<{ submission: any }> {
@@ -593,7 +610,16 @@ class ApiClient {
         });
     }
 
-    async getSurveyAssignableStaff(): Promise<{ staff: Array<{ id: string; name: string; team: string; role: string }> }> {
+    async getSurveyAssignableStaff(): Promise<{
+        staff: Array<{
+            id: string;
+            name: string;
+            team: string;
+            role: string;
+            pendingAssignmentCount?: number;
+            myAssignedPendingCount?: number;
+        }>
+    }> {
         return this.request('/surveys/assignable-staff');
     }
 
@@ -610,6 +636,46 @@ class ApiClient {
         });
     }
 
+    async reassignSurveyStaff(id: string, payload: {
+        assignedUserId: string;
+        assignedDepartmentId?: string;
+        assignmentPriority?: 'NORMAL' | 'PRIORITY_REVIEW' | 'IMMEDIATE_REVIEW';
+        expectedVersion?: number;
+        reason?: string;
+    }): Promise<{ success: boolean; message: string; submission: any }> {
+        return this.request(`/surveys/${id}/reassign`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+    }
+
+    async bulkAssignSurveys(payload: {
+        submissionIds: string[];
+        targetUserId: string;
+        mode?: 'unassigned-only' | 'include-reassignment';
+        note?: string;
+    }): Promise<{
+        requested: number;
+        assigned: number;
+        reassigned: number;
+        skipped: number;
+        failed: number;
+        results: Array<{ submissionId: string; status: 'ASSIGNED' | 'REASSIGNED' | 'SKIPPED' | 'FAILED'; reasonCode: string }>;
+        bulkRequestId?: string;
+    }> {
+        return this.request('/surveys/bulk-assign', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+    }
+
+    async unassignSurveyStaff(id: string, reason?: string): Promise<{ success: boolean; message: string; submission: any }> {
+        return this.request(`/surveys/${id}/unassign`, {
+            method: 'POST',
+            body: JSON.stringify({ reason })
+        });
+    }
+
     async updateSurveyConsultationStatus(id: string, payload: {
         consultationStatus: string;
         note?: string;
@@ -622,6 +688,10 @@ class ApiClient {
 
     async getSurveyAssignmentHistory(id: string): Promise<{ history: any[] }> {
         return this.request(`/surveys/${id}/assignment-history`);
+    }
+
+    async getSurveyReferralDraft(id: string): Promise<{ success: boolean; isAlreadyRegistered?: boolean; existingReferralId?: string; refNo?: string; draft?: any }> {
+        return this.request(`/surveys/submissions/${encodeURIComponent(id)}/referral-draft`);
     }
 
     async downloadSurveyExport(filters: Record<string, string> = {}): Promise<{ blob: Blob; filename: string }> {

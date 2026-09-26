@@ -6,6 +6,7 @@
 import express from 'express';
 import { SURVEY_ASSIGNMENT_PRIORITY, NOTIFICATION_TYPES, SURVEY_ERROR_CODES } from './surveyConstants.js';
 import { hasOnlineSurveyAccess } from '../permissions/voiceCapabilities.js';
+import { getKstDateRangeUtcBoundaries } from './kstUtils.js';
 
 /**
  * Mask client personal name for list views (e.g. 홍길동 -> 홍*동, 이산 -> 이*)
@@ -122,11 +123,46 @@ export function createSurveyImportRouter(deps = {}) {
 
     const router = express.Router();
 
-    // 1. GET /api/surveys/status - Safe aggregate counts and import semaphore state
+    // 1. GET /api/surveys/status - Safe aggregate counts, per-user assignment counts, and import semaphore state
     router.get('/status', requireAuth, requireSurveyImportPermission, (req, res) => {
         try {
-            const summary = surveyImportService.getStatusSummary();
-            res.json(summary);
+            const currentUserId = String(req.auth?.id || req.auth?.userId || '');
+            const role = (req.auth?.role || req.auth?.userRole || 'user').toLowerCase();
+            const isAdmin = role === 'admin';
+            const summary = surveyImportService.getStatusSummary(currentUserId);
+
+            const subs = surveyRepository.getSurveySubmissions();
+            let unassignedCount = 0;
+            let myAssignedPendingCount = 0;
+            let totalPendingReferralCount = 0;
+
+            for (const s of subs) {
+                if (!s || s.status === 'deleted') continue;
+                const isConsultation = s.requestType === 'CONSULTATION_REQUEST' || s.consultationRequested === true;
+                if (!isConsultation) continue;
+
+                // Pending referral means not yet converted to official referral
+                const isPendingReferral = !s.referralId;
+                if (isPendingReferral) {
+                    totalPendingReferralCount++;
+                    const isUnassigned = !s.assignedUserId || s.assignmentStatus === 'unassigned';
+                    if (isUnassigned) {
+                        unassignedCount++;
+                    } else if (String(s.assignedUserId) === currentUserId) {
+                        myAssignedPendingCount++;
+                    }
+                }
+            }
+
+            const badgeCount = isAdmin ? totalPendingReferralCount : myAssignedPendingCount;
+
+            res.json({
+                ...summary,
+                unassignedCount,
+                myAssignedPendingCount,
+                totalPendingReferralCount,
+                badgeCount
+            });
         } catch (err) {
             console.error('❌ GET /api/surveys/status error:', err.message);
             res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: err.message } });
@@ -279,7 +315,7 @@ export function createSurveyImportRouter(deps = {}) {
         }
     });
 
-    // 3. GET /api/surveys/imports - Paginated import ledger list with masked names/phones
+    // 3. GET /api/surveys/imports - Paginated import ledger list with masked names/phones & date/status filters
     router.get('/imports', requireAuth, requireSurveyImportPermission, (req, res) => {
         try {
             if (typeof auditLogger === 'function') {
@@ -289,16 +325,75 @@ export function createSurveyImportRouter(deps = {}) {
                     result: 'SUCCESS'
                 });
             }
+
+            const {
+                fromDate,
+                toDate,
+                sortBy = 'latest',
+                statusFilter,
+                staffFilter,
+                q: searchQuery
+            } = req.query;
+
+            // Validate date range boundaries
+            let dateBoundaries = null;
+            if (fromDate || toDate) {
+                try {
+                    dateBoundaries = getKstDateRangeUtcBoundaries(fromDate, toDate);
+                } catch (dateErr) {
+                    return res.status(400).json({
+                        error: {
+                            code: dateErr.code || 'INVALID_DATE_RANGE',
+                            message: dateErr.message
+                        }
+                    });
+                }
+            }
+
             const ledger = surveyRepository.getImportsLedger();
             const submissions = surveyRepository.getSurveySubmissions();
             const subMap = new Map(submissions.map(s => [s.submissionId, s]));
             const referrals = surveyRepository.getData('Referrals', []);
             const refMap = new Map(referrals.filter(r => r.sourceSubmissionId).map(r => [r.sourceSubmissionId, r]));
 
-            // Sort descending by attempt / creation
-            const sorted = [...ledger].reverse();
+            const currentUserId = String(req.auth?.id || req.auth?.userId || '');
+            const role = (req.auth?.role || req.auth?.userRole || 'user').toLowerCase();
+            const isAdmin = role === 'admin';
 
-            const safeList = sorted.map(item => {
+            // Base list from ledger
+            let baseList = [...ledger];
+
+            // 1. User isolation: Regular staff can only access submissions assigned to themselves
+            if (!isAdmin) {
+                baseList = baseList.filter(item => {
+                    const sub = subMap.get(item.submissionId);
+                    return sub && String(sub.assignedUserId) === currentUserId;
+                });
+            }
+
+            // 2. Canonical Date Range Filter
+            // DATE_FILTER_CANONICAL_FIELD: importedAt || receivedAt
+            // DATE_FILTER_FALLBACK_FIELD: submittedAt
+            if (dateBoundaries && (dateBoundaries.startUtcMs !== null || dateBoundaries.endUtcMs !== null)) {
+                baseList = baseList.filter(item => {
+                    const sub = subMap.get(item.submissionId);
+                    const canonicalDateStr = item.importedAt || sub?.importedAt || item.receivedAt || item.submittedAt || sub?.submittedAt;
+                    if (!canonicalDateStr) return false;
+                    const timeMs = new Date(canonicalDateStr).getTime();
+                    if (isNaN(timeMs)) return false; // fail-closed for invalid date strings
+
+                    if (dateBoundaries.startUtcMs !== null && timeMs < dateBoundaries.startUtcMs) {
+                        return false;
+                    }
+                    if (dateBoundaries.endUtcMs !== null && timeMs > dateBoundaries.endUtcMs) {
+                        return false;
+                    }
+                    return true;
+                });
+            }
+
+            // Map each item to safe client representation
+            let safeList = baseList.map(item => {
                 const sub = subMap.get(item.submissionId);
                 const ref = refMap.get(item.submissionId);
                 const reportAttachment = ref?.attachments?.find(a =>
@@ -325,7 +420,7 @@ export function createSurveyImportRouter(deps = {}) {
                     lastErrorCode: item.lastErrorCode,
                     assessmentId: sub?.assessmentId || 'unknown',
                     isSbqrQuarantined: sub?.isSbqrQuarantined || false,
-                    // New Data Contract Fields
+                    // Data Contract Fields
                     requestType,
                     consultationRequested,
                     consultationRequestedAt: sub?.consultationRequestedAt || item.consultationRequestedAt || null,
@@ -351,13 +446,99 @@ export function createSurveyImportRouter(deps = {}) {
                     closureStatus: ref?.closureStatus || null,
                     hasReport: Boolean(reportAttachment || sub?.attachmentId),
                     reportAttachment,
-                    // Assignment fields
+                    // Assignment & Retention fields
                     assignedUserId: sub?.assignedUserId || (ref ? ref.assignee : null),
                     assignedDepartmentId: sub?.assignedDepartmentId || (ref ? ref.team : null),
                     assignmentPriority: sub?.assignmentPriority || SURVEY_ASSIGNMENT_PRIORITY.NORMAL,
                     assignedAt: sub?.assignedAt || null,
+                    reassignedAt: sub?.reassignedAt || null,
+                    completedAt: sub?.completedAt || null,
+                    assignmentNote: sub?.assignmentNote || '',
+                    retentionUntil: sub?.retentionUntil || null,
+                    retentionDays: sub?.retentionDays || 30,
                     version: sub?.version || 1
                 };
+            });
+
+            // 3. Status Filter
+            if (statusFilter && statusFilter !== 'all') {
+                safeList = safeList.filter(item => {
+                    if (statusFilter === 'unassigned') {
+                        return (!item.assignedUserId || item.assignmentStatus === 'unassigned') && !item.referralId;
+                    }
+                    if (statusFilter === 'my_assigned') {
+                        return String(item.assignedUserId) === currentUserId && !item.referralId;
+                    }
+                    if (statusFilter === 'pending_referral') {
+                        return Boolean(item.assignedUserId) && !item.referralId;
+                    }
+                    if (statusFilter === 'registered') {
+                        return Boolean(item.referralId);
+                    }
+                    if (statusFilter === 'expiring_soon') {
+                        if (!item.retentionUntil) return false;
+                        const expMs = new Date(item.retentionUntil).getTime();
+                        if (isNaN(expMs)) return false;
+                        const diffDays = (expMs - Date.now()) / (24 * 60 * 60 * 1000);
+                        return diffDays >= 0 && diffDays <= 7;
+                    }
+                    if (statusFilter === 'high_risk') {
+                        const sev = String(item.severity || '').toLowerCase();
+                        return sev.includes('고위험') || sev.includes('심각') || (item.totalScore !== null && item.totalScore >= 15);
+                    }
+                    return true;
+                });
+            }
+
+            // 4. Staff Filter (Admin only)
+            if (staffFilter && staffFilter !== 'all') {
+                if (staffFilter === 'unassigned') {
+                    safeList = safeList.filter(item => !item.assignedUserId || item.assignmentStatus === 'unassigned');
+                } else {
+                    safeList = safeList.filter(item => String(item.assignedUserId) === String(staffFilter));
+                }
+            }
+
+            // 5. Search Query Filter
+            if (searchQuery && typeof searchQuery === 'string' && searchQuery.trim()) {
+                const q = searchQuery.trim().toLowerCase();
+                safeList = safeList.filter(item =>
+                    (item.submissionId && item.submissionId.toLowerCase().includes(q)) ||
+                    (item.maskedClientName && item.maskedClientName.toLowerCase().includes(q)) ||
+                    (item.maskedPhone && item.maskedPhone.toLowerCase().includes(q)) ||
+                    (item.region && item.region.toLowerCase().includes(q)) ||
+                    (item.assessmentId && item.assessmentId.toLowerCase().includes(q)) ||
+                    (item.counselingRequestText && item.counselingRequestText.toLowerCase().includes(q)) ||
+                    (item.refNo && item.refNo.toLowerCase().includes(q))
+                );
+            }
+
+            // 6. Sorting
+            safeList.sort((a, b) => {
+                if (sortBy === 'oldest') {
+                    const timeA = new Date(a.importedAt || a.submittedAt || 0).getTime();
+                    const timeB = new Date(b.importedAt || b.submittedAt || 0).getTime();
+                    return timeA - timeB;
+                }
+                if (sortBy === 'assignment_oldest') {
+                    const timeA = a.assignedAt ? new Date(a.assignedAt).getTime() : Infinity;
+                    const timeB = b.assignedAt ? new Date(b.assignedAt).getTime() : Infinity;
+                    return timeA - timeB;
+                }
+                if (sortBy === 'expiring_soon') {
+                    const timeA = a.retentionUntil ? new Date(a.retentionUntil).getTime() : Infinity;
+                    const timeB = b.retentionUntil ? new Date(b.retentionUntil).getTime() : Infinity;
+                    return timeA - timeB;
+                }
+                if (sortBy === 'risk_high') {
+                    const scoreA = Number(a.totalScore) || 0;
+                    const scoreB = Number(b.totalScore) || 0;
+                    return scoreB - scoreA;
+                }
+                // Default 'latest': newest canonical date first
+                const timeA = new Date(a.importedAt || a.submittedAt || 0).getTime();
+                const timeB = new Date(b.importedAt || b.submittedAt || 0).getTime();
+                return timeB - timeA;
             });
 
             res.json({
@@ -370,18 +551,46 @@ export function createSurveyImportRouter(deps = {}) {
         }
     });
 
-    // 4. GET /api/surveys/assignable-staff - List of active assignable staff
+    // 4. GET /api/surveys/assignable-staff - List of active assignable staff with survey permission & workload
     router.get('/assignable-staff', requireAuth, requireSurveyImportPermission, (req, res) => {
         try {
             const users = getUsers() || [];
+            const role = (req.auth?.role || req.auth?.userRole || 'user').toLowerCase();
+            const isAdmin = role === 'admin';
+            const currentUserId = String(req.auth?.id || req.auth?.userId || '');
+
+            const subs = surveyRepository.getSurveySubmissions();
+            // Workload definition: assignedUserId === staff.id AND !referralId AND not deleted/cancelled
+            const workloadMap = new Map();
+            for (const s of subs) {
+                if (!s || s.status === 'deleted' || s.deletionStatus === 'deleted') continue;
+                if (!s.referralId && s.assignedUserId) {
+                    const uid = String(s.assignedUserId);
+                    workloadMap.set(uid, (workloadMap.get(uid) || 0) + 1);
+                }
+            }
+
             const safeStaff = users
-                .filter(u => u && u.status !== 'suspended' && u.status !== 'deleted')
-                .map(u => ({
-                    id: String(u.id || u.username || ''),
-                    name: u.name || u.username || '직원',
-                    team: u.team || u.department || '',
-                    role: u.role || 'user'
-                }));
+                .filter(u => u && u.status === 'active' && hasOnlineSurveyAccess(u))
+                .map(u => {
+                    const staffId = String(u.id || u.username || '');
+                    const pendingAssignmentCount = workloadMap.get(staffId) || 0;
+                    const staffObj = {
+                        id: staffId,
+                        name: u.name || u.username || '직원',
+                        team: u.team || u.department || '',
+                        role: u.role || 'user'
+                    };
+                    // Admin gets workload info for all staff. Regular users ONLY get their own workload info.
+                    if (isAdmin) {
+                        staffObj.pendingAssignmentCount = pendingAssignmentCount;
+                        staffObj.myAssignedPendingCount = pendingAssignmentCount;
+                    } else if (staffId === currentUserId) {
+                        staffObj.pendingAssignmentCount = pendingAssignmentCount;
+                        staffObj.myAssignedPendingCount = pendingAssignmentCount;
+                    }
+                    return staffObj;
+                });
             res.json({ staff: safeStaff });
         } catch (err) {
             console.error('❌ GET /api/surveys/assignable-staff error:', err.message);
@@ -467,11 +676,18 @@ export function createSurveyImportRouter(deps = {}) {
         }
     });
 
-    // 6. POST /api/surveys/:id/assign and /api/surveys/:id/reassign
+    // 6. POST /api/surveys/:id/assign and /api/surveys/:id/reassign (Admin only)
     const handleAssignment = async (req, res) => {
         try {
             const { id } = req.params;
             const { assignedUserId, assignedDepartmentId, assignmentPriority, expectedVersion, reason } = req.body || {};
+
+            const role = (req.auth?.role || req.auth?.userRole || 'user').toLowerCase();
+            if (role !== 'admin') {
+                return res.status(403).json({
+                    error: { code: 'FORBIDDEN', message: '관리자(Admin)만 담당자를 배정할 수 있습니다.' }
+                });
+            }
 
             if (!assignedUserId || typeof assignedUserId !== 'string') {
                 return res.status(400).json({
@@ -479,15 +695,36 @@ export function createSurveyImportRouter(deps = {}) {
                 });
             }
 
-            // Target staff validation
+            // Check if submission exists
+            const existingSub = surveyRepository.findSubmissionById(id);
+            if (!existingSub) {
+                return res.status(404).json({
+                    error: { code: SURVEY_ERROR_CODES.RECORD_NOT_FOUND, message: '해당 설문 제출 건을 찾을 수 없습니다.' }
+                });
+            }
+
+            // If already converted to official referral, block reassignment via survey router
+            if (existingSub.referralId) {
+                return res.status(409).json({
+                    error: { code: 'ALREADY_REGISTERED', message: '이미 의뢰대장이 등록된 설문은 재배정할 수 없습니다.' }
+                });
+            }
+
+            // Target staff validation: Must be active and have ONLINE_SURVEY_ACCESS
             const users = getUsers() || [];
             const targetUser = users.find(u =>
                 u && (String(u.id) === String(assignedUserId) || String(u.username) === String(assignedUserId))
             );
 
-            if (!targetUser || targetUser.status === 'suspended' || targetUser.status === 'deleted') {
+            if (!targetUser || targetUser.status !== 'active') {
                 return res.status(400).json({
-                    error: { code: SURVEY_ERROR_CODES.STAFF_INACTIVE, message: '배정 대상 직원이 유효하지 않거나 비활성 상태입니다.' }
+                    error: { code: 'USER_INACTIVE', message: '배정 대상 직원이 유효하지 않거나 비활성 상태입니다.' }
+                });
+            }
+
+            if (!hasOnlineSurveyAccess(targetUser)) {
+                return res.status(400).json({
+                    error: { code: 'STAFF_NOT_ELIGIBLE', message: '온라인 설문 접근 권한이 없는 직원에게는 배정할 수 없습니다.' }
                 });
             }
 
@@ -507,6 +744,17 @@ export function createSurveyImportRouter(deps = {}) {
                 reason: reason || '',
                 expectedVersion: expectedVersion !== undefined && expectedVersion !== null ? Number(expectedVersion) : undefined
             });
+
+            const isReassign = Boolean(updated.previousAssignedUserId);
+            if (isReassign) {
+                updated.reassignedAt = new Date().toISOString();
+                const subs = surveyRepository.getSurveySubmissions();
+                const sIdx = subs.findIndex(s => s && (s.submissionId === updated.submissionId || s.internalSurveyId === updated.submissionId));
+                if (sIdx !== -1) {
+                    subs[sIdx].reassignedAt = updated.reassignedAt;
+                    await surveyRepository.saveSurveySubmissions(subs);
+                }
+            }
 
             // Append to assignment history
             if (surveyAssignmentRepository) {
@@ -540,9 +788,19 @@ export function createSurveyImportRouter(deps = {}) {
                 }
             }
 
+            // Audit record for assignment/reassignment
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: actorId,
+                    targetUserId: updated.assignedUserId,
+                    internalSurveyId: updated.internalSurveyId,
+                    action: isReassign ? 'ONLINE_SURVEY_REASSIGNED' : 'ONLINE_SURVEY_ASSIGNED',
+                    result: 'SUCCESS'
+                });
+            }
+
             // Internal Notification Dispatch (Zero-PII Canonical Phase 14 Payload)
             if (notificationRepository) {
-                const isReassign = Boolean(updated.previousAssignedUserId);
                 const notifType = isReassign ? NOTIFICATION_TYPES.SURVEY_REASSIGNED : NOTIFICATION_TYPES.SURVEY_ASSIGNED;
                 const safeTitle = isReassign ? '온라인 설문 담당자 재배정 알림' : '온라인 설문 담당자 배정 알림';
                 const safeMsg = '온라인 설문 기반 상담신청 1건이 배정되었습니다.\n온라인 설문관리에서 확인해 주세요.';
@@ -581,6 +839,146 @@ export function createSurveyImportRouter(deps = {}) {
 
     router.post('/:id/assign', requireAuth, requireSurveyImportPermission, handleAssignment);
     router.post('/:id/reassign', requireAuth, requireSurveyImportPermission, handleAssignment);
+
+    // 6-2. POST /api/surveys/bulk-assign - Batch assign or reassign staff (Admin only)
+    router.post('/bulk-assign', requireAuth, requireSurveyImportPermission, requireAdmin, async (req, res) => {
+        try {
+            const { submissionIds, targetUserId, mode = 'unassigned-only', note } = req.body || {};
+
+            if (!Array.isArray(submissionIds) || submissionIds.length === 0) {
+                return res.status(400).json({
+                    error: { code: 'INVALID_PARAM', message: '배정할 설문 목록(submissionIds)이 비어있습니다.' }
+                });
+            }
+
+            if (submissionIds.length > 50) {
+                return res.status(400).json({
+                    error: { code: 'BULK_ASSIGNMENT_LIMIT_EXCEEDED', message: '일괄 배정은 한 번에 최대 50건까지만 가능합니다.' }
+                });
+            }
+
+            if (!['unassigned-only', 'include-reassignment'].includes(mode)) {
+                return res.status(400).json({
+                    error: { code: 'INVALID_MODE', message: '유효하지 않은 배정 모드입니다. unassigned-only 또는 include-reassignment를 지정하세요.' }
+                });
+            }
+
+            if (!targetUserId || typeof targetUserId !== 'string') {
+                return res.status(400).json({
+                    error: { code: 'INVALID_PARAM', message: '배정 대상 직원 ID(targetUserId)가 필요합니다.' }
+                });
+            }
+
+            const users = getUsers() || [];
+            const targetUser = users.find(u =>
+                u && (String(u.id) === String(targetUserId) || String(u.username) === String(targetUserId))
+            );
+
+            if (!targetUser || targetUser.status !== 'active') {
+                return res.status(400).json({
+                    error: { code: 'USER_INACTIVE', message: '배정 대상 직원이 유효하지 않거나 비활성 상태입니다.' }
+                });
+            }
+
+            if (!hasOnlineSurveyAccess(targetUser)) {
+                return res.status(400).json({
+                    error: { code: 'STAFF_NOT_ELIGIBLE', message: '온라인 설문 접근 권한이 없는 직원에게는 배정할 수 없습니다.' }
+                });
+            }
+
+            if (note !== undefined && note !== null) {
+                if (typeof note !== 'string' || note.length > 200) {
+                    return res.status(400).json({
+                        error: { code: 'INVALID_NOTE', message: '배정 메모는 200자 이하의 문자열이어야 합니다.' }
+                    });
+                }
+            }
+
+            const actorId = req.auth.userId || req.auth.id || req.auth.username || 'admin';
+            const bulkRequestId = `blk_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+            const result = await surveyRepository.bulkAssignStaff({
+                submissionIds,
+                targetUserId: String(targetUser.id || targetUser.username),
+                targetDepartmentId: targetUser.team || targetUser.department || '',
+                mode,
+                note: note || null,
+                actorId,
+                bulkRequestId
+            });
+
+            // Reused Internal Notification Dispatch (Zero-PII)
+            const successfulCount = (result.assigned || 0) + (result.reassigned || 0);
+            if (successfulCount > 0 && notificationRepository) {
+                try {
+                    const isOnlyReassign = (result.assigned || 0) === 0 && (result.reassigned || 0) > 0;
+                    const safeTitle = isOnlyReassign ? '온라인 설문 담당자 재배정 알림' : '온라인 설문 담당자 배정 알림';
+                    const safeMsg = `온라인 설문 ${successfulCount}건이 ${isOnlyReassign ? '재' : ''}배정되었습니다.\n온라인 설문관리에서 확인해 주세요.`;
+
+                    await notificationRepository.createNotification({
+                        recipientUserId: String(targetUser.id || targetUser.username),
+                        type: isOnlyReassign ? NOTIFICATION_TYPES.SURVEY_REASSIGNED : NOTIFICATION_TYPES.SURVEY_ASSIGNED,
+                        relatedEntityType: 'survey_bulk',
+                        relatedEntityId: bulkRequestId,
+                        safeTitle,
+                        safeMessage: safeMsg,
+                        priority: 'NORMAL',
+                        createdByUserId: actorId,
+                        linkPage: 'online_survey',
+                        deduplicationKey: `bulk_assign_${bulkRequestId}`
+                    });
+                } catch (notifErr) {
+                    console.error('Failed to dispatch bulk assignment internal notification:', notifErr.message);
+                }
+            }
+
+            res.json(result);
+        } catch (err) {
+            console.error('❌ POST /api/surveys/bulk-assign error:', err.message);
+            const statusCode = err.code === 'BULK_ASSIGNMENT_LIMIT_EXCEEDED' ? 400
+                : err.code === 'INVALID_PARAM' ? 400
+                : 500;
+            res.status(statusCode).json({
+                error: {
+                    code: err.code || 'BULK_ASSIGN_FAILED',
+                    message: err.message
+                }
+            });
+        }
+    });
+
+    // 6-3. POST /api/surveys/:id/unassign - Safe single survey unassignment (Admin only)
+    router.post('/:id/unassign', requireAuth, requireSurveyImportPermission, requireAdmin, async (req, res) => {
+        try {
+            const { id } = req.params;
+            const actorId = req.auth.userId || req.auth.id || req.auth.username || 'admin';
+            const { reason } = req.body || {};
+
+            const result = await surveyRepository.unassignStaff({
+                submissionId: id,
+                actorId,
+                reason: reason || '담당자 배정 취소'
+            });
+
+            res.json({
+                success: true,
+                message: '담당자 배정이 정상적으로 취소되었습니다.',
+                submission: result.submission
+            });
+        } catch (err) {
+            console.error('❌ POST /api/surveys/:id/unassign error:', err.message);
+            const statusCode = err.code === 'ALREADY_REGISTERED' ? 409
+                : err.code === 'NOT_ASSIGNED' ? 400
+                : err.code === 'RECORD_NOT_FOUND' ? 404
+                : 500;
+            res.status(statusCode).json({
+                error: {
+                    code: err.code || 'UNASSIGN_FAILED',
+                    message: err.message
+                }
+            });
+        }
+    });
 
     // 6-1. POST /api/surveys/:id/consultation-status - Update counseling progress status
     router.post('/:id/consultation-status', requireAuth, requireSurveyImportPermission, async (req, res) => {
@@ -635,7 +1033,22 @@ export function createSurveyImportRouter(deps = {}) {
     router.get('/:id/assignment-history', requireAuth, requireSurveyImportPermission, (req, res) => {
         try {
             const { id } = req.params;
-            const history = surveyAssignmentRepository ? surveyAssignmentRepository.getHistoryBySurveyId(id) : [];
+            let history = [];
+            if (surveyAssignmentRepository && typeof surveyAssignmentRepository.getHistoryBySurveyId === 'function') {
+                history = surveyAssignmentRepository.getHistoryBySurveyId(id);
+            } else if (surveyRepository && typeof surveyRepository.getAssignmentHistory === 'function') {
+                history = surveyRepository.getAssignmentHistory(id);
+            }
+
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: req.auth?.id || req.auth?.userId || 'unknown',
+                    targetUserId: id,
+                    action: 'ONLINE_SURVEY_ASSIGNMENT_VIEWED',
+                    result: 'SUCCESS'
+                });
+            }
+
             res.json({ history });
         } catch (err) {
             console.error('❌ GET /api/surveys/:id/assignment-history error:', err.message);
@@ -650,6 +1063,17 @@ export function createSurveyImportRouter(deps = {}) {
             const submission = surveyRepository.findSubmissionById(id);
 
             if (!submission) {
+                return res.status(404).json({
+                    error: { code: 'NOT_FOUND', message: '해당 설문 제출 건을 찾을 수 없습니다.' }
+                });
+            }
+
+            const role = (req.auth?.role || req.auth?.userRole || 'user').toLowerCase();
+            const isAdmin = role === 'admin';
+            const currentUserId = String(req.auth?.id || req.auth?.userId || '');
+
+            // Non-admin can only access records assigned to themselves
+            if (!isAdmin && (!submission.assignedUserId || String(submission.assignedUserId) !== currentUserId)) {
                 return res.status(404).json({
                     error: { code: 'NOT_FOUND', message: '해당 설문 제출 건을 찾을 수 없습니다.' }
                 });
@@ -685,6 +1109,132 @@ export function createSurveyImportRouter(deps = {}) {
             });
         } catch (err) {
             console.error('❌ GET /api/surveys/submissions/:id error:', err.message);
+            res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: err.message } });
+        }
+    });
+
+    // 8-1. GET /api/surveys/submissions/:id/referral-draft - Authorized Draft DTO for referral registration
+    router.get('/submissions/:id/referral-draft', requireAuth, requireSurveyImportPermission, async (req, res) => {
+        try {
+            const { id } = req.params;
+            const submission = surveyRepository.findSubmissionById(id);
+
+            if (!submission) {
+                return res.status(404).json({
+                    error: { code: 'NOT_FOUND', message: '해당 설문 제출 건을 찾을 수 없습니다.' }
+                });
+            }
+
+            const currentUserId = String(req.auth?.id || req.auth?.userId || '');
+            const role = (req.auth?.role || req.auth?.userRole || 'user').toLowerCase();
+            const isAdmin = role === 'admin';
+
+            // 1. Check if assigned
+            if (!submission.assignedUserId || submission.assignmentStatus === 'unassigned') {
+                return res.status(400).json({
+                    error: { code: 'ASSIGNMENT_REQUIRED', message: '담당자 배정 전에는 의뢰대장을 생성할 수 없습니다.' }
+                });
+            }
+
+            // 2. Check authorization: Admin or assigned staff only
+            const isAssigned = String(submission.assignedUserId) === currentUserId;
+            if (!isAdmin && !isAssigned) {
+                return res.status(403).json({
+                    error: { code: 'FORBIDDEN', message: '배정된 담당자만 해당 설문의 의뢰대장 등록을 진행할 수 있습니다.' }
+                });
+            }
+
+            // 3. Check if already registered
+            if (submission.referralId) {
+                return res.json({
+                    success: true,
+                    isAlreadyRegistered: true,
+                    existingReferralId: submission.referralId,
+                    refNo: submission.refNo,
+                    draft: null
+                });
+            }
+
+            // 4. Calculate Age
+            let calculatedAge = 0;
+            const birthDateStr = submission.contact?.birthDate;
+            if (birthDateStr && typeof birthDateStr === 'string') {
+                const parts = birthDateStr.split('-');
+                if (parts.length >= 1) {
+                    const birthYear = parseInt(parts[0], 10);
+                    if (!isNaN(birthYear) && birthYear > 1900 && birthYear <= new Date().getFullYear()) {
+                        calculatedAge = new Date().getFullYear() - birthYear;
+                    }
+                }
+            }
+
+            // 5. Lookup assignee name
+            const users = getUsers() || [];
+            const assigneeUser = users.find(u => u && (String(u.id) === String(submission.assignedUserId) || String(u.username) === String(submission.assignedUserId)));
+            const assigneeName = assigneeUser ? (assigneeUser.name || assigneeUser.username) : submission.assignedUserId;
+
+            // 6. Screening summary
+            const assessment = submission.assessment || {};
+            const scaleName = (submission.assessmentId || 'contact-only').toUpperCase();
+            const totalScore = assessment.totalScore !== undefined && assessment.totalScore !== null ? `${assessment.totalScore}점` : '-';
+            const severity = assessment.severity || assessment.resultLabel || '평가완료';
+            const screeningSummary = `[온라인 검진 접수] 척도: ${scaleName}, 총점: ${totalScore}, 판정: ${severity}`;
+
+            const rawGender = submission.contact?.gender;
+            const normalizedGender = (rawGender === '남성' || rawGender === 'M' || rawGender === 'male')
+                ? '남성'
+                : ((rawGender === '여성' || rawGender === 'F' || rawGender === 'female') ? '여성' : (rawGender || '기타'));
+
+            const draft = {
+                name: submission.contact?.clientName || '성명미상',
+                phone: submission.contact?.phone || submission.contact?.phoneNumber || '',
+                gender: normalizedGender,
+                age: calculatedAge,
+                region: submission.contact?.region || '',
+                requestDate: (submission.submittedAt || submission.importedAt || new Date().toISOString()).substring(0, 10),
+                referralPath: '온라인설문',
+                requestAgency: '온라인 자가검진',
+                problem: submission.contact?.counselingRequestText || '',
+                reason: submission.contact?.counselingRequestText || '',
+                team: submission.assignedDepartmentId || assigneeUser?.team || '증진팀',
+                assignee: assigneeName,
+                source: 'online_survey',
+                sourceSubmissionId: submission.submissionId,
+                sourceSurveyId: submission.internalSurveyId,
+                sourceAssessmentId: submission.assessmentId || 'contact-only',
+                contactOnly: Boolean(submission.contactOnly),
+                assessmentScore: submission.contactOnly ? null : (submission.assessment?.totalScore ?? null),
+                overallRisk: submission.overallRisk || severity,
+                screeningSummary,
+                consultationRequested: true,
+                assignedStaffId: String(submission.assignedUserId),
+                assignedStaffName: assigneeName,
+                attachments: submission.attachment ? [submission.attachment] : [],
+                isWebsiteReferral: true,
+                referralStatus: 'PENDING_STAFF_REVIEW',
+                closureStatus: '미종결',
+                registrationStatus: '확인중',
+                criLevel: 'c'
+            };
+
+            // Emit Audit Log
+            if (typeof auditLogger === 'function') {
+                auditLogger({
+                    actorUserId: currentUserId,
+                    targetUserId: submission.submissionId,
+                    internalSurveyId: submission.internalSurveyId,
+                    action: 'ONLINE_SURVEY_REFERRAL_DRAFT_OPENED',
+                    result: 'SUCCESS'
+                });
+            }
+
+            res.json({
+                success: true,
+                isAlreadyRegistered: false,
+                draft
+            });
+        } catch (err) {
+            console.error('❌ GET /api/surveys/submissions/:id/referral-draft error:', err.message);
             res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: err.message } });
         }
     });

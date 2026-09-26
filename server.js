@@ -16,7 +16,7 @@ import { AuthService } from './server/auth/authService.js';
 import { createAuthMiddleware } from './server/auth/authMiddleware.js';
 import { createAuthRouter } from './server/auth/authRouter.js';
 import { createCorsOptions } from './server/config/corsPolicy.js';
-import { getEffectiveVoiceCapabilities } from './server/permissions/voiceCapabilities.js';
+import { getEffectiveVoiceCapabilities, hasOnlineSurveyAccess } from './server/permissions/voiceCapabilities.js';
 import { requireVoiceCapability, requireRole } from './server/permissions/permissionMiddleware.js';
 
 // --- Track A7 & Voice Management: Authenticated Audio Streaming & Call Management ---
@@ -57,6 +57,7 @@ import {
     InternalNotificationRepository,
     createNotificationRouter
 } from './server/notifications/index.js';
+import { getNextKstPurgeTime, canAccessReferralAttachment } from './server/survey/kstUtils.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -389,20 +390,13 @@ app.use('/attachments', (req, res, next) => {
     next();
 });
 
-// Protect /attachments with session authentication, cache prevention, and inline disposition for PDFs
+// Protect /attachments with session authentication and cache prevention
 app.use('/attachments', requireAuth, (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     next();
-}, express.static(ATTACHMENTS_DIR, {
-    setHeaders: (res, filePath) => {
-        if (filePath.toLowerCase().endsWith('.pdf')) {
-            res.setHeader('Content-Type', 'application/pdf');
-            res.setHeader('Content-Disposition', 'inline');
-        }
-    }
-}));
+});
 
 // Capability inspection endpoint (Minimal UI helper only; server enforces checks per request)
 app.get('/api/auth/capabilities', requireAuth, (req, res) => {
@@ -623,7 +617,8 @@ const surveyRepository = new SurveyImportRepository({
     persistData,
     assignmentRepository: surveyAssignmentRepository,
     sourceEnvironment: surveyTrackAMode,
-    attachmentsDir: ATTACHMENTS_DIR
+    attachmentsDir: ATTACHMENTS_DIR,
+    auditLogger: surveyAuditLogger
 });
 
 // Common parameters
@@ -733,6 +728,9 @@ app.use('/api/notifications', notificationRouter);
 surveyImportService.recoverPendingWorkflows('startup_recovery').catch(err => {
     console.error('⚠️ [SURVEY_STARTUP_RECOVERY_ERROR]:', err.message);
 });
+
+// Schedule automatic 30-day retention purge (Daily at 03:30 Asia/Seoul)
+scheduleNextRetentionPurge(surveyRepository, surveyAuditLogger);
 
 // In development/local mock mode, if SurveySubmissions is empty, auto-import seeded synthetic records
 // STRICT ENFORCEMENT: Never seed synthetic records in staging or production mode!
@@ -1310,27 +1308,220 @@ app.get('/api/referrals/:id', (req, res) => {
     }
 });
 
-// Attachment streaming endpoint (supports inline PDF preview)
-app.get('/attachments/:folder/:file', (req, res) => {
+// ==========================================
+// 📅 AUTOMATIC 30-DAY RETENTION SCHEDULER (Asia/Seoul 03:30 Daily)
+// ==========================================
+let retentionPurgeRunning = false;
+let retentionPurgeTimer = null;
+
+export function scheduleNextRetentionPurge(surveyRepo, auditLogFn) {
+    if (!surveyRepo || typeof surveyRepo.purgeExpiredSubmissions !== 'function') return null;
+
+    const now = new Date();
+    let nextRunDate;
     try {
+        nextRunDate = getNextKstPurgeTime(now);
+    } catch (e) {
+        console.error('[RetentionScheduler] Failed to calculate next KST purge time:', e);
+        return null;
+    }
+    const delayMs = Math.max(nextRunDate.getTime() - now.getTime(), 1000);
+
+    retentionPurgeTimer = setTimeout(async () => {
+        if (retentionPurgeRunning) {
+            console.warn('[RetentionScheduler] Previous purge still running, skipping cycle.');
+            scheduleNextRetentionPurge(surveyRepo, auditLogFn);
+            return;
+        }
+
+        retentionPurgeRunning = true;
+        const startMs = Date.now();
+        try {
+            const summary = await surveyRepo.purgeExpiredSubmissions({
+                actorId: 'scheduler_retention_30d',
+                retentionDays: 30
+            });
+            const durationMs = Date.now() - startMs;
+            if (typeof auditLogFn === 'function') {
+                auditLogFn({
+                    actorUserId: 'scheduler_retention_30d',
+                    action: 'AUTOMATIC_SURVEY_RETENTION_EXECUTED',
+                    result: 'SUCCESS',
+                    processedCount: summary.totalProcessed || 0,
+                    purgedCount: summary.purgedCount || 0,
+                    retainedAttachmentCount: summary.retainedSharedPdfCount || 0,
+                    orphanDeletedCount: summary.deletedOrphanPdfCount || 0,
+                    failedCount: summary.failedCount || 0,
+                    durationMs
+                });
+            }
+        } catch (err) {
+            console.error('[RetentionScheduler] Error during automatic 30-day purge:', err);
+            if (typeof auditLogFn === 'function') {
+                auditLogFn({
+                    actorUserId: 'scheduler_retention_30d',
+                    action: 'AUTOMATIC_SURVEY_RETENTION_FAILED',
+                    result: 'FAILED',
+                    reasonCode: err.code || err.message || 'PURGE_UNHANDLED_EXCEPTION',
+                    durationMs: Date.now() - startMs
+                });
+            }
+        } finally {
+            retentionPurgeRunning = false;
+            // Schedule next daily cycle
+            scheduleNextRetentionPurge(surveyRepo, auditLogFn);
+        }
+    }, delayMs);
+
+    if (retentionPurgeTimer && typeof retentionPurgeTimer.unref === 'function') {
+        retentionPurgeTimer.unref();
+    }
+
+    return { nextRunDate, delayMs };
+}
+
+// Attachment streaming endpoint (supports inline PDF preview, strictly guarded and audited)
+app.get('/attachments/:folder/:file', requireAuth, async (req, res) => {
+    try {
+        if (!req.auth || req.auth.status !== 'active') {
+            return res.status(403).json({ error: { code: 'ACCOUNT_INACTIVE', message: '비활성화된 계정은 첨부파일을 조회할 수 없습니다.' } });
+        }
+
         const { folder, file } = req.params;
-        const safeFolder = folder.replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
+        // 1. Path traversal security checks
+        if (!folder || !file || folder.includes('..') || file.includes('..') || folder.includes('/') || folder.includes('\\') || file.includes('/') || file.includes('\\')) {
+            if (typeof surveyAuditLogger === 'function') {
+                surveyAuditLogger({
+                    actorUserId: req.auth?.id || 'unknown',
+                    action: 'ATTACHMENT_ACCESS_DENIED',
+                    result: 'DENIED',
+                    reasonCode: 'PATH_TRAVERSAL_ATTEMPT'
+                });
+            }
+            return res.status(403).json({ error: { code: 'FORBIDDEN', message: '잘못된 경로입니다.' } });
+        }
+
+        const safeFolder = path.basename(folder).replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
         const safeFile = path.basename(file);
-        const filePath = path.join(ATTACHMENTS_DIR, safeFolder, safeFile);
-        if (!fs.existsSync(filePath)) {
+        const resolvedPath = path.resolve(ATTACHMENTS_DIR, safeFolder, safeFile);
+        if (!resolvedPath.startsWith(path.resolve(ATTACHMENTS_DIR))) {
+            if (typeof surveyAuditLogger === 'function') {
+                surveyAuditLogger({
+                    actorUserId: req.auth?.id || 'unknown',
+                    action: 'ATTACHMENT_ACCESS_DENIED',
+                    result: 'DENIED',
+                    reasonCode: 'PATH_TRAVERSAL_DETECTED'
+                });
+            }
+            return res.status(403).json({ error: { code: 'FORBIDDEN', message: '허용되지 않은 파일 경로입니다.' } });
+        }
+
+        // 2. Object-Level Authorization: Check before reading disk
+        const currentUserId = String(req.auth?.id || req.auth?.userId || '');
+        const userRole = (req.auth?.role || req.auth?.userRole || 'user').toLowerCase();
+        const isAdmin = userRole === 'admin';
+
+        const referrals = getData('Referrals', []);
+        const connectedReferral = referrals.find(r =>
+            r && (
+                r.referralId === safeFolder ||
+                r.refNo === safeFolder ||
+                r.sourceSubmissionId === safeFolder ||
+                r.sourceSurveyId === safeFolder ||
+                (r.attachments && r.attachments.some(a => a && (a.id === safeFile || a.url?.includes(encodeURIComponent(safeFile)) || a.url?.includes(encodeURIComponent(safeFolder)))))
+            )
+        );
+
+        const submissions = surveyRepository.getSurveySubmissions();
+        const connectedSurvey = submissions.find(s =>
+            s && (
+                s.submissionId === safeFolder ||
+                s.internalSurveyId === safeFolder ||
+                s.attachmentId === safeFile ||
+                (s.attachment && s.attachment.id === safeFile) ||
+                (s.attachment && s.attachment.url?.includes(encodeURIComponent(safeFile)))
+            )
+        );
+
+        let isAuthorized = false;
+        let denialReason = 'OBJECT_AUTHORIZATION_FAILED';
+
+        if (isAdmin) {
+            isAuthorized = true;
+        } else {
+            // Check connected referral authorization first
+            if (connectedReferral) {
+                const refCheck = canAccessReferralAttachment({ authUser: req.auth, referral: connectedReferral });
+                if (refCheck.allowed) {
+                    isAuthorized = true;
+                } else {
+                    denialReason = refCheck.reasonCode;
+                }
+            }
+
+            // If not authorized by referral, check connected survey authorization
+            if (!isAuthorized && connectedSurvey) {
+                const hasSurveyPerm = hasOnlineSurveyAccess(req.auth);
+                const isAssigned = String(connectedSurvey.assignedUserId) === currentUserId;
+                if (hasSurveyPerm && isAssigned) {
+                    isAuthorized = true;
+                } else if (!hasSurveyPerm) {
+                    denialReason = 'SURVEY_ATTACHMENT_PERMISSION_DENIED';
+                } else {
+                    denialReason = 'SURVEY_ATTACHMENT_NOT_ASSIGNED';
+                }
+            }
+        }
+
+        if (!isAuthorized) {
+            if (typeof surveyAuditLogger === 'function') {
+                surveyAuditLogger({
+                    actorUserId: currentUserId || 'unknown',
+                    action: 'ATTACHMENT_ACCESS_DENIED',
+                    attachmentId: safeFile,
+                    folder: safeFolder,
+                    result: 'DENIED',
+                    reasonCode: denialReason
+                });
+            }
+            return res.status(403).json({ error: { code: 'FORBIDDEN', message: '해당 첨부파일에 접근할 권한이 없습니다.' } });
+        }
+
+        // 3. Check existence only after authorization
+        if (!fs.existsSync(resolvedPath)) {
             return res.status(404).json({ error: { code: 'NOT_FOUND', message: '첨부파일을 찾을 수 없습니다.' } });
         }
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', 'inline');
-        res.setHeader('Cache-Control', 'no-store');
+
+        const isDownload = req.query.download === 'true' || req.query.download === '1';
+        const action = isDownload ? 'ATTACHMENT_DOWNLOADED' : 'ATTACHMENT_VIEWED';
+        if (typeof surveyAuditLogger === 'function') {
+            surveyAuditLogger({
+                actorUserId: currentUserId || 'unknown',
+                action,
+                attachmentId: safeFile,
+                folder: safeFolder,
+                linkedReferralId: connectedReferral?.referralId || null,
+                linkedSurveyId: connectedSurvey?.submissionId || null,
+                result: 'SUCCESS'
+            });
+        }
+
+        const ext = path.extname(safeFile).toLowerCase();
+        const mimeType = ext === '.pdf' ? 'application/pdf'
+            : (ext === '.png' ? 'image/png'
+            : (ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'application/octet-stream'));
+
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Content-Disposition', `${isDownload ? 'attachment' : 'inline'}; filename="${encodeURIComponent(safeFile)}"`);
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
         res.setHeader('X-Content-Type-Options', 'nosniff');
-        fs.createReadStream(filePath).pipe(res);
+        fs.createReadStream(resolvedPath).pipe(res);
     } catch (err) {
         res.status(500).json({ error: { code: 'ATTACHMENT_ERROR', message: err.message } });
     }
 });
 
-app.post('/api/referrals', async (req, res) => {
+app.post('/api/referrals', optionalAuth, async (req, res) => {
     try {
         if (!req.body || typeof req.body !== 'object') {
             return res.status(400).json({ success: false, error: "요청 본문이 올바르지 않습니다." });
@@ -1358,6 +1549,104 @@ app.post('/api/referrals', async (req, res) => {
 
         const referrals = getData('Referrals', []);
 
+        // Online Survey Link Validation & Guards
+        let linkedSubmission = null;
+        if (req.body.sourceSubmissionId || req.body.sourceSurveyId) {
+            const subId = req.body.sourceSubmissionId;
+            const srvId = req.body.sourceSurveyId;
+
+            // 1. Idempotency: Duplicate referral check across all records
+            const duplicateReferral = referrals.find(r =>
+                r && ((subId && (r.sourceSubmissionId === subId || r.externalIdx === subId)) || (srvId && r.sourceSurveyId === srvId))
+            );
+            if (duplicateReferral) {
+                return res.status(409).json({
+                    success: false,
+                    code: 'REFERRAL_ALREADY_EXISTS',
+                    error: '이미 등록된 온라인 설문 의뢰 건입니다.',
+                    data: duplicateReferral
+                });
+            }
+
+            // 2. Authentication check
+            if (!req.auth) {
+                return res.status(401).json({
+                    success: false,
+                    code: 'UNAUTHENTICATED',
+                    error: '온라인 설문 기반 의뢰 등록에는 로그인이 필요합니다.'
+                });
+            }
+
+            if (req.auth.status !== 'active') {
+                return res.status(403).json({
+                    success: false,
+                    code: 'ACCOUNT_INACTIVE',
+                    error: '비활성화된 계정은 의뢰를 등록할 수 없습니다.'
+                });
+            }
+
+            // 2b. Online Survey Permission check
+            const userRole = (req.auth.role || req.auth.userRole || 'user').toLowerCase();
+            const isAdmin = userRole === 'admin';
+            if (!isAdmin && !hasOnlineSurveyAccess(req.auth)) {
+                return res.status(403).json({
+                    success: false,
+                    code: 'FORBIDDEN',
+                    error: '온라인 설문 접근 권한이 없습니다.'
+                });
+            }
+
+            // 3. Survey Repository Existence Check
+            linkedSubmission = surveyRepository.findSubmissionById(subId || srvId);
+            if (!linkedSubmission) {
+                return res.status(400).json({
+                    success: false,
+                    code: 'SURVEY_NOT_FOUND',
+                    error: '유효하지 않은 설문 접수 ID입니다.'
+                });
+            }
+
+            // 4. Duplicate referral on submission record
+            if (linkedSubmission.referralId) {
+                return res.status(409).json({
+                    success: false,
+                    code: 'REFERRAL_ALREADY_EXISTS',
+                    error: '이미 의뢰대장이 생성된 설문입니다.'
+                });
+            }
+
+            // 5. Assignment requirement
+            if (!linkedSubmission.assignedUserId || linkedSubmission.assignmentStatus === 'unassigned') {
+                return res.status(400).json({
+                    success: false,
+                    code: 'ASSIGNMENT_REQUIRED',
+                    error: '담당자 배정 전에는 의뢰대장을 생성할 수 없습니다.'
+                });
+            }
+
+            // 6. Assignee authorization: Admin or assigned staff only
+            const currentUserId = String(req.auth.id || req.auth.userId || '');
+            const isAssigned = String(linkedSubmission.assignedUserId) === currentUserId;
+
+            if (!isAdmin && !isAssigned) {
+                if (typeof surveyAuditLogger === 'function') {
+                    surveyAuditLogger({
+                        actorUserId: currentUserId || 'unknown',
+                        targetUserId: linkedSubmission.submissionId,
+                        internalSurveyId: linkedSubmission.internalSurveyId,
+                        action: 'ONLINE_SURVEY_REFERRAL_CREATE_DENIED',
+                        result: 'DENIED',
+                        reasonCode: 'NOT_ASSIGNED_STAFF'
+                    });
+                }
+                return res.status(403).json({
+                    success: false,
+                    code: 'FORBIDDEN',
+                    error: '배정된 담당자만 해당 설문의 의뢰대장 등록을 진행할 수 있습니다.'
+                });
+            }
+        }
+
         // Server-Side Atomic Numbering
         const teamCode = TEAM_CODES[req.body.team] || 'ET';
         const now = new Date();
@@ -1380,6 +1669,24 @@ app.post('/api/referrals', async (req, res) => {
         const clientId = req.body.clientId || `C${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
         const isoNow = now.toISOString();
 
+        // Server-side forced attachment linking: Do not trust client attachments solely
+        let referralAttachments = Array.isArray(req.body.attachments) ? [...req.body.attachments] : [];
+        if (linkedSubmission && linkedSubmission.attachment) {
+            const surveyAtt = linkedSubmission.attachment;
+            const alreadyExists = referralAttachments.some(a =>
+                a && ((surveyAtt.id && a.id === surveyAtt.id) ||
+                      (surveyAtt.url && a.url === surveyAtt.url) ||
+                      (surveyAtt.fileHash && a.fileHash === surveyAtt.fileHash))
+            );
+            if (!alreadyExists) {
+                referralAttachments.push({
+                    ...surveyAtt,
+                    linkedReferralId: referralId,
+                    linkedSurveyId: linkedSubmission.internalSurveyId || linkedSubmission.submissionId
+                });
+            }
+        }
+
         const newReferral = {
             ...req.body,
             referralId,
@@ -1387,12 +1694,61 @@ app.post('/api/referrals', async (req, res) => {
             clientId,
             version: 1,
             registrationStatus: req.body.registrationStatus || (req.body.isUnregistered ? '미등록' : '확인중'),
-            createdAt: req.body.createdAt || isoNow,
-            updatedAt: isoNow
+            createdAt: linkedSubmission ? isoNow : (req.body.createdAt || isoNow),
+            updatedAt: isoNow,
+            attachments: referralAttachments,
+            assignedStaffId: req.body.assignedStaffId || (linkedSubmission ? String(linkedSubmission.assignedUserId) : (req.body.assignedUserId || req.body.assigneeId || null)),
+            linkedSurveyId: linkedSubmission ? (linkedSubmission.internalSurveyId || linkedSubmission.submissionId) : req.body.linkedSurveyId,
+            sourceSubmissionId: linkedSubmission ? linkedSubmission.submissionId : req.body.sourceSubmissionId
         };
 
         referrals.push(newReferral);
         await persistData('Referrals', referrals);
+
+        // Update Survey Record Link & Emit Audit Event
+        if (linkedSubmission) {
+            try {
+                const subId = req.body.sourceSubmissionId || req.body.sourceSurveyId;
+                const subs = surveyRepository.getSurveySubmissions();
+                const sIdx = subs.findIndex(s => s && (s.submissionId === subId || s.internalSurveyId === subId));
+                if (sIdx !== -1) {
+                    subs[sIdx].referralId = referralId;
+                    subs[sIdx].refNo = assignedRefNo;
+                    subs[sIdx].processingStatus = 'COMPLETED';
+                    subs[sIdx].consultationStatus = '접수완료';
+                    subs[sIdx].registeredAt = isoNow;
+                    subs[sIdx].completedAt = isoNow;
+                    subs[sIdx].registeredByUserId = req.auth?.id || req.auth?.userId || 'unknown';
+                    await surveyRepository.saveSurveySubmissions(subs);
+                }
+
+                if (typeof surveyAuditLogger === 'function') {
+                    if (linkedSubmission.attachment) {
+                        surveyAuditLogger({
+                            actorUserId: req.auth?.id || req.auth?.userId || 'unknown',
+                            targetUserId: linkedSubmission.submissionId,
+                            internalSurveyId: linkedSubmission.internalSurveyId,
+                            referralId,
+                            refNo: assignedRefNo,
+                            attachmentId: linkedSubmission.attachment?.id || null,
+                            action: 'REFERRAL_SURVEY_PDF_LINKED',
+                            result: 'SUCCESS'
+                        });
+                    }
+                    surveyAuditLogger({
+                        actorUserId: req.auth?.id || req.auth?.userId || 'unknown',
+                        targetUserId: linkedSubmission.submissionId,
+                        internalSurveyId: linkedSubmission.internalSurveyId,
+                        referralId,
+                        refNo: assignedRefNo,
+                        action: 'ONLINE_SURVEY_REFERRAL_CREATED',
+                        result: 'SUCCESS'
+                    });
+                }
+            } catch (syncErr) {
+                console.error('Failed to synchronize survey submission link on referral creation:', syncErr);
+            }
+        }
 
         const responsePayload = { success: true, data: newReferral };
         if (idempotencyKey) {

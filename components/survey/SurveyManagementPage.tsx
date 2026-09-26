@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { User, SurveyImportItem, SurveyStatusSummary, Attachment } from '../../types';
 import { apiClient } from '../../services/apiClient';
 import FilePreviewModal from '../common/FilePreviewModal';
@@ -28,6 +28,7 @@ import {
     MapPin,
     Tag,
     ChevronRight,
+    ChevronDown,
     ArrowLeft,
     ShieldCheck,
     ExternalLink,
@@ -40,8 +41,17 @@ import {
     UserX,
     Filter,
     TrendingUp,
-    Percent
+    Percent,
+    CheckSquare,
+    Square,
+    MinusSquare,
+    CheckCheck,
+    CalendarRange,
+    ArrowUpDown,
+    UserMinus,
+    Layers
 } from 'lucide-react';
+import { formatKstDateTime, getKstPresetDateStrings } from '../../server/survey/kstUtils.js';
 
 interface SurveyManagementPageProps {
     currentUser: User;
@@ -54,6 +64,8 @@ interface AssignableStaff {
     name: string;
     team: string;
     role: string;
+    pendingAssignmentCount?: number;
+    myAssignedPendingCount?: number;
 }
 
 type MainTab = 'applicants' | 'system';
@@ -76,6 +88,31 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     const [mainTab, setMainTab] = useState<MainTab>('applicants');
     const [filterTab, setFilterTab] = useState<FilterTab>('all');
     const [searchQuery, setSearchQuery] = useState<string>('');
+
+    // --- State: Date Range & Preset Filtering ---
+    const [dateFrom, setDateFrom] = useState<string>('');
+    const [dateTo, setDateTo] = useState<string>('');
+    const [appliedDateFrom, setAppliedDateFrom] = useState<string>('');
+    const [appliedDateTo, setAppliedDateTo] = useState<string>('');
+    const [dateError, setDateError] = useState<string>('');
+    const [activePreset, setActivePreset] = useState<'today' | '7days' | '30days' | 'all' | 'custom'>('all');
+
+    // --- State: Sorting & Additional Filters ---
+    const [sortBy, setSortBy] = useState<string>('latest');
+    const [staffFilter, setStaffFilter] = useState<string>('all');
+    const [quickStatusFilter, setQuickStatusFilter] = useState<string>('all');
+
+    // --- State: Individual & Bulk Selection (In-Memory React State Only - Zero PII / No localStorage / No URL) ---
+    const [selectedSubmissionIds, setSelectedSubmissionIds] = useState<Set<string>>(new Set());
+    const [selectionCleanupMessage, setSelectionCleanupMessage] = useState<string>('');
+    const selectionCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [bulkTargetStaffId, setBulkTargetStaffId] = useState<string>('');
+    const [bulkNote, setBulkNote] = useState<string>('');
+    const [isBulkConfirmModalOpen, setIsBulkConfirmModalOpen] = useState<boolean>(false);
+    const [bulkMode, setBulkMode] = useState<'unassigned-only' | 'include-reassignment'>('unassigned-only');
+    const [isBulkAssigning, setIsBulkAssigning] = useState<boolean>(false);
+    const [bulkResult, setBulkResult] = useState<any | null>(null);
+    const [isBulkResultModalOpen, setIsBulkResultModalOpen] = useState<boolean>(false);
 
     // --- State: Selection (Master-Detail) ---
     const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
@@ -134,6 +171,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     const [deleteSubjectConfirmId, setDeleteSubjectConfirmId] = useState<string>('');
     const [isDeletingSubject, setIsDeletingSubject] = useState<boolean>(false);
 
+    // Inline assignment state
+    const [assigningRowId, setAssigningRowId] = useState<string | null>(null);
+
     // Permissions
     const canAccessSystemTab = currentUser.role === 'admin' ||
         currentUser.role === 'manager' ||
@@ -146,7 +186,14 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             setLoading(true);
             const [statusRes, importsRes, staffRes] = await Promise.all([
                 apiClient.getSurveyStatus(),
-                apiClient.getSurveyImports(),
+                apiClient.getSurveyImports({
+                    fromDate: appliedDateFrom || undefined,
+                    toDate: appliedDateTo || undefined,
+                    sortBy,
+                    statusFilter: quickStatusFilter !== 'all' ? quickStatusFilter : undefined,
+                    staffFilter: staffFilter !== 'all' ? staffFilter : undefined,
+                    q: searchQuery || undefined
+                }),
                 apiClient.getSurveyAssignableStaff().catch(() => ({ staff: [] }))
             ]);
             setStatusSummary(statusRes);
@@ -170,11 +217,11 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         } finally {
             setLoading(false);
         }
-    }, [selectedSubmissionId, showToast]);
+    }, [appliedDateFrom, appliedDateTo, sortBy, quickStatusFilter, staffFilter, searchQuery, selectedSubmissionId, showToast]);
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [appliedDateFrom, appliedDateTo, sortBy, quickStatusFilter, staffFilter]);
 
     // Load detailed data when selection changes
     useEffect(() => {
@@ -243,40 +290,265 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         }
     };
 
-    // --- Action: Staff Assignment ---
-    const handleOpenAssignModal = (item: SurveyImportItem) => {
-        setAssignTargetItem(item);
-        setSelectedStaffId(item.assignedUserId || (assignableStaff[0]?.id || ''));
-        setSelectedPriority((item.assignmentPriority as any) || 'NORMAL');
-        setAssignReason('');
-        setIsAssignModalOpen(true);
-    };
+    // --- Action: Inline Staff Assignment / Reassignment ---
+    const handleInlineAssignStaff = async (item: SurveyImportItem, newStaffId: string) => {
+        if (!newStaffId || newStaffId === item.assignedUserId) {
+            return; // 같은 담당자를 다시 선택하면 API 호출 0건
+        }
 
-    const handleConfirmAssign = async () => {
-        if (!assignTargetItem || !selectedStaffId) return;
+        const isReassign = Boolean(item.assignedUserId);
+        const newStaff = assignableStaff.find(s => s.id === newStaffId);
+        const staffName = newStaff ? getStaffOptionLabel(newStaff, assignableStaff) : newStaffId;
+        const confirmMsg = isReassign
+            ? `담당자를 '${getStaffDisplayName(item.assignedUserId)}'에서 '${staffName}'(으)로 재배정하시겠습니까?`
+            : `담당자를 '${staffName}'(으)로 배정하시겠습니까?`;
+
+        if (!window.confirm(confirmMsg)) {
+            return;
+        }
+
         try {
-            setIsAssigning(true);
-            const staff = assignableStaff.find(s => s.id === selectedStaffId);
-            const res = await apiClient.assignSurveyStaff(assignTargetItem.submissionId, {
-                assignedUserId: selectedStaffId,
-                assignedDepartmentId: staff?.team || '',
-                assignmentPriority: selectedPriority,
-                expectedVersion: assignTargetItem.version,
-                reason: assignReason
-            });
+            setAssigningRowId(item.submissionId);
+            const payload = {
+                assignedUserId: newStaffId,
+                assignedDepartmentId: newStaff?.team || '',
+                assignmentPriority: item.assignmentPriority || 'NORMAL',
+                expectedVersion: item.version,
+                reason: isReassign ? '인라인 드롭다운 재배정' : '인라인 드롭다운 최초 배정'
+            };
+
+            const res = isReassign
+                ? await apiClient.reassignSurveyStaff(item.submissionId, payload)
+                : await apiClient.assignSurveyStaff(item.submissionId, payload);
 
             if (res.success) {
-                if (showToast) showToast(`담당 직원(${staff?.name || selectedStaffId}) 배정이 완료되었습니다.`, 'success');
-                setIsAssignModalOpen(false);
-                await loadData(assignTargetItem.submissionId);
+                if (showToast) {
+                    showToast(`담당자가 '${staffName}'(으)로 ${isReassign ? '재배정' : '배정'}되었습니다.`, 'success');
+                }
+                await loadData(item.submissionId);
             }
         } catch (err: any) {
             const msg = err.code === 'CONCURRENCY_CONFLICT'
                 ? '다른 사용자가 이미 배정 상태를 변경했습니다. 새로고침 후 다시 시도해 주세요.'
-                : (err.message || '직원 배정에 실패했습니다.');
+                : (err.message || '담당자 배정에 실패했습니다.');
             if (showToast) showToast(msg, 'error');
         } finally {
-            setIsAssigning(false);
+            setAssigningRowId(null);
+        }
+    };
+
+    // --- Action: Single Item Safe Unassignment (Admin only) ---
+    const handleUnassign = async (item: SurveyImportItem) => {
+        if (!window.confirm(`${item.maskedClientName || '해당 대상자'}의 담당자 배정을 취소하시겠습니까?`)) {
+            return;
+        }
+        try {
+            await apiClient.unassignSurveyStaff(item.submissionId);
+            if (showToast) showToast('담당자 배정이 정상적으로 취소되었습니다.', 'success');
+            await loadData(selectedSubmissionId);
+        } catch (err: any) {
+            const msg = err.message || '담당자 배정 취소에 실패했습니다.';
+            if (showToast) showToast(msg, 'error');
+        }
+    };
+
+    // --- Action: Date Range Filter & Presets ---
+    const handleApplyDateRange = () => {
+        setDateError('');
+        if (dateFrom && dateTo && dateFrom > dateTo) {
+            setDateError('시작일은 종료일보다 늦을 수 없습니다.');
+            return;
+        }
+        setAppliedDateFrom(dateFrom);
+        setAppliedDateTo(dateTo);
+        setActivePreset('custom');
+    };
+
+    const handleResetDateRange = () => {
+        setDateFrom('');
+        setDateTo('');
+        setAppliedDateFrom('');
+        setAppliedDateTo('');
+        setDateError('');
+        setActivePreset('all');
+    };
+
+    const handleSelectPreset = (preset: 'today' | '7days' | '30days' | 'all') => {
+        setDateError('');
+        if (preset === 'all') {
+            handleResetDateRange();
+            return;
+        }
+        const { fromDate: pFrom, toDate: pTo } = getKstPresetDateStrings(preset);
+        setDateFrom(pFrom);
+        setDateTo(pTo);
+        setAppliedDateFrom(pFrom);
+        setAppliedDateTo(pTo);
+        setActivePreset(preset);
+    };
+
+    // --- Action: Individual & Bulk Selection Handlers ---
+    const toggleSelect = (subId: string, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        setSelectedSubmissionIds(prev => {
+            const next = new Set(prev);
+            if (next.has(subId)) {
+                next.delete(subId);
+            } else {
+                next.add(subId);
+            }
+            return next;
+        });
+    };
+
+    const handleSelectAllVisible = () => {
+        const isAllSelected = filteredImports.length > 0 && filteredImports.every(i => selectedSubmissionIds.has(i.submissionId));
+        if (isAllSelected) {
+            setSelectedSubmissionIds(prev => {
+                const next = new Set(prev);
+                filteredImports.forEach(i => next.delete(i.submissionId));
+                return next;
+            });
+        } else {
+            setSelectedSubmissionIds(prev => {
+                const next = new Set(prev);
+                filteredImports.forEach(i => next.add(i.submissionId));
+                return next;
+            });
+        }
+    };
+
+    const handleSelectUnassignedOnly = () => {
+        const unassignedVisible = filteredImports.filter(i =>
+            (!i.assignedUserId || i.assignmentStatus === 'unassigned') &&
+            !i.referralId &&
+            i.consultationStatus !== '상담완료' &&
+            i.consultationStatus !== '종결' &&
+            i.processingStatus !== 'COMPLETED'
+        );
+        setSelectedSubmissionIds(new Set(unassignedVisible.map(i => i.submissionId)));
+    };
+
+    const handleSelectPendingReferralsOnly = () => {
+        const pendingVisible = filteredImports.filter(i =>
+            Boolean(i.assignedUserId) &&
+            !i.referralId &&
+            i.consultationStatus !== '상담완료' &&
+            i.consultationStatus !== '종결' &&
+            i.processingStatus !== 'COMPLETED'
+        );
+        setSelectedSubmissionIds(new Set(pendingVisible.map(i => i.submissionId)));
+    };
+
+    const handleClearSelection = () => {
+        setSelectedSubmissionIds(new Set());
+    };
+
+    // --- Action: Bulk Assignment Execution ---
+    const handleExecuteBulkAssign = async () => {
+        if (!bulkTargetStaffId) {
+            if (showToast) showToast('배정할 직원을 선택해 주세요.', 'error');
+            return;
+        }
+        if (selectedSubmissionIds.size === 0) {
+            if (showToast) showToast('배정할 대상자를 선택해 주세요.', 'error');
+            return;
+        }
+
+        try {
+            setIsBulkAssigning(true);
+            // P1 Fix: Only include IDs that are currently visible in filteredImports
+            // to prevent accidental inclusion of items hidden by filter/search changes
+            const visibleIds = new Set(filteredImports.map((i: any) => i.submissionId));
+            const ids = Array.from(selectedSubmissionIds).filter(id => visibleIds.has(id));
+            if (ids.length === 0) {
+                if (showToast) showToast('현재 필터 조건에 해당하는 선택 항목이 없습니다.', 'error');
+                setIsBulkAssigning(false);
+                return;
+            }
+            const resp = await apiClient.bulkAssignSurveys({
+                submissionIds: ids,
+                targetUserId: bulkTargetStaffId,
+                mode: bulkMode,
+                note: bulkNote ? bulkNote.trim() : undefined
+            });
+
+            setBulkResult(resp);
+            setIsBulkConfirmModalOpen(false);
+            setIsBulkResultModalOpen(true);
+
+            // Remove successfully assigned/reassigned items from selection
+            if (resp.results) {
+                const successfulIds = new Set(
+                    resp.results
+                        .filter(r => r.status === 'ASSIGNED' || r.status === 'REASSIGNED')
+                        .map(r => r.submissionId)
+                );
+                setSelectedSubmissionIds(prev => {
+                    const next = new Set(prev);
+                    successfulIds.forEach(id => next.delete(id));
+                    return next;
+                });
+            }
+
+            if (showToast) {
+                showToast(`일괄 배정 완료: 성공 ${(resp.assigned || 0) + (resp.reassigned || 0)}건, 제외 ${resp.skipped || 0}건, 실패 ${resp.failed || 0}건`, 'success');
+            }
+
+            await loadData(selectedSubmissionId);
+        } catch (err: any) {
+            if (showToast) showToast(`일괄 배정 실패: ${err.message}`, 'error');
+        } finally {
+            setIsBulkAssigning(false);
+        }
+    };
+
+    // --- Helper: Expiry Countdown Badge Info ---
+    const getExpiryInfo = (retentionUntil?: string | null) => {
+        if (!retentionUntil) return null;
+        const expMs = new Date(retentionUntil).getTime();
+        if (isNaN(expMs)) return null;
+        const nowMs = Date.now();
+        const diffMs = expMs - nowMs;
+        const diffDays = Math.ceil(diffMs / (24 * 60 * 60 * 1000));
+        if (diffDays > 7) return null;
+        if (diffDays <= 0) {
+            return { days: 0, label: '오늘 만료', isUrgent: true };
+        }
+        if (diffDays === 1) {
+            return { days: 1, label: '내일 만료', isUrgent: true };
+        }
+        return { days: diffDays, label: `만료까지 ${diffDays}일`, isUrgent: diffDays <= 3 };
+    };
+
+    // Ref for Indeterminate Select-All Checkbox
+    const selectAllCheckboxRef = React.useRef<HTMLInputElement | null>(null);
+
+    // --- Action: Referral Draft & Register ---
+    const [loadingDraftId, setLoadingDraftId] = useState<string | null>(null);
+
+    const handleOpenReferralRegister = async (item: SurveyImportItem) => {
+        if (!onNavigateToReferrals) return;
+        if (item.referralId || item.refNo) {
+            onNavigateToReferrals({ targetReferralId: item.referralId || item.refNo });
+            return;
+        }
+
+        try {
+            setLoadingDraftId(item.submissionId);
+            const res = await apiClient.getSurveyReferralDraft(item.submissionId);
+            if (res.success && res.draft) {
+                onNavigateToReferrals(res.draft);
+            } else if (res.isAlreadyRegistered && (res.existingReferralId || res.refNo)) {
+                onNavigateToReferrals({ targetReferralId: res.existingReferralId || res.refNo });
+            } else {
+                throw new Error('초안 데이터를 가져올 수 없습니다.');
+            }
+        } catch (err: any) {
+            const msg = err.message || '의뢰대장 등록용 초안 정보를 불러오는데 실패했습니다.';
+            if (showToast) showToast(msg, 'error');
+        } finally {
+            setLoadingDraftId(null);
         }
     };
 
@@ -578,6 +850,39 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             }
             // 'all' passes through
 
+            // Quick Status Filter
+            if (quickStatusFilter && quickStatusFilter !== 'all') {
+                if (quickStatusFilter === 'unassigned') {
+                    if (item.assignedUserId && item.assignmentStatus !== 'unassigned') return false;
+                    if (item.referralId) return false;
+                } else if (quickStatusFilter === 'my_assigned') {
+                    if (String(item.assignedUserId) !== String(currentUser.id) && String(item.assignedUserId) !== String(currentUser.username)) return false;
+                    if (item.referralId) return false;
+                } else if (quickStatusFilter === 'pending_referral') {
+                    if (!item.assignedUserId || item.assignmentStatus === 'unassigned') return false;
+                    if (item.referralId) return false;
+                } else if (quickStatusFilter === 'registered') {
+                    if (!item.referralId) return false;
+                } else if (quickStatusFilter === 'expiring_soon') {
+                    if (!getExpiryInfo(item.retentionUntil)) return false;
+                } else if (quickStatusFilter === 'high_risk') {
+                    // P0 Fix: Use only official severity/resultCode fields — no totalScore fallback
+                    const sev = String(item.severity || '').toLowerCase();
+                    const isOfficialHigh = sev.includes('심각') || sev.includes('고위험') || sev.includes('중증')
+                        || sev.includes('고스트레스') || sev.includes('추가 확인 권장');
+                    if (!isOfficialHigh) return false;
+                }
+            }
+
+            // Staff Filter (Admin or manual)
+            if (staffFilter && staffFilter !== 'all') {
+                if (staffFilter === 'unassigned') {
+                    if (item.assignedUserId && item.assignmentStatus !== 'unassigned') return false;
+                } else {
+                    if (String(item.assignedUserId) !== String(staffFilter)) return false;
+                }
+            }
+
             // Search query
             if (searchQuery.trim()) {
                 const q = searchQuery.toLowerCase().trim();
@@ -592,20 +897,165 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             }
 
             return true;
+        }).sort((a, b) => {
+            if (sortBy === 'oldest') {
+                const timeA = new Date(a.importedAt || a.submittedAt || 0).getTime();
+                const timeB = new Date(b.importedAt || b.submittedAt || 0).getTime();
+                return timeA - timeB;
+            }
+            if (sortBy === 'assignment_oldest') {
+                const timeA = a.assignedAt ? new Date(a.assignedAt).getTime() : Infinity;
+                const timeB = b.assignedAt ? new Date(b.assignedAt).getTime() : Infinity;
+                return timeA - timeB;
+            }
+            if (sortBy === 'expiring_soon') {
+                const timeA = a.retentionUntil ? new Date(a.retentionUntil).getTime() : Infinity;
+                const timeB = b.retentionUntil ? new Date(b.retentionUntil).getTime() : Infinity;
+                return timeA - timeB;
+            }
+            if (sortBy === 'risk_high') {
+                // P0 Fix: Normalize using ONLY official severity/resultCode fields
+                // No totalScore-based fallback — items without official risk level → UNKNOWN (0)
+                const getNormalizedRiskLevel = (item: any): number => {
+                    const sev = String(item.severity || item.riskLevel || item.normalizedRiskLevel || item.overallRisk || '').toLowerCase();
+                    if (!sev || sev === 'null' || sev === 'undefined') return 0; // UNKNOWN
+                    // HIGH (3): 심각, 고위험, 중증, 고스트레스, 추가 확인 권장
+                    if (sev.includes('심각') || sev.includes('고위험') || sev.includes('중증')
+                        || sev.includes('고스트레스') || sev.includes('추가 확인 권장')) return 3;
+                    // MODERATE (2): 중등도, 중간, 역치하
+                    if (sev.includes('중등도') || sev.includes('중간') || sev.includes('역치하')) return 2;
+                    // LOW (1): 경증, 경미, 정상, 저스트레스, 기준점 미만, 없음, 최소
+                    if (sev.includes('경증') || sev.includes('경미') || sev.includes('정상')
+                        || sev.includes('저스트레스') || sev.includes('기준점 미만')
+                        || sev.includes('없음') || sev.includes('최소')) return 1;
+                    return 0; // UNKNOWN — unrecognized severity string
+                };
+                const levelA = getNormalizedRiskLevel(a);
+                const levelB = getNormalizedRiskLevel(b);
+                // 1. Risk rank descending (UNKNOWN goes last)
+                if (levelA !== levelB) return levelB - levelA;
+                // 2. Same risk rank: totalScore tiebreak ONLY if same assessmentId
+                if (a.assessmentId && b.assessmentId && a.assessmentId === b.assessmentId) {
+                    return (Number(b.totalScore) || 0) - (Number(a.totalScore) || 0);
+                }
+                // 3. Different assessmentId: retentionUntil ascending (expiring sooner first)
+                const retA = a.retentionUntil ? new Date(a.retentionUntil).getTime() : Infinity;
+                const retB = b.retentionUntil ? new Date(b.retentionUntil).getTime() : Infinity;
+                if (retA !== retB) return retA - retB;
+                // 4. Final tiebreak: canonical intake date ascending (older first)
+                const intakeA = new Date(a.importedAt || a.submittedAt || 0).getTime();
+                const intakeB = new Date(b.importedAt || b.submittedAt || 0).getTime();
+                return intakeA - intakeB;
+            }
+            // Default: 'latest' (newest canonical date first)
+            const timeA = new Date(a.importedAt || a.submittedAt || 0).getTime();
+            const timeB = new Date(b.importedAt || b.submittedAt || 0).getTime();
+            return timeB - timeA;
         });
-    }, [imports, filterTab, searchQuery]);
+    }, [imports, filterTab, quickStatusFilter, staffFilter, searchQuery, sortBy, currentUser]);
+
+    // Selection Summary
+    const selectionSummary = useMemo(() => {
+        const selectedList = imports.filter(i => selectedSubmissionIds.has(i.submissionId));
+        const total = selectedList.length;
+        let unassignedCount = 0;
+        let assignedCount = 0;
+        let sameAssigneeCount = 0;
+        let registeredCount = 0;
+        let expiringCount = 0;
+        let excludedCount = 0;
+
+        for (const item of selectedList) {
+            if (item.referralId) {
+                registeredCount++;
+                excludedCount++;
+                continue;
+            }
+            if (!item.assignedUserId || item.assignmentStatus === 'unassigned') {
+                unassignedCount++;
+            } else {
+                assignedCount++;
+                if (bulkTargetStaffId && String(item.assignedUserId) === String(bulkTargetStaffId)) {
+                    sameAssigneeCount++;
+                }
+            }
+            if (getExpiryInfo(item.retentionUntil)) {
+                expiringCount++;
+            }
+        }
+
+        return {
+            total,
+            unassignedCount,
+            assignedCount,
+            sameAssigneeCount,
+            registeredCount,
+            expiringCount,
+            excludedCount
+        };
+    }, [imports, selectedSubmissionIds, bulkTargetStaffId]);
+
+    const isAllVisibleSelected = filteredImports.length > 0 && filteredImports.every(i => selectedSubmissionIds.has(i.submissionId));
+    const isSomeVisibleSelected = filteredImports.some(i => selectedSubmissionIds.has(i.submissionId));
+    const isIndeterminate = isSomeVisibleSelected && !isAllVisibleSelected;
+
+    useEffect(() => {
+        if (selectAllCheckboxRef.current) {
+            selectAllCheckboxRef.current.indeterminate = isIndeterminate;
+        }
+    }, [isIndeterminate]);
+
+    // P0 Fix: Auto-cleanup selectedSubmissionIds when filteredImports changes
+    // Remove IDs that are no longer visible due to filter/search/server changes
+    useEffect(() => {
+        if (selectedSubmissionIds.size === 0) return;
+        const visibleIds = new Set(filteredImports.map((i: any) => i.submissionId));
+        const removedIds: string[] = [];
+        selectedSubmissionIds.forEach(id => {
+            if (!visibleIds.has(id)) removedIds.push(id);
+        });
+        if (removedIds.length > 0) {
+            setSelectedSubmissionIds(prev => {
+                const next = new Set(prev);
+                removedIds.forEach(id => next.delete(id));
+                // Bail if nothing actually changed (prevent infinite loop)
+                if (next.size === prev.size) return prev;
+                return next;
+            });
+            // Announce via aria-live — no alert() popup
+            setSelectionCleanupMessage(`필터 변경으로 선택 ${removedIds.length}건이 해제되었습니다.`);
+            if (selectionCleanupTimerRef.current) clearTimeout(selectionCleanupTimerRef.current);
+            selectionCleanupTimerRef.current = setTimeout(() => setSelectionCleanupMessage(''), 5000);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [filteredImports]);
+
 
     // Selected item object
     const currentSelectedItem = useMemo(() => {
         return imports.find(i => i.submissionId === selectedSubmissionId) || null;
     }, [imports, selectedSubmissionId]);
 
+    // Helper: Staff option display with duplicate resolution (직원명 · 소속팀 · ID 일부)
+    const getStaffOptionLabel = (staff: AssignableStaff, allStaff: AssignableStaff[]) => {
+        const duplicates = allStaff.filter(s => s && s.name === staff.name);
+        const teamStr = staff.team ? ` · ${staff.team}` : '';
+        if (duplicates.length > 1) {
+            const shortId = staff.id.length > 6 ? staff.id.substring(0, 6) : staff.id;
+            return `${staff.name}${teamStr} · ${shortId}`;
+        }
+        return `${staff.name}${teamStr}`;
+    };
+
     // Helper: Staff display
-    const getStaffName = (staffId?: string | null) => {
+    const getStaffDisplayName = (staffId?: string | null) => {
         if (!staffId) return '미배정';
         const found = assignableStaff.find(s => s.id === staffId);
-        return found ? `${found.name} (${found.team || '직원'})` : staffId;
+        if (!found) return staffId;
+        return getStaffOptionLabel(found, assignableStaff);
     };
+
+    const getStaffName = getStaffDisplayName;
 
     // Helper: Priority Badge
     const renderPriorityBadge = (priority?: string) => {
@@ -932,58 +1382,338 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                 /* TAB 1: Master-Detail Applicant Dashboard                                  */
                 /* ========================================================================= */
                 <div className="flex-1 overflow-hidden px-6 py-4 flex flex-col min-h-0">
-                    {/* Quick Filters Bar & Search */}
-                    <div className="bg-white rounded-2xl border border-slate-200/90 p-3 mb-3.5 shadow-sm flex flex-wrap items-center justify-between gap-3 shrink-0">
-                        {/* Filter Tabs */}
-                        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-                            {[
-                                { id: 'all', label: '전체 검사자' },
-                                { id: 'consultation_requested', label: '상담 요청' },
-                                { id: 'screening_only', label: '상담 미요청' },
-                                { id: 'additional_review', label: '추가 확인 권고' },
-                                { id: 'completed', label: '처리 완료' }
-                            ].map(tab => (
-                                <button
-                                    key={tab.id}
-                                    onClick={() => setFilterTab(tab.id as FilterTab)}
-                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${filterTab === tab.id ? 'bg-teal-600 text-white shadow-sm' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200/60'}`}
+                    {/* Admin Staff Workload Summary Chips */}
+                    {currentUser.role === 'admin' && assignableStaff.length > 0 && (
+                        <div className="bg-white rounded-2xl border border-slate-200/90 p-2.5 mb-3 shadow-xs flex items-center gap-2 overflow-x-auto custom-scrollbar shrink-0" role="region" aria-label="담당자별 업무량 요약">
+                            <span className="text-[11px] font-black text-slate-500 whitespace-nowrap flex items-center gap-1 shrink-0">
+                                <Users className="w-3.5 h-3.5 text-indigo-600" />
+                                직원별 미처리:
+                            </span>
+                            <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
+                                {assignableStaff.map(staff => {
+                                    const isSelected = staffFilter === staff.id;
+                                    const count = staff.pendingAssignmentCount ?? 0;
+                                    return (
+                                        <button
+                                            key={staff.id}
+                                            type="button"
+                                            onClick={() => setStaffFilter(prev => prev === staff.id ? 'all' : staff.id)}
+                                            className={`px-2.5 py-1 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 whitespace-nowrap ${
+                                                isSelected
+                                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                            }`}
+                                            title={`${staff.name} (${staff.team || '소속팀 없음'}): 미처리 ${count}건. 클릭하여 이 직원만 필터링`}
+                                        >
+                                            <span>{staff.name}</span>
+                                            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                                                isSelected
+                                                    ? 'bg-white text-indigo-700'
+                                                    : (count > 0 ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-600')
+                                            }`}>
+                                                {count}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Filter Tabs & Date Range Bar */}
+                    <div className="bg-white rounded-2xl border border-slate-200/90 p-3 mb-3 shadow-xs space-y-3 shrink-0">
+                        {/* Row 1: Quick Status Filter Tabs */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar py-0.5" role="tablist" aria-label="상태 빠른 필터">
+                                {[
+                                    { id: 'all', label: '전체' },
+                                    { id: 'unassigned', label: '미배정' },
+                                    ...(currentUser.role !== 'admin' ? [{ id: 'my_assigned', label: '나에게 배정' }] : []),
+                                    { id: 'pending_referral', label: '의뢰 등록 대기' },
+                                    { id: 'registered', label: '등록 완료' },
+                                    { id: 'expiring_soon', label: '만료 임박' },
+                                    { id: 'high_risk', label: '고위험' }
+                                ].map(tab => (
+                                    <button
+                                        key={tab.id}
+                                        type="button"
+                                        onClick={() => setQuickStatusFilter(tab.id)}
+                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                                            quickStatusFilter === tab.id
+                                                ? 'bg-teal-600 text-white shadow-xs'
+                                                : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200/60'
+                                        }`}
+                                    >
+                                        {tab.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Sort Dropdown */}
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-600">
+                                <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+                                <select
+                                    value={sortBy}
+                                    onChange={e => setSortBy(e.target.value)}
+                                    className="px-2.5 py-1 text-xs font-bold border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none cursor-pointer"
+                                    aria-label="목록 정렬 선택"
                                 >
-                                    {tab.label}
-                                </button>
-                            ))}
+                                    <option value="latest">최신 접수순</option>
+                                    <option value="oldest">오래된 접수순</option>
+                                    <option value="assignment_oldest">배정 후 오래된 순</option>
+                                    <option value="expiring_soon">만료 임박순</option>
+                                    <option value="risk_high">고위험순</option>
+                                </select>
+                            </div>
                         </div>
 
-                        {/* Search Input */}
-                        <div className="relative min-w-[260px] flex-1 sm:flex-initial">
-                            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input
-                                type="text"
-                                placeholder="성명, 연락처, 접수번호, 의뢰번호 검색..."
-                                value={searchQuery}
-                                onChange={e => setSearchQuery(e.target.value)}
-                                className="w-full pl-9 pr-8 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 focus:bg-white focus:border-teal-500 focus:outline-none transition"
-                            />
-                            {searchQuery && (
+                        {/* Row 2: Date Range Inputs & Presets & Search */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                                    <CalendarRange className="w-3.5 h-3.5 text-teal-600" />
+                                    접수기간:
+                                </span>
+                                <div className="flex items-center gap-1">
+                                    <input
+                                        type="date"
+                                        value={dateFrom}
+                                        onChange={e => setDateFrom(e.target.value)}
+                                        className="px-2.5 py-1 text-xs font-medium border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:border-teal-500 focus:outline-none"
+                                        aria-label="접수 시작일"
+                                    />
+                                    <span className="text-slate-400 font-bold">~</span>
+                                    <input
+                                        type="date"
+                                        value={dateTo}
+                                        onChange={e => setDateTo(e.target.value)}
+                                        className="px-2.5 py-1 text-xs font-medium border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:border-teal-500 focus:outline-none"
+                                        aria-label="접수 종료일"
+                                    />
+                                </div>
                                 <button
-                                    onClick={() => setSearchQuery('')}
-                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                    type="button"
+                                    onClick={handleApplyDateRange}
+                                    className="px-3 py-1 text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white rounded-xl shadow-xs transition"
                                 >
-                                    <X className="w-3.5 h-3.5" />
+                                    조회
                                 </button>
-                            )}
+                                <button
+                                    type="button"
+                                    onClick={handleResetDateRange}
+                                    className="px-2.5 py-1 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition"
+                                >
+                                    기간 초기화
+                                </button>
+
+                                {/* Quick Presets */}
+                                <div className="flex items-center gap-1 pl-2 border-l border-slate-200 flex-wrap">
+                                    {[
+                                        { id: 'today', label: '오늘' },
+                                        { id: '7days', label: '최근 7일' },
+                                        { id: '30days', label: '최근 30일' },
+                                        { id: 'all', label: '전체 기간' }
+                                    ].map(p => (
+                                        <button
+                                            key={p.id}
+                                            type="button"
+                                            onClick={() => handleSelectPreset(p.id as any)}
+                                            className={`px-2.5 py-1 text-xs font-bold rounded-xl transition ${
+                                                activePreset === p.id
+                                                    ? 'bg-slate-800 text-white shadow-xs'
+                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                            }`}
+                                        >
+                                            {p.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Search Input */}
+                            <div className="relative min-w-[240px] flex-1 sm:flex-initial">
+                                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    type="text"
+                                    placeholder="성명, 연락처, 접수번호 검색..."
+                                    value={searchQuery}
+                                    onChange={e => setSearchQuery(e.target.value)}
+                                    className="w-full pl-8 pr-7 py-1 text-xs font-medium border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:border-teal-500 focus:outline-none"
+                                />
+                                {searchQuery && (
+                                    <button
+                                        onClick={() => setSearchQuery('')}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                    >
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                )}
+                            </div>
                         </div>
+
+                        {dateError && (
+                            <div className="text-xs font-bold text-rose-600 mt-1 flex items-center gap-1">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                {dateError}
+                            </div>
+                        )}
                     </div>
 
                     {/* Master-Detail Container */}
                     <div className="flex-1 flex gap-4 overflow-hidden min-h-0">
                         {/* LEFT: Applicant List (Master) */}
-                        <div className={`w-full lg:w-[420px] xl:w-[460px] flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden shrink-0 ${isMobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
-                            <div className="p-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                                <span className="text-xs font-black text-slate-700 flex items-center gap-1.5">
-                                    <ClipboardList className="w-4 h-4 text-teal-600" />
-                                    신청자 목록 ({filteredImports.length})
-                                </span>
-                                <span className="text-[11px] text-slate-400">카드를 클릭하여 상세 검토</span>
+                        <div className={`w-full lg:w-[440px] xl:w-[480px] flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden shrink-0 ${isMobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
+                            {/* Selection & Quick Select Header */}
+                            <div className="p-3 border-b border-slate-100 bg-slate-50/70 space-y-2">
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <div className="flex items-center gap-2">
+                                        <div className="min-w-[44px] min-h-[44px] flex items-center justify-center -ml-2 shrink-0">
+                                            <input
+                                                type="checkbox"
+                                                ref={selectAllCheckboxRef}
+                                                checked={isAllVisibleSelected}
+                                                onChange={handleSelectAllVisible}
+                                                disabled={filteredImports.length === 0}
+                                                aria-label={
+                                                    isAllVisibleSelected
+                                                        ? '현재 검색 결과 대상자 전체 선택 해제'
+                                                        : (isIndeterminate ? '현재 검색 결과 대상자 일부 선택됨' : '현재 검색 결과 대상자 전체 선택')
+                                                }
+                                                className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 cursor-pointer"
+                                            />
+                                        </div>
+                                        <span className="text-xs font-black text-slate-800">
+                                            선택 {selectedSubmissionIds.size}건 / 결과 {filteredImports.length}건
+                                        </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                        <button
+                                            type="button"
+                                            onClick={handleSelectUnassignedOnly}
+                                            className="px-2.5 py-1 text-[11px] font-bold bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 rounded-lg shadow-xs min-h-[32px]"
+                                            title="현재 표시 결과 중 미배정 건만 빠른 선택"
+                                        >
+                                            미배정 선택
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleSelectPendingReferralsOnly}
+                                            className="px-2.5 py-1 text-[11px] font-bold bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 rounded-lg shadow-xs min-h-[32px]"
+                                            title="현재 표시 결과 중 의뢰 등록 대기 건만 빠른 선택"
+                                        >
+                                            대기건 선택
+                                        </button>
+                                        {selectedSubmissionIds.size > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={handleClearSelection}
+                                                className="px-2.5 py-1 text-[11px] font-bold text-rose-600 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg shadow-xs min-h-[32px]"
+                                            >
+                                                선택 해제
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Selection Summary */}
+                                {selectedSubmissionIds.size > 0 && (
+                                    <div className="p-2 bg-indigo-50/80 border border-indigo-100 rounded-xl text-[11px] font-bold text-indigo-950 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                                        <span>총 {selectionSummary.total}건</span>
+                                        <span>• 신규 미배정 {selectionSummary.unassignedCount}건</span>
+                                        <span>• 기존 배정 {selectionSummary.assignedCount}건</span>
+                                        {selectionSummary.registeredCount > 0 && (
+                                            <span className="text-slate-500">• 등록완료 제외 {selectionSummary.registeredCount}건</span>
+                                        )}
+                                        {selectionSummary.expiringCount > 0 && (
+                                            <span className="text-rose-700">• 만료임박 {selectionSummary.expiringCount}건</span>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Selection Cleanup Announcement (aria-live, no alert popup) */}
+                                <div aria-live="polite" aria-atomic="true" className="sr-only" role="status">
+                                    {selectionCleanupMessage}
+                                </div>
+                                {selectionCleanupMessage && (
+                                    <div className="p-1.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] font-bold text-amber-800 flex items-center gap-1.5">
+                                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                        {selectionCleanupMessage}
+                                    </div>
+                                )}
+
+                                {/* Admin Bulk Action Toolbar */}
+                                {currentUser.role === 'admin' && selectedSubmissionIds.size > 0 && (
+                                    <div className="p-2.5 bg-white border border-slate-200 rounded-xl space-y-2 shadow-xs" role="region" aria-label="일괄 배정 작업 영역">
+                                        <div className="flex items-center gap-2">
+                                            <div className="relative flex-1">
+                                                <select
+                                                    value={bulkTargetStaffId}
+                                                    onChange={e => setBulkTargetStaffId(e.target.value)}
+                                                    className="w-full min-h-[44px] px-3 pr-8 rounded-xl text-xs font-bold border border-slate-300 bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none appearance-none cursor-pointer truncate"
+                                                    aria-label="일괄 배정할 대상 직원 선택"
+                                                >
+                                                    <option value="">[ 일괄 배정할 담당자 선택 ▼ ]</option>
+                                                    {assignableStaff.map(staff => (
+                                                        <option key={staff.id} value={staff.id}>
+                                                            {staff.name}{staff.team ? ` · ${staff.team}` : ''} · 미처리 {staff.pendingAssignmentCount || 0}건
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-500">
+                                                    <ChevronDown className="w-4 h-4" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <input
+                                            type="text"
+                                            value={bulkNote}
+                                            onChange={e => setBulkNote(e.target.value)}
+                                            maxLength={200}
+                                            placeholder="내부 배정 메모 (선택, 최대 200자 · 개인정보 입력 금지)"
+                                            className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none"
+                                            aria-label="배정 메모 입력"
+                                        />
+
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (!bulkTargetStaffId) {
+                                                        if (showToast) showToast('배정할 직원을 먼저 선택해 주세요.', 'error');
+                                                        return;
+                                                    }
+                                                    setBulkMode('unassigned-only');
+                                                    setIsBulkConfirmModalOpen(true);
+                                                }}
+                                                disabled={isBulkAssigning || !bulkTargetStaffId}
+                                                className="flex-1 min-h-[44px] px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                                            >
+                                                <UserPlus className="w-4 h-4" />
+                                                미배정 건만 일괄 배정
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (!bulkTargetStaffId) {
+                                                        if (showToast) showToast('배정할 직원을 먼저 선택해 주세요.', 'error');
+                                                        return;
+                                                    }
+                                                    setBulkMode('include-reassignment');
+                                                    setIsBulkConfirmModalOpen(true);
+                                                }}
+                                                disabled={isBulkAssigning || !bulkTargetStaffId}
+                                                className="flex-1 min-h-[44px] px-3 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                                                title="기존 배정된 건까지 포함하여 새 담당자에게 일괄 재배정합니다"
+                                            >
+                                                <AlertTriangle className="w-4 h-4 text-amber-200" />
+                                                기존 담당자 포함 재배정
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-3 space-y-2.5 custom-scrollbar">
@@ -1002,6 +1732,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                     filteredImports.map(item => {
                                         const isSelected = item.submissionId === selectedSubmissionId;
                                         const scaleInfo = getAssessmentTitle(item.assessmentId);
+                                        const isChecked = selectedSubmissionIds.has(item.submissionId);
 
                                         return (
                                             <div
@@ -1010,11 +1741,29 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     setSelectedSubmissionId(item.submissionId);
                                                     setIsMobileDetailOpen(true);
                                                 }}
-                                                className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-left relative ${isSelected ? 'bg-teal-50/60 border-teal-400 shadow-md ring-2 ring-teal-500/20' : 'bg-white border-slate-200/80 hover:border-slate-300 hover:bg-slate-50/50'}`}
+                                                className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-left relative ${
+                                                    isSelected
+                                                        ? 'bg-teal-50/60 border-teal-400 shadow-md ring-2 ring-teal-500/20'
+                                                        : (isChecked ? 'bg-indigo-50/40 border-indigo-200' : 'bg-white border-slate-200/80 hover:border-slate-300 hover:bg-slate-50/50')
+                                                }`}
                                             >
                                                 {/* Header Line */}
                                                 <div className="flex items-center justify-between gap-2 mb-1.5">
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex items-center gap-1.5">
+                                                        {/* Individual Checkbox (min 44px touch target) */}
+                                                        <div
+                                                            className="min-w-[44px] min-h-[44px] flex items-center justify-center -ml-2 -mt-1 shrink-0 cursor-pointer"
+                                                            onClick={e => e.stopPropagation()}
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isChecked}
+                                                                onChange={e => toggleSelect(item.submissionId, e)}
+                                                                aria-label={`${item.maskedClientName || item.submissionId} 선택`}
+                                                                className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 cursor-pointer"
+                                                            />
+                                                        </div>
+
                                                         {renderPriorityBadge(item.assignmentPriority)}
                                                         <span className="text-sm font-black text-slate-900">
                                                             {item.maskedClientName || '이름없음'}
@@ -1028,6 +1777,34 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                         {renderRequestTypeBadge(item)}
                                                         {renderTransferStatusBadge(item)}
                                                         {renderStatusBadge(item.consultationStatus, item.isSbqrQuarantined)}
+                                                        {/* Expiry Countdown Badge */}
+                                                        {(() => {
+                                                            const exp = getExpiryInfo(item.retentionUntil);
+                                                            if (!exp) return null;
+                                                            const isRegistered = Boolean(item.referralId);
+                                                            return (
+                                                                <span
+                                                                    className={`px-2 py-0.5 rounded-full text-[10px] font-black border flex items-center gap-1 ${
+                                                                        exp.isUrgent
+                                                                            ? 'bg-rose-50 text-rose-700 border-rose-200 animate-pulse'
+                                                                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                                                                    }`}
+                                                                    title={
+                                                                        isRegistered
+                                                                            ? `원본 설문 ${exp.label} (의뢰대장 및 첨부 PDF는 유지됩니다)`
+                                                                            : `원본 및 PDF ${exp.label}`
+                                                                    }
+                                                                    aria-label={
+                                                                        isRegistered
+                                                                            ? `원본 설문 ${exp.label} (의뢰대장·PDF 유지)`
+                                                                            : `원본 및 PDF ${exp.label}`
+                                                                    }
+                                                                >
+                                                                    <AlertTriangle className="w-3 h-3" />
+                                                                    {isRegistered ? `설문 ${exp.label}` : exp.label}
+                                                                </span>
+                                                            );
+                                                        })()}
                                                     </div>
                                                 </div>
 
@@ -1035,7 +1812,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 <div className="flex items-center justify-between text-[11px] text-slate-500 mb-2 font-medium">
                                                     <span className="flex items-center gap-1">
                                                         <Clock className="w-3 h-3 text-slate-400" />
-                                                        {(item.submittedAt || item.importedAt || '').substring(0, 16).replace('T', ' ')}
+                                                        {formatKstDateTime(item.submittedAt || item.importedAt, 'list')}
                                                     </span>
                                                     <span className="text-slate-600 font-bold">
                                                         {item.region}
@@ -1070,18 +1847,113 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     </div>
                                                 </div>
 
-                                                {/* Assigned Staff */}
-                                                <div className="mt-2 text-[11px] text-slate-500 flex items-center justify-between">
-                                                    <span className="flex items-center gap-1 font-medium">
-                                                        <UserCheck className="w-3 h-3 text-slate-400" />
-                                                        담당: <strong className={item.assignedUserId ? 'text-indigo-700 font-bold' : 'text-slate-400'}>{getStaffName(item.assignedUserId)}</strong>
-                                                    </span>
-                                                    {item.refNo && (
-                                                        <span className="text-[10px] font-mono text-slate-400">
-                                                            {item.refNo}
-                                                        </span>
-                                                    )}
-                                                </div>
+                                                {/* Assigned Staff (Inline Dropdown or Read-only) */}
+                                                {(() => {
+                                                    const isCompletedOrRegistered = Boolean(
+                                                        item.referralId ||
+                                                        item.consultationStatus === '상담완료' ||
+                                                        item.consultationStatus === '종결' ||
+                                                        item.processingStatus === 'COMPLETED'
+                                                    );
+                                                    const isAdmin = currentUser.role === 'admin';
+                                                    const isRowAssigning = assigningRowId === item.submissionId;
+
+                                                    if (isRowAssigning) {
+                                                        return (
+                                                            <div className="mt-2.5 pt-2 border-t border-slate-100 min-h-[44px] flex items-center">
+                                                                <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-xl text-xs font-bold text-indigo-700 min-h-[44px] w-full animate-pulse">
+                                                                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600 shrink-0" />
+                                                                    <span>[ 배정 중... ]</span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    }
+
+                                                    if (isCompletedOrRegistered) {
+                                                        return (
+                                                            <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between min-h-[44px]">
+                                                                <div className="flex flex-col text-xs truncate max-w-[200px]" title={`${getStaffDisplayName(item.assignedUserId)} (등록 완료 · 읽기 전용)`}>
+                                                                    <span className="font-bold text-slate-700 truncate">{getStaffDisplayName(item.assignedUserId)}</span>
+                                                                    <span className="text-[10px] text-slate-400 font-medium">등록 완료 · 읽기 전용</span>
+                                                                </div>
+                                                                {item.assignedAt && (
+                                                                    <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">
+                                                                        {formatKstDateTime(item.assignedAt, 'list')} 배정
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    }
+
+                                                    if (isAdmin) {
+                                                        return (
+                                                            <div
+                                                                className="mt-2.5 pt-2 border-t border-slate-100 flex items-center gap-2"
+                                                                onClick={e => e.stopPropagation()}
+                                                            >
+                                                                <div className="relative flex-1">
+                                                                    <select
+                                                                        id={`staff-assign-${item.submissionId}`}
+                                                                        value={item.assignedUserId || ''}
+                                                                        onChange={e => handleInlineAssignStaff(item, e.target.value)}
+                                                                        disabled={assigningRowId !== null}
+                                                                        className={`w-full min-h-[44px] h-11 px-3 pr-8 rounded-xl text-xs font-bold transition border focus:ring-2 focus:ring-indigo-500 focus:outline-none appearance-none truncate cursor-pointer ${
+                                                                            !item.assignedUserId
+                                                                                ? 'bg-amber-50/90 border-amber-300 text-amber-900 hover:bg-amber-100/70 shadow-xs'
+                                                                                : 'bg-white border-slate-300 text-slate-800 hover:border-slate-400'
+                                                                        }`}
+                                                                        title={item.assignedUserId ? getStaffDisplayName(item.assignedUserId) : '담당자 선택'}
+                                                                        aria-label={`담당자 선택: ${item.maskedClientName || item.submissionId}`}
+                                                                    >
+                                                                        <option value="" disabled={Boolean(item.assignedUserId)}>
+                                                                            {item.assignedUserId ? '담당자 변경 선택 ▼' : '[ 담당자 선택 ▼ ]'}
+                                                                        </option>
+                                                                        {assignableStaff.map(staff => (
+                                                                            <option key={staff.id} value={staff.id} title={getStaffOptionLabel(staff, assignableStaff)}>
+                                                                                {getStaffOptionLabel(staff, assignableStaff)}
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-500">
+                                                                        <ChevronDown className="w-4 h-4" />
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Safe Single Unassign Button */}
+                                                                {item.assignedUserId && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={e => {
+                                                                            e.stopPropagation();
+                                                                            handleUnassign(item);
+                                                                        }}
+                                                                        className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 rounded-xl transition shrink-0"
+                                                                        title="담당자 배정 취소 (미배정으로 전환)"
+                                                                        aria-label="담당자 배정 취소"
+                                                                    >
+                                                                        <UserMinus className="w-4 h-4" />
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    }
+
+                                                    // Regular non-admin users: read-only
+                                                    return (
+
+                                                        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between min-h-[44px]">
+                                                            <div className="flex items-center gap-1.5 text-xs font-medium text-slate-600 truncate" title={getStaffDisplayName(item.assignedUserId)}>
+                                                                <UserCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                                                <span>담당: <strong className={item.assignedUserId ? 'text-indigo-700 font-bold' : 'text-slate-400'}>{getStaffDisplayName(item.assignedUserId)}</strong></span>
+                                                            </div>
+                                                            {item.assignedAt && (
+                                                                <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">
+                                                                    {formatKstDateTime(item.assignedAt, 'list')} 배정
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                         );
                                     })
@@ -1150,13 +2022,15 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 </button>
                                             )}
 
-                                            <button
-                                                onClick={() => handleOpenAssignModal(currentSelectedItem)}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200 shadow-sm transition"
-                                            >
-                                                <UserPlus className="w-3.5 h-3.5" />
-                                                담당자 배정/변경
-                                            </button>
+                                            {currentUser.role === 'admin' && (
+                                                <button
+                                                    onClick={() => handleOpenAssignModal(currentSelectedItem)}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200 shadow-sm transition"
+                                                >
+                                                    <UserPlus className="w-3.5 h-3.5" />
+                                                    담당자 배정/변경
+                                                </button>
+                                            )}
 
                                             <button
                                                 onClick={() => handleOpenStatusModal(currentSelectedItem)}
@@ -1166,16 +2040,49 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 진행상태 변경
                                             </button>
 
-                                            {currentSelectedItem.refNo && onNavigateToReferrals && (
-                                                <button
-                                                    onClick={() => onNavigateToReferrals({ targetReferralId: currentSelectedItem.referralId || currentSelectedItem.refNo })}
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl shadow-sm hover:shadow transition"
-                                                    title="의뢰대장 메인 화면으로 이동하여 본 건을 확인합니다"
-                                                >
-                                                    <ExternalLink className="w-3.5 h-3.5" />
-                                                    의뢰대장 열기
-                                                </button>
-                                            )}
+                                            {Boolean(currentSelectedItem.referralId || currentSelectedItem.refNo) ? (
+                                                onNavigateToReferrals && (
+                                                    <button
+                                                        onClick={() => onNavigateToReferrals({ targetReferralId: currentSelectedItem.referralId || currentSelectedItem.refNo })}
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl shadow-sm hover:shadow transition"
+                                                        title="이미 등록된 의뢰대장 상세로 이동합니다"
+                                                    >
+                                                        <ExternalLink className="w-3.5 h-3.5" />
+                                                        등록된 의뢰대장 열기
+                                                    </button>
+                                                )
+                                            ) : (!currentSelectedItem.assignedUserId || currentSelectedItem.assignmentStatus === 'unassigned') ? (
+                                                currentUser.role === 'admin' ? (
+                                                    <button
+                                                        onClick={() => handleOpenAssignModal(currentSelectedItem)}
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold rounded-xl border border-amber-300 shadow-sm transition"
+                                                        title="의뢰대장 등록 전 담당자 배정이 필요합니다"
+                                                    >
+                                                        <UserPlus className="w-3.5 h-3.5" />
+                                                        담당자 배정 필요
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-xs text-slate-400 font-medium px-2.5 py-1.5 bg-slate-100 rounded-xl border border-slate-200">
+                                                        담당자 배정 대기
+                                                    </span>
+                                                )
+                                            ) : (currentSelectedItem.assignedUserId === currentUser.id || currentUser.role === 'admin') ? (
+                                                onNavigateToReferrals && (
+                                                    <button
+                                                        onClick={() => handleOpenReferralRegister(currentSelectedItem)}
+                                                        disabled={loadingDraftId === currentSelectedItem.submissionId}
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl shadow-sm hover:shadow transition disabled:opacity-50"
+                                                        title={currentUser.role === 'admin' && currentSelectedItem.assignedUserId !== currentUser.id ? '관리자 권한으로 의뢰대장 신규 등록 폼을 엽니다' : '의뢰대장 신규 등록 폼을 엽니다'}
+                                                    >
+                                                        {loadingDraftId === currentSelectedItem.submissionId ? (
+                                                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                                        ) : (
+                                                            <ExternalLink className="w-3.5 h-3.5" />
+                                                        )}
+                                                        의뢰대장 열기
+                                                    </button>
+                                                )
+                                            ) : null}
                                         </div>
                                     </div>
 
@@ -1189,7 +2096,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     SECTION A. 상담 신청자 기본 정보
                                                 </h3>
                                                 <span className="text-[11px] text-slate-400">
-                                                    접수일시: {(currentSelectedItem.submittedAt || currentSelectedItem.importedAt || '').replace('T', ' ').substring(0, 19)}
+                                                    접수일시: {formatKstDateTime(currentSelectedItem.submittedAt || currentSelectedItem.importedAt, 'detail')}
                                                 </span>
                                             </div>
 
@@ -1558,13 +2465,13 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                             SECTION D. 사내 의뢰대장 연계
                                                         </h3>
                                                         <span className="text-[10px] font-bold px-2 py-0.5 bg-teal-100 text-teal-800 rounded-md">
-                                                            {currentSelectedItem.refNo ? '자동 초안 등록' : '연계 대기'}
+                                                            {currentSelectedItem.refNo ? '의뢰 등록 완료' : (currentSelectedItem.assignedUserId ? '등록 대기' : '배정 대기')}
                                                         </span>
                                                     </div>
 
                                                     <div className="space-y-1.5 text-xs text-slate-600 mb-3">
                                                         <div>기관 연번: <strong className="font-mono text-slate-900 font-black">{currentSelectedItem.refNo || '생성 대기'}</strong></div>
-                                                        <div>의뢰 상태: <strong className="text-slate-800">{currentSelectedItem.referralStatus || 'PENDING_STAFF_REVIEW'}</strong></div>
+                                                        <div>의뢰 상태: <strong className="text-slate-800">{currentSelectedItem.referralStatus || (currentSelectedItem.refNo ? '등록 완료' : '미등록')}</strong></div>
                                                         <div>종결 상태: <strong className="text-slate-800">{currentSelectedItem.closureStatus || '미종결'}</strong></div>
                                                     </div>
                                                 </div>
@@ -1575,11 +2482,38 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                         className="w-full py-2.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-2"
                                                     >
                                                         <ArrowRight className="w-4 h-4 text-teal-600" />
-                                                        의뢰대장 상세 열기
+                                                        등록된 의뢰대장 상세 열기
+                                                    </button>
+                                                ) : (!currentSelectedItem.assignedUserId || currentSelectedItem.assignmentStatus === 'unassigned') ? (
+                                                    currentUser.role === 'admin' ? (
+                                                        <button
+                                                            onClick={() => handleOpenAssignModal(currentSelectedItem)}
+                                                            className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-2"
+                                                        >
+                                                            <UserPlus className="w-4 h-4 text-amber-600" />
+                                                            담당자 배정 필요 (배정 창 열기)
+                                                        </button>
+                                                    ) : (
+                                                        <div className="text-xs text-slate-400 text-center py-2">
+                                                            담당자 배정 대기 중입니다.
+                                                        </div>
+                                                    )
+                                                ) : (currentSelectedItem.assignedUserId === currentUser.id || currentUser.role === 'admin') ? (
+                                                    <button
+                                                        onClick={() => handleOpenReferralRegister(currentSelectedItem)}
+                                                        disabled={loadingDraftId === currentSelectedItem.submissionId}
+                                                        className="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-2 disabled:opacity-50"
+                                                    >
+                                                        {loadingDraftId === currentSelectedItem.submissionId ? (
+                                                            <RefreshCw className="w-4 h-4 animate-spin" />
+                                                        ) : (
+                                                            <ExternalLink className="w-4 h-4" />
+                                                        )}
+                                                        의뢰대장 열기 (신규 등록)
                                                     </button>
                                                 ) : (
                                                     <div className="text-xs text-slate-400 text-center py-2">
-                                                        의뢰대장 등록 대기 중입니다.
+                                                        다른 담당자가 배정되어 있습니다.
                                                     </div>
                                                 )}
                                             </div>
@@ -1642,7 +2576,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     <div className="absolute -left-6 top-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white shadow-sm flex items-center justify-center text-white text-[8px]">✓</div>
                                                     <div className="text-xs font-bold text-slate-800">온라인 상담신청 수신 및 비대칭 복호화 완료</div>
                                                     <div className="text-[11px] text-slate-400">
-                                                        {(currentSelectedItem.importedAt || currentSelectedItem.submittedAt || '').replace('T', ' ').substring(0, 19)}
+                                                        {formatKstDateTime(currentSelectedItem.importedAt || currentSelectedItem.submittedAt, 'detail')}
                                                     </div>
                                                 </div>
 
@@ -1650,9 +2584,11 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 <div className="relative">
                                                     <div className="absolute -left-6 top-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white shadow-sm flex items-center justify-center text-white text-[8px]">✓</div>
                                                     <div className="text-xs font-bold text-slate-800">
-                                                        의뢰대장 자동 초안 생성 ({currentSelectedItem.refNo || 'ET-26-XXX'})
+                                                        {currentSelectedItem.refNo ? `의뢰대장 등록 완료 (${currentSelectedItem.refNo})` : '의뢰대장 등록 대기 (최종 등록 시 번호 생성)'}
                                                     </div>
-                                                    <div className="text-[11px] text-slate-400">내부 검토 대기 상태(PENDING_STAFF_REVIEW)로 등록됨</div>
+                                                    <div className="text-[11px] text-slate-400">
+                                                        {currentSelectedItem.refNo ? '정식 의뢰대장 연계 완료' : '담당자 확인 및 등록 폼 저장 시 정식 의뢰번호 부여'}
+                                                    </div>
                                                 </div>
 
                                                 {/* Stage 3 */}
@@ -1668,10 +2604,10 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                         {currentSelectedItem.assignedUserId ? '✓' : '•'}
                                                     </div>
                                                     <div className="text-xs font-bold text-slate-800">
-                                                        {currentSelectedItem.assignedUserId ? `담당 직원 배정 (${getStaffName(currentSelectedItem.assignedUserId)})` : '담당 직원 배정 대기'}
+                                                        {currentSelectedItem.assignedUserId ? `담당 직원 배정 (${getStaffDisplayName(currentSelectedItem.assignedUserId)})` : '담당 직원 배정 대기'}
                                                     </div>
                                                     <div className="text-[11px] text-slate-400">
-                                                        {currentSelectedItem.assignedAt ? (currentSelectedItem.assignedAt.replace('T', ' ').substring(0, 19)) : '미배정 상태'}
+                                                        {currentSelectedItem.assignedAt ? `${formatKstDateTime(currentSelectedItem.assignedAt, 'detail')} 배정` : '미배정 상태'}
                                                     </div>
                                                 </div>
 
@@ -1799,9 +2735,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     {item.externalStatus}
                                                 </span>
                                             </td>
-                                            <td className="px-4 py-3 text-slate-500">{(item.importedAt || '').replace('T', ' ').substring(0, 19)}</td>
-                                            <td className="px-4 py-3 text-slate-500">{(item.acknowledgedAt || '-').replace('T', ' ').substring(0, 19)}</td>
-                                            <td className="px-4 py-3 text-slate-500">{(item.externalDeletedAt || '-').replace('T', ' ').substring(0, 19)}</td>
+                                            <td className="px-4 py-3 text-slate-500">{formatKstDateTime(item.importedAt, 'list')}</td>
+                                            <td className="px-4 py-3 text-slate-500">{formatKstDateTime(item.acknowledgedAt, 'list')}</td>
+                                            <td className="px-4 py-3 text-slate-500">{formatKstDateTime(item.externalDeletedAt, 'list')}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -2014,17 +2950,18 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                     <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
                                         <div className="flex items-center justify-between font-bold">
                                             <span className="text-indigo-700">
-                                                {getStaffName(h.assignedUserId || h.newAssignedUserId)} 배정
+                                                {h.previousAssignedUserId ? (
+                                                    `${getStaffDisplayName(h.previousAssignedUserId)} → ${getStaffDisplayName(h.assignedUserId || h.newAssignedUserId)}`
+                                                ) : (
+                                                    `${getStaffDisplayName(h.assignedUserId || h.newAssignedUserId)} 배정`
+                                                )}
                                             </span>
                                             <span className="text-[11px] text-slate-400">
-                                                {(h.createdAt || h.timestamp || '').replace('T', ' ').substring(0, 19)}
+                                                {formatKstDateTime(h.createdAt || h.timestamp || h.changedAt, 'list')}
                                             </span>
                                         </div>
                                         <div className="text-slate-600">
                                             우선순위: <strong className="text-slate-800">{h.priority || h.newPriority || 'NORMAL'}</strong>
-                                            {h.previousAssignedUserId && (
-                                                <span className="text-slate-400 ml-2">(이전: {getStaffName(h.previousAssignedUserId)})</span>
-                                            )}
                                         </div>
                                         {h.reason && (
                                             <div className="text-slate-500 text-[11px] bg-white p-2 rounded-lg border border-slate-100 mt-1">
@@ -2325,6 +3262,176 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                             >
                                 {isDeletingSubject ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                                 대상자 영구 삭제
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* 8. Bulk Assignment Confirmation Modal */}
+            {isBulkConfirmModalOpen && (
+                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                            <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                                <UserPlus className="w-5 h-5 text-indigo-600" />
+                                {bulkMode === 'include-reassignment' ? '일괄 배정 및 재배정 확인' : '미배정 건 일괄 배정 확인'}
+                            </h3>
+                            <button
+                                onClick={() => setIsBulkConfirmModalOpen(false)}
+                                disabled={isBulkAssigning}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <div className="mt-4 space-y-3.5 text-xs text-slate-700">
+                            <p className="font-bold text-slate-800 text-sm leading-snug">
+                                {bulkMode === 'include-reassignment'
+                                    ? `선택한 대상자를 [${getStaffDisplayName(bulkTargetStaffId)}] 담당자에게 배정 또는 재배정할까요?`
+                                    : `선택한 대상자 중 미배정 설문을 [${getStaffDisplayName(bulkTargetStaffId)}] 담당자에게 배정할까요?`}
+                            </p>
+
+                            {/* Breakdown summary */}
+                            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 font-medium">
+                                <div className="font-black text-slate-900 mb-1">예상 결과:</div>
+                                <div className="text-emerald-700 font-bold">• 신규 배정 {selectionSummary.unassignedCount}건</div>
+                                {bulkMode === 'include-reassignment' ? (
+                                    <>
+                                        <div className="text-amber-700 font-bold">• 재배정 {Math.max(0, selectionSummary.assignedCount - selectionSummary.sameAssigneeCount)}건</div>
+                                        {selectionSummary.sameAssigneeCount > 0 && (
+                                            <div className="text-slate-500">• 같은 담당자 제외 {selectionSummary.sameAssigneeCount}건</div>
+                                        )}
+                                    </>
+                                ) : (
+                                    selectionSummary.assignedCount > 0 && (
+                                        <div className="text-slate-500">• 기존 배정 제외 {selectionSummary.assignedCount}건</div>
+                                    )
+                                )}
+                                {selectionSummary.registeredCount > 0 && (
+                                    <div className="text-slate-500">• 등록 완료 제외 {selectionSummary.registeredCount}건</div>
+                                )}
+                            </div>
+
+                            {/* Reassignment Warning */}
+                            {bulkMode === 'include-reassignment' && (
+                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-[11px] leading-relaxed flex items-start gap-2" role="alert">
+                                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                    <div>
+                                        <strong>재배정 위험 안내:</strong>
+                                        <div className="mt-0.5">기존 담당자의 미처리 배지와 업무목록에서 해당 건이 제거되고 새 담당자에게 이동합니다.</div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {bulkNote && (
+                                <div className="p-2.5 bg-indigo-50/70 border border-indigo-100 rounded-xl text-slate-600 text-[11px]">
+                                    <span className="font-bold text-indigo-900">배정 메모: </span>
+                                    {bulkNote}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="mt-6 flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                            <button
+                                type="button"
+                                onClick={() => setIsBulkConfirmModalOpen(false)}
+                                disabled={isBulkAssigning}
+                                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                            >
+                                취소
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleExecuteBulkAssign}
+                                disabled={isBulkAssigning}
+                                className={`px-4 py-2 text-xs font-bold text-white rounded-xl shadow-md transition disabled:opacity-50 flex items-center gap-2 cursor-pointer ${
+                                    bulkMode === 'include-reassignment' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'
+                                }`}
+                            >
+                                {isBulkAssigning ? (
+                                    <>
+                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                        배정 중...
+                                    </>
+                                ) : (
+                                    <>
+                                        <UserPlus className="w-3.5 h-3.5" />
+                                        {bulkMode === 'include-reassignment' ? '일괄 재배정' : '일괄 배정'}
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 9. Bulk Assignment Result Modal */}
+            {isBulkResultModalOpen && bulkResult && (
+                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                            <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                                <CheckCircle2 className="w-5 h-5 text-teal-600" />
+                                일괄 배정 완료
+                            </h3>
+                            <button
+                                onClick={() => setIsBulkResultModalOpen(false)}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <div className="mt-4 space-y-3 text-xs text-slate-700" aria-live="polite">
+                            <div className="grid grid-cols-2 gap-2 text-center">
+                                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                                    <div className="text-[11px] text-slate-500 font-bold">요청 건수</div>
+                                    <div className="text-base font-black text-slate-900">{bulkResult.requested}건</div>
+                                </div>
+                                <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl">
+                                    <div className="text-[11px] text-emerald-700 font-bold">신규 배정</div>
+                                    <div className="text-base font-black text-emerald-800">{bulkResult.assigned}건</div>
+                                </div>
+                                <div className="p-2.5 bg-indigo-50 border border-indigo-200 rounded-xl">
+                                    <div className="text-[11px] text-indigo-700 font-bold">재배정</div>
+                                    <div className="text-base font-black text-indigo-800">{bulkResult.reassigned}건</div>
+                                </div>
+                                <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl">
+                                    <div className="text-[11px] text-amber-700 font-bold">제외 / 유지</div>
+                                    <div className="text-base font-black text-amber-800">{bulkResult.skipped}건</div>
+                                </div>
+                            </div>
+
+                            {bulkResult.failed > 0 && (
+                                <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-center text-rose-700 font-bold">
+                                    실패: {bulkResult.failed}건
+                                </div>
+                            )}
+
+                            {/* Itemized Results list for skipped or failed */}
+                            {bulkResult.results && bulkResult.results.some(r => r.status === 'SKIPPED' || r.status === 'FAILED') && (
+                                <div className="mt-2 pt-2 border-t border-slate-100">
+                                    <div className="text-[11px] font-bold text-slate-600 mb-1">제외·실패 내역:</div>
+                                    <div className="max-h-36 overflow-y-auto space-y-1 custom-scrollbar text-[10px]">
+                                        {bulkResult.results.filter(r => r.status === 'SKIPPED' || r.status === 'FAILED').map((r, idx) => (
+                                            <div key={idx} className="p-1.5 bg-slate-50 border border-slate-200 rounded flex items-center justify-between">
+                                                <span className="font-mono text-slate-700">{r.submissionId}</span>
+                                                <span className="font-bold text-slate-500">[{r.status}] {r.reasonCode}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="mt-6 flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                            <button
+                                type="button"
+                                onClick={() => setIsBulkResultModalOpen(false)}
+                                className="px-4 py-2 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-xl shadow-md transition cursor-pointer"
+                            >
+                                결과 닫기
                             </button>
                         </div>
                     </div>

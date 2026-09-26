@@ -356,14 +356,16 @@ function App() {
         return () => clearInterval(vInterval);
     }, []);
 
-    // Periodic fetch for online survey unassigned count (menu badge)
+    // Periodic fetch for online survey badge count (red menu badge)
     useEffect(() => {
         const fetchSurveyStats = async () => {
             try {
                 const res = await fetch('/api/surveys/status', { credentials: 'include' });
                 if (res.ok) {
                     const data = await res.json();
-                    if (data && typeof data.unassignedCount === 'number') {
+                    if (data && typeof data.badgeCount === 'number') {
+                        setSurveyPendingCount(data.badgeCount);
+                    } else if (data && typeof data.unassignedCount === 'number') {
                         setSurveyPendingCount(data.unassignedCount);
                     }
                 }
@@ -374,7 +376,7 @@ function App() {
         fetchSurveyStats();
         const sInterval = setInterval(fetchSurveyStats, 30000);
         return () => clearInterval(sInterval);
-    }, []);
+    }, [currentUser]);
 
     // [New] Notification effect when new pending referrals arrive
     useEffect(() => {
@@ -495,6 +497,11 @@ function App() {
                 } catch (delErr) {
                     console.error("Cleanup of pending referral failed:", delErr);
                 }
+            }
+
+            // Survey referral link completion logic
+            if ((savedReferral as any).sourceSubmissionId || (savedReferral as any).sourceSurveyId) {
+                setSurveyPendingCount(prev => Math.max(0, prev - 1));
             }
 
             // Update UI state ONLY AFTER confirmed persistent write

@@ -370,33 +370,19 @@ export class SurveyImportService {
                         const sub = this.repository.findSubmissionById(existing.submissionId) || this.repository.findSubmissionById(subId);
                         const existingAttachment = sub?.attachment || null;
 
-                        let refResult = null;
-                        if (this.referralService) {
-                            try {
-                                refResult = await this.referralService.createReferralFromSurvey({
-                                    payload,
-                                    internalSurveyId: sub?.internalSurveyId,
-                                    submissionId: subId,
-                                    sourceEnvironment: this.sourceEnvironment,
-                                    actorId,
-                                    existingAttachment
-                                });
-                            } catch (e) {
-                                console.warn('Referral creation during promotion notice:', e.message);
-                            }
-                        }
-
                         await this.repository.promoteToConsultationRequest({
                             submissionId: subId,
                             consultationRequestedAt: payload.consultationRequestedAt,
                             actorId
                         });
 
-                        if (refResult?.referral?.referralId && sub?.internalSurveyId) {
-                            await this.repository.updateSubmissionReferralLink(
-                                sub.internalSurveyId,
-                                refResult.referral.referralId
-                            );
+                        const subs = this.repository.getSurveySubmissions();
+                        const sIdx = subs.findIndex(s => s.submissionId === subId || s.internalSurveyId === sub?.internalSurveyId);
+                        if (sIdx !== -1) {
+                            subs[sIdx].processingStatus = SURVEY_PROCESSING_STATUS.PENDING_STAFF_REVIEW;
+                            subs[sIdx].assignmentStatus = SURVEY_ASSIGNMENT_STATUS.UNASSIGNED;
+                            subs[sIdx].consultationStatus = '신규접수대기';
+                            await this.repository.saveSurveySubmissions(subs);
                         }
 
                         await this._acknowledgeAndDeleteExternalRecord(
@@ -541,44 +527,38 @@ export class SurveyImportService {
                         }
                     }
                 } else {
-                    // CONSULTATION_REQUEST: Create draft referral and generate PDF report
+                    // CONSULTATION_REQUEST: Generate standalone screening report PDF and set status to PENDING_STAFF_REVIEW (No automatic referral creation)
                     if (this.referralService) {
                         try {
-                            referralResult = await this.referralService.createReferralFromSurvey({
+                            const reportResult = await this.referralService.generateScreeningReportOnly({
                                 payload,
                                 internalSurveyId: intakeResult.internalSurveyId,
                                 submissionId: subId,
-                                sourceEnvironment: this.sourceEnvironment,
                                 actorId
                             });
 
-                            if (referralResult?.referral?.referralId) {
-                                await this.repository.updateSubmissionReferralLink(
-                                    intakeResult.internalSurveyId,
-                                    referralResult.referral.referralId
-                                );
+                            const subs = this.repository.getSurveySubmissions();
+                            const sIdx = subs.findIndex(s => s.internalSurveyId === intakeResult.internalSurveyId);
+                            if (sIdx !== -1) {
+                                subs[sIdx].attachmentId = reportResult.attachment?.id;
+                                subs[sIdx].attachment = reportResult.attachment;
+                                subs[sIdx].processingStatus = SURVEY_PROCESSING_STATUS.PENDING_STAFF_REVIEW;
+                                subs[sIdx].assignmentStatus = SURVEY_ASSIGNMENT_STATUS.UNASSIGNED;
+                                subs[sIdx].consultationStatus = '신규접수대기';
+                                subs[sIdx].referralId = null;
+                                subs[sIdx].refNo = null;
+                                await this.repository.saveSurveySubmissions(subs);
                             }
 
-                            // [E2E_STEP 07/14] 의뢰대장 생성
-                            console.log(`📋 [E2E_STEP 07/14] 의뢰대장 생성: 성공 (referralId=${referralResult?.referral?.referralId || referralResult?.referral?.id}, refNo=${referralResult?.referral?.refNo})`);
-                            // [E2E_STEP 08/14] PDF 생성
-                            console.log(`📄 [E2E_STEP 08/14] PDF 생성: 성공 (파일명: ${referralResult?.attachment?.name}, 크기: ${referralResult?.attachment?.size}B)`);
-                            // [E2E_STEP 09/14] 첨부 등록
-                            console.log(`📎 [E2E_STEP 09/14] 첨부 등록: 성공 (attachmentId=${referralResult?.attachment?.id})`);
-                            // [E2E_STEP 10/14] 첨부 read-back
+                            console.log(`📄 [E2E_STEP 08/14] PDF 생성 (CONSULTATION_REQUEST): 성공 (파일명: ${reportResult?.attachment?.name}, 크기: ${reportResult?.attachment?.size}B)`);
+                            console.log(`📎 [E2E_STEP 09/14] 첨부 등록: 성공 (attachmentId=${reportResult?.attachment?.id})`);
                             console.log(`🔍 [E2E_STEP 10/14] 첨부 read-back: 성공 (디스크 파일 무결성 및 바이트 크기 일치 확인)`);
 
                             await this.repository.recordWorkflowStep({
                                 submissionId: subId,
                                 internalSurveyId: intakeResult.internalSurveyId,
-                                step: SURVEY_WORKFLOW_STEPS.REFERRAL_CREATED,
-                                details: { refNo: referralResult?.referral?.refNo }
-                            });
-                            await this.repository.recordWorkflowStep({
-                                submissionId: subId,
-                                internalSurveyId: intakeResult.internalSurveyId,
                                 step: SURVEY_WORKFLOW_STEPS.REPORT_GENERATED,
-                                details: { reportAttachmentId: referralResult?.attachment?.id }
+                                details: { reportAttachmentId: reportResult?.attachment?.id }
                             });
                             await this.repository.recordWorkflowStep({
                                 submissionId: subId,
@@ -590,12 +570,12 @@ export class SurveyImportService {
                                 internalSurveyId: intakeResult.internalSurveyId,
                                 step: SURVEY_WORKFLOW_STEPS.READ_BACK_VERIFIED
                             });
-                        } catch (referralErr) {
-                            console.error(`❌ [SURVEY_REFERRAL_CREATION_FAILED] ${subId}:`, referralErr.message);
+                        } catch (reportErr) {
+                            console.error(`❌ [SCREENING_PDF_FAILED] ${subId}:`, reportErr.message);
                             await this.repository.createOrUpdateImportRecord({
                                 submissionId: subId,
                                 internalStatus: SURVEY_INTERNAL_STATUS.ERROR,
-                                lastErrorCode: 'REFERRAL_CREATION_FAILED'
+                                lastErrorCode: 'REPORT_GENERATION_FAILED'
                             });
                             await this.repository.recordAuditEvent({
                                 actorId,
