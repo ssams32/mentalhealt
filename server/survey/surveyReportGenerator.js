@@ -13,41 +13,79 @@ import { jsPDF } from 'jspdf';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Candidate font paths for Windows and Linux environments
-const SYSTEM_FONT_CANDIDATES = [
-    path.join(__dirname, 'assets', 'font.ttf'),
-    'C:/Windows/Fonts/malgun.ttf',
-    'C:/Windows/Fonts/gulim.ttc',
-    'C:/Windows/Fonts/batang.ttc',
-    '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
-    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-    '/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc'
-];
+// ============================================================
+// KST Date Formatter (Asia/Seoul) — reuses kstUtils pattern
+// Avoids system TZ dependency; explicit Intl.DateTimeFormat
+// ============================================================
+function formatPdfTimestamp(isoOrDate) {
+    if (!isoOrDate) return '-';
+    const d = (isoOrDate instanceof Date) ? isoOrDate : new Date(isoOrDate);
+    if (isNaN(d.getTime())) return '-';
+    try {
+        const fmt = new Intl.DateTimeFormat('ko-KR', {
+            timeZone: 'Asia/Seoul',
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+        });
+        const parts = fmt.formatToParts(d);
+        const get = (type) => (parts.find(p => p.type === type) || {}).value || '';
+        return `${get('year')}. ${get('month')}. ${get('day')}. ${get('hour')}:${get('minute')}`;
+    } catch { return '-'; }
+}
+
+function formatPdfDateOnly(dateStr) {
+    if (!dateStr) return '-';
+    // Date-only string (YYYY-MM-DD): preserve as-is, no timezone conversion
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr).trim())) {
+        const [y, m, dd] = String(dateStr).trim().split('-');
+        return `${y}. ${m}. ${dd}.`;
+    }
+    // If it's a full timestamp, convert to KST date-only
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '-';
+    try {
+        const fmt = new Intl.DateTimeFormat('ko-KR', {
+            timeZone: 'Asia/Seoul',
+            year: 'numeric', month: '2-digit', day: '2-digit'
+        });
+        const parts = fmt.formatToParts(d);
+        const get = (type) => (parts.find(p => p.type === type) || {}).value || '';
+        return `${get('year')}. ${get('month')}. ${get('day')}.`;
+    } catch { return '-'; }
+}
+
+// Project-local official Noto Sans KR font asset (SIL Open Font License 1.1)
+// Bundled in server/survey/assets/fonts/ and included in Docker via COPY server/ ./server/
+const PROJECT_FONT_TTF = path.join(__dirname, 'assets', 'fonts', 'NotoSansKR[wght].ttf');
 
 let cachedFontBase64 = null;
-let cachedFontName = 'Helvetica';
+let fontLoadAttempted = false;
 
-function loadAvailableKoreanFont() {
-    if (cachedFontBase64 !== null) {
-        return { fontName: cachedFontName, fontData: cachedFontBase64 };
+function loadKoreanFont() {
+    if (fontLoadAttempted) {
+        return { fontData: cachedFontBase64 };
     }
+    fontLoadAttempted = true;
 
-    for (const fontPath of SYSTEM_FONT_CANDIDATES) {
-        try {
-            if (fs.existsSync(fontPath)) {
-                const buf = fs.readFileSync(fontPath);
-                if (buf && buf.length > 0) {
-                    cachedFontBase64 = buf.toString('base64');
-                    cachedFontName = 'KoreanFont';
-                    return { fontName: cachedFontName, fontData: cachedFontBase64 };
-                }
+    try {
+        if (fs.existsSync(PROJECT_FONT_TTF)) {
+            const buf = fs.readFileSync(PROJECT_FONT_TTF);
+            if (buf && buf.length > 10000) {
+                cachedFontBase64 = buf.toString('base64');
             }
-        } catch (ignore) {}
+        }
+    } catch (ignore) {}
+
+    // FAIL-CLOSED: If official Korean font not found, block PDF generation
+    if (!cachedFontBase64) {
+        throw new Error(
+            'KOREAN_FONT_LOAD_FAILED: Official Korean font (NotoSansKR[wght].ttf) not found. ' +
+            'PDF generation is blocked to prevent mojibake. ' +
+            `Searched: ${PROJECT_FONT_TTF}`
+        );
     }
 
-    cachedFontBase64 = false;
-    cachedFontName = 'Helvetica';
-    return { fontName: cachedFontName, fontData: null };
+    return { fontData: cachedFontBase64 };
 }
 
 function extractScaleData(payload, scaleId) {
@@ -108,18 +146,21 @@ export class SurveyReportGenerator {
             format: 'a4'
         });
 
-        const { fontName, fontData } = loadAvailableKoreanFont();
-        if (fontData) {
-            doc.addFileToVFS('korean.ttf', fontData);
-            doc.addFont('korean.ttf', fontName, 'normal');
-            doc.setFont(fontName);
-        }
+        // FAIL-CLOSED Korean font registration (Noto Sans KR TTF)
+        const { fontData } = loadKoreanFont();
+        doc.addFileToVFS('NotoSansKR.ttf', fontData);
+        doc.addFont('NotoSansKR.ttf', 'NotoSansKR', 'normal');
+        doc.addFont('NotoSansKR.ttf', 'NotoSansKR', 'bold');
+        doc.setFont('NotoSansKR', 'normal');
 
+        // Date formatting: explicit Asia/Seoul, no system TZ dependency
         const now = new Date();
         const generatedAt = now.toISOString();
-        const generatedDateStr = now.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' });
+        const generatedDateStr = formatPdfTimestamp(now);
         const submittedDateStr = payload.submittedAt
-            ? new Date(payload.submittedAt).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
+            ? (/^\d{4}-\d{2}-\d{2}$/.test(String(payload.submittedAt).trim())
+                ? formatPdfDateOnly(payload.submittedAt)
+                : formatPdfTimestamp(payload.submittedAt))
             : generatedDateStr;
 
         const contact = payload.contact || {};
@@ -324,6 +365,7 @@ export class SurveyReportGenerator {
         // PAGE 2: PHQ-9, GAD-7, ISI-K 상세 내역
         // =========================================================================
         doc.addPage();
+        doc.setFont('NotoSansKR', 'normal');
         doc.setDrawColor(44, 62, 80);
         doc.setLineWidth(0.8);
         doc.rect(12, 12, 186, 273);
@@ -420,6 +462,7 @@ export class SurveyReportGenerator {
         // PAGE 3: BEPSI-K, SBQ-R 상세 및 안전 고지문
         // =========================================================================
         doc.addPage();
+        doc.setFont('NotoSansKR', 'normal');
         doc.setDrawColor(44, 62, 80);
         doc.setLineWidth(0.8);
         doc.rect(12, 12, 186, 273);
@@ -577,11 +620,6 @@ export class SurveyReportGenerator {
         doc.text('4. 본 문서는 개인정보보호법에 의거하여 비밀이 엄격히 보장되며, 승인된 목적 외 무단 열람·유출·복제를 엄금합니다.', 24, 228);
         doc.text('5. 자살 위험 신호(SBQ-R 기준점 이상 등)가 관찰되는 경우 기관 긴급위기대응 매뉴얼에 따라 즉시 연계 조치합니다.', 24, 235);
 
-        // Output Buffer
-        const arrayBuf = doc.output('arraybuffer');
-        const buffer = Buffer.from(arrayBuf);
-        const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
-
         // Neutral physical filename: survey-report_<UUID>.pdf
         const reportUuid = crypto.randomUUID();
         const filename = `survey-report_${reportUuid}.pdf`;
@@ -590,8 +628,18 @@ export class SurveyReportGenerator {
         doc.setFontSize(7.5);
         doc.setTextColor(148, 163, 184);
         doc.text(`발급기관: ${this.institutionName} (${this.centerEnglish}) | [3 / 3 페이지]`, 18, 260);
-        doc.text(`전자 발급 무결성 해시: ${fileHash}`, 18, 265);
-        doc.text(`발급자 ID: ${actorId} | 처리엔진: ${this.systemName} v3.1 | 문서식별자: ${reportUuid}`, 18, 270);
+        doc.text(`발급자 ID: ${actorId} | 처리엔진: ${this.systemName} v3.1 | 문서식별자: ${reportUuid}`, 18, 265);
+
+        // Output Buffer
+        const arrayBuf = doc.output('arraybuffer');
+        const buffer = Buffer.from(arrayBuf);
+
+        // Verification: ensure font was successfully embedded (OTF/TTF embedding produces >50KB)
+        if (!buffer || buffer.length < 50000) {
+            throw new Error(`KOREAN_FONT_LOAD_FAILED: PDF buffer verification failed (size: ${buffer?.length} bytes). Font embedding or rendering failed.`);
+        }
+
+        const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
 
         return {
             buffer,

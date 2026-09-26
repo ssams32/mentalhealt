@@ -1,0 +1,25 @@
+Noto Sans KR Font Notice
+=========================
+
+1. Font Family & File
+- File: NotoSansKR[wght].ttf (Variable TrueType Font)
+- Format: TrueType (.ttf) with glyf/loca tables
+
+2. Upstream Source & Metadata
+- Official Repository: https://github.com/google/fonts
+- Exact Source Path: ofl/notosanskr/NotoSansKR[wght].ttf
+- Download Date: 2026-09-26
+- Git Blob SHA: b386890ba945e1f39448a6b59f20c5d194f58808
+- File SHA-256: 194018E6B2B293A7964F037B25C0249CE1418BC9AB3C971060A03AA57861E252
+- Unmodified File: YES (Directly fetched from official google/fonts repository)
+
+3. Copyright & License
+- Copyright 2020 The Noto Project Authors (https://github.com/googlefonts/noto-cjk)
+- License: SIL Open Font License, Version 1.1 (OFL-1.1)
+- License Text: See ./OFL.txt (SHA-256: 1C05C68C34F9708415AADA51F17E1B0092D2CEA709BF4A94CD38114F9E73D7D9)
+
+4. Compliance & Usage Notes
+- This font software is bundled and embedded into screening report PDF documents.
+- In accordance with OFL-1.1 Section 1, documents created using this font do not fall under requirements to be licensed under OFL.
+- In accordance with OFL-1.1 Section 2, the font software is bundled with copyright notices and the official OFL.txt file.
+- The font software is distributed free of charge and is not sold by itself.
