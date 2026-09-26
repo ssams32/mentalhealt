@@ -729,9 +729,6 @@ surveyImportService.recoverPendingWorkflows('startup_recovery').catch(err => {
     console.error('⚠️ [SURVEY_STARTUP_RECOVERY_ERROR]:', err.message);
 });
 
-// Schedule automatic 30-day retention purge (Daily at 03:30 Asia/Seoul)
-scheduleNextRetentionPurge(surveyRepository, surveyAuditLogger);
-
 // In development/local mock mode, if SurveySubmissions is empty, auto-import seeded synthetic records
 // STRICT ENFORCEMENT: Never seed synthetic records in staging or production mode!
 if (surveyTrackAMode === 'mock' && process.env.NODE_ENV !== 'production') {
@@ -1379,6 +1376,10 @@ export function scheduleNextRetentionPurge(surveyRepo, auditLogFn) {
 
     return { nextRunDate, delayMs };
 }
+
+// Schedule automatic 30-day retention purge (Daily at 03:30 Asia/Seoul)
+// Initialized after surveyRepository, surveyAuditLogger, and scheduler declarations are fully evaluated
+scheduleNextRetentionPurge(surveyRepository, surveyAuditLogger);
 
 // Attachment streaming endpoint (supports inline PDF preview, strictly guarded and audited)
 app.get('/attachments/:folder/:file', requireAuth, async (req, res) => {
