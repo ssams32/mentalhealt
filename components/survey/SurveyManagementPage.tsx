@@ -50,7 +50,8 @@ import {
     ArrowUpDown,
     UserMinus,
     Layers,
-    Users
+    Users,
+    Maximize2
 } from 'lucide-react';
 import { formatKstDateTime, getKstPresetDateStrings } from '../../server/survey/kstUtils.js';
 
@@ -84,6 +85,38 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     const [loading, setLoading] = useState<boolean>(true);
     const [importing, setImporting] = useState<boolean>(false);
     const [retryingDeletions, setRetryingDeletions] = useState<boolean>(false);
+
+    // --- State: Survey Automation & Sync Progress ---
+    const [syncProgress, setSyncProgress] = useState<{
+        isOpen: boolean;
+        isSyncing: boolean;
+        imported: number;
+        failed: number;
+        reused: number;
+        total: number;
+        stopReason?: string;
+        message?: string;
+    }>({
+        isOpen: false,
+        isSyncing: false,
+        imported: 0,
+        failed: 0,
+        reused: 0,
+        total: 0
+    });
+
+    const [autoSyncStatus, setAutoSyncStatus] = useState<{
+        autoSyncEnabled: boolean;
+        intervalMinutes: number;
+        batchSize: number;
+        maxItems: number;
+        isRunning: boolean;
+        lastSyncAt: string | null;
+        lastResult: string | null;
+        nextScheduledAt: string | null;
+        lastImportedCount: number;
+        lastFailedCount: number;
+    } | null>(null);
 
     // --- State: View & Tabs ---
     const [mainTab, setMainTab] = useState<MainTab>('applicants');
@@ -120,6 +153,15 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     const [submissionDetail, setSubmissionDetail] = useState<any | null>(null);
     const [loadingDetail, setLoadingDetail] = useState<boolean>(false);
     const [isMobileDetailOpen, setIsMobileDetailOpen] = useState<boolean>(false);
+
+    // --- State: Responsive Large Detail & Assignment Modal (P0 UX Improvement) ---
+    const [isLargeDetailModalOpen, setIsLargeDetailModalOpen] = useState<boolean>(false);
+    const [detailActiveTab, setDetailActiveTab] = useState<'basic' | 'scales' | 'pdf' | 'assignment'>('basic');
+    const [detailSelectedStaffId, setDetailSelectedStaffId] = useState<string>('');
+    const [detailSelectedPriority, setDetailSelectedPriority] = useState<'NORMAL' | 'PRIORITY_REVIEW' | 'IMMEDIATE_REVIEW'>('NORMAL');
+    const [detailAssignReason, setDetailAssignReason] = useState<string>('');
+    const [isDetailAssigning, setIsDetailAssigning] = useState<boolean>(false);
+    const [detailAssignFeedback, setDetailAssignFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
     // --- State: Modals ---
     // 1. Staff Assign Modal
@@ -185,7 +227,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     const loadData = useCallback(async (preserveSelectionId?: string | null) => {
         try {
             setLoading(true);
-            const [statusRes, importsRes, staffRes] = await Promise.all([
+            const [statusRes, importsRes, staffRes, syncRes] = await Promise.all([
                 apiClient.getSurveyStatus(),
                 apiClient.getSurveyImports({
                     fromDate: appliedDateFrom || undefined,
@@ -195,12 +237,16 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     staffFilter: staffFilter !== 'all' ? staffFilter : undefined,
                     q: searchQuery || undefined
                 }),
-                apiClient.getSurveyAssignableStaff().catch(() => ({ staff: [] }))
+                apiClient.getSurveyAssignableStaff().catch(() => ({ staff: [] })),
+                apiClient.getSurveySyncStatus().catch(() => null)
             ]);
             setStatusSummary(statusRes);
             const list = importsRes?.imports || [];
             setImports(list);
             setAssignableStaff(staffRes?.staff || []);
+            if (syncRes && syncRes.success) {
+                setAutoSyncStatus(syncRes);
+            }
 
             // Set initial selected submission
             const targetId = preserveSelectionId !== undefined
@@ -254,20 +300,57 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         return () => { isCancelled = true; };
     }, [selectedSubmissionId]);
 
-    // --- Action: Manual Survey Import ---
+    // --- Action: Manual Survey Import (Drain All Pending Safely) ---
     const handleImportClick = async () => {
-        if (importing) return;
+        if (importing || syncProgress.isSyncing) return;
         try {
             setImporting(true);
-            const res = await apiClient.importOnlineSurveys(50);
-            if (res.success) {
+            setSyncProgress({
+                isOpen: true,
+                isSyncing: true,
+                imported: 0,
+                failed: 0,
+                reused: 0,
+                total: 0,
+                message: '온라인 설문을 안전하게 동기화하고 있습니다...'
+            });
+
+            const res = await apiClient.importOnlineSurveys({ batchSize: 10, maxItems: 200 });
+            if (res.success && res.summary) {
+                const s = res.summary;
+                const imp = s.imported ?? 0;
+                const fld = s.failed ?? s.quarantined ?? 0;
+                const rsd = s.reused ?? s.duplicates ?? 0;
+                const tot = s.discovered ?? s.totalFetched ?? (imp + fld + rsd);
+
+                setSyncProgress({
+                    isOpen: true,
+                    isSyncing: false,
+                    imported: imp,
+                    failed: fld,
+                    reused: rsd,
+                    total: tot,
+                    stopReason: s.stopReason || '동기화 완료',
+                    message: `동기화 완료: 신규 수신 ${imp}건, 재사용/중복 ${rsd}건, 오류/격리 ${fld}건 (총 ${tot}건 처리)`
+                });
+
                 if (showToast) {
-                    showToast(`설문 수신 완료: 신규 ${res.summary.imported}건, 중복 ${res.summary.duplicates}건, 격리 ${res.summary.quarantined}건`, 'success');
+                    showToast(`설문 동기화 완료: 신규 ${imp}건, 재사용 ${rsd}건, 오류/격리 ${fld}건`, 'success');
                 }
-                await loadData();
+                await loadData(selectedSubmissionId);
+                if (refreshSidebarBadge) refreshSidebarBadge();
             }
         } catch (err: any) {
-            const msg = err.message || '가져오기 중 오류가 발생했습니다.';
+            const isRunning = err.code === 'IMPORT_ALREADY_IN_PROGRESS' || err.code === 'IMPORT_ALREADY_RUNNING';
+            const msg = isRunning
+                ? '현재 다른 설문 동기화 작업이 진행 중입니다. 잠시 후 다시 확인해 주세요.'
+                : (err.message || '설문 동기화 중 오류가 발생했습니다.');
+
+            setSyncProgress(prev => ({
+                ...prev,
+                isSyncing: false,
+                message: `오류 발생: ${msg}`
+            }));
             if (showToast) showToast(msg, 'error');
         } finally {
             setImporting(false);
@@ -351,6 +434,126 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             const msg = err.message || '담당자 배정 취소에 실패했습니다.';
             if (showToast) showToast(msg, 'error');
         }
+    };
+
+    // --- Helper: Age Calculation (Korean completed age from birthDate relative to submittedAt in Asia/Seoul) ---
+    const calculateCompletedAge = useCallback((birthDateStr?: string, submittedAtStr?: string): string => {
+        if (!birthDateStr || typeof birthDateStr !== 'string') return '-';
+        const match = birthDateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (!match) return '-';
+        const bYear = parseInt(match[1], 10);
+        const bMonth = parseInt(match[2], 10);
+        const bDay = parseInt(match[3], 10);
+
+        let subYear: number, subMonth: number, subDay: number;
+        if (submittedAtStr) {
+            const subDate = new Date(submittedAtStr);
+            if (isNaN(subDate.getTime())) return '-';
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Asia/Seoul',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            }).format(subDate).split('-');
+            subYear = parseInt(parts[0], 10);
+            subMonth = parseInt(parts[1], 10);
+            subDay = parseInt(parts[2], 10);
+        } else {
+            const now = new Date();
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Asia/Seoul',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            }).format(now).split('-');
+            subYear = parseInt(parts[0], 10);
+            subMonth = parseInt(parts[1], 10);
+            subDay = parseInt(parts[2], 10);
+        }
+
+        let age = subYear - bYear;
+        if (subMonth < bMonth || (subMonth === bMonth && subDay < bDay)) {
+            age--;
+        }
+        if (age < 0 || age > 130) return '-';
+        return `만 ${age}세`;
+    }, []);
+
+    // Synchronize large detail modal assignment inputs when selected item changes
+    useEffect(() => {
+        if (currentSelectedItem) {
+            setDetailSelectedStaffId(currentSelectedItem.assignedUserId || (assignableStaff[0]?.id || ''));
+            setDetailSelectedPriority(currentSelectedItem.assignmentPriority || 'NORMAL');
+            setDetailAssignReason('');
+            setDetailAssignFeedback(null);
+        }
+    }, [currentSelectedItem, assignableStaff]);
+
+    // Body scroll lock & Escape key listener for Large Detail Modal
+    useEffect(() => {
+        if (!isLargeDetailModalOpen) return;
+        const prevOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setIsLargeDetailModalOpen(false);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.body.style.overflow = prevOverflow;
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [isLargeDetailModalOpen]);
+
+    // Action: Assign/Reassign from inside Large Detail Modal
+    const handleLargeDetailAssign = async () => {
+        if (!currentSelectedItem || !detailSelectedStaffId) return;
+        const isReassign = Boolean(currentSelectedItem.assignedUserId);
+        const targetStaff = assignableStaff.find(s => s.id === detailSelectedStaffId);
+        const staffName = targetStaff ? getStaffOptionLabel(targetStaff, assignableStaff) : detailSelectedStaffId;
+        const confirmMsg = isReassign
+            ? `담당자를 '${getStaffDisplayName(currentSelectedItem.assignedUserId)}'에서 '${staffName}'(으)로 재배정하시겠습니까?`
+            : `담당자를 '${staffName}'(으)로 배정하시겠습니까?`;
+
+        if (!window.confirm(confirmMsg)) return;
+
+        try {
+            setIsDetailAssigning(true);
+            setDetailAssignFeedback(null);
+            const payload = {
+                assignedUserId: detailSelectedStaffId,
+                assignedDepartmentId: targetStaff?.team || '',
+                assignmentPriority: detailSelectedPriority,
+                expectedVersion: currentSelectedItem.version,
+                reason: detailAssignReason || (isReassign ? '상세화면 재배정' : '상세화면 신규 배정')
+            };
+
+            const res = isReassign
+                ? await apiClient.reassignSurveyStaff(currentSelectedItem.submissionId, payload)
+                : await apiClient.assignSurveyStaff(currentSelectedItem.submissionId, payload);
+
+            if (res.success) {
+                setDetailAssignFeedback({ type: 'success', message: `${staffName} 님에게 성공적으로 배정되었습니다.` });
+                if (showToast) showToast('담당자 배정이 완료되었습니다.', 'success');
+                await loadData(currentSelectedItem.submissionId);
+            } else {
+                throw new Error(res.error?.message || '배정에 실패했습니다.');
+            }
+        } catch (err: any) {
+            const msg = err.message || '담당자 배정 중 오류가 발생했습니다.';
+            setDetailAssignFeedback({ type: 'error', message: msg });
+            if (showToast) showToast(msg, 'error');
+        } finally {
+            setIsDetailAssigning(false);
+        }
+    };
+
+    // Action: Unassign from inside Large Detail Modal
+    const handleLargeDetailUnassign = async () => {
+        if (!currentSelectedItem) return;
+        await handleUnassign(currentSelectedItem);
+        setDetailAssignFeedback({ type: 'success', message: '담당자 배정이 취소되었습니다.' });
     };
 
     // --- Action: Date Range Filter & Presets ---
@@ -1228,20 +1431,32 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                         <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-teal-600' : ''}`} />
                     </button>
 
+                    {/* Auto Sync Indicator Badge */}
+                    {autoSyncStatus && (
+                        <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600 shadow-xs">
+                            <span className={`w-2 h-2 rounded-full ${autoSyncStatus.autoSyncEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                            <span>자동 동기화: <strong>{autoSyncStatus.autoSyncEnabled ? `활성 (${autoSyncStatus.intervalMinutes}분 주기)` : '비활성'}</strong></span>
+                            {autoSyncStatus.lastSyncAt && (
+                                <span className="text-slate-400">• 최근: {formatKstDateTime(autoSyncStatus.lastSyncAt, 'short')}</span>
+                            )}
+                        </div>
+                    )}
+
                     <button
                         onClick={handleImportClick}
-                        disabled={importing || (statusSummary?.isImportRunning ?? false)}
-                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white text-xs font-bold rounded-xl shadow-md hover:shadow-lg disabled:opacity-50 transition"
+                        disabled={importing || (statusSummary?.isImportRunning ?? false) || syncProgress.isSyncing}
+                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white text-xs font-bold rounded-xl shadow-md hover:shadow-lg disabled:opacity-50 transition cursor-pointer"
+                        title="대기 중인 모든 온라인 설문을 안전하게 순차 동기화합니다"
                     >
-                        {importing ? (
+                        {importing || syncProgress.isSyncing ? (
                             <>
                                 <RefreshCw className="w-4 h-4 animate-spin" />
-                                설문 수신 중...
+                                동기화 진행 중...
                             </>
                         ) : (
                             <>
                                 <Download className="w-4 h-4" />
-                                신규 설문 수신 실행
+                                지금 동기화
                             </>
                         )}
                     </button>
@@ -1741,6 +1956,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 onClick={() => {
                                                     setSelectedSubmissionId(item.submissionId);
                                                     setIsMobileDetailOpen(true);
+                                                    setIsLargeDetailModalOpen(true);
                                                 }}
                                                 className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-left relative ${
                                                     isSelected
@@ -1844,6 +2060,19 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                                 리포트 대기
                                                             </span>
                                                         )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSelectedSubmissionId(item.submissionId);
+                                                                setIsLargeDetailModalOpen(true);
+                                                            }}
+                                                            className="px-2 py-0.5 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md border border-indigo-200 transition flex items-center gap-1 shrink-0"
+                                                            title="상세·배정 대형 창 열기"
+                                                        >
+                                                            <Maximize2 className="w-3 h-3" />
+                                                            상세검토
+                                                        </button>
                                                         <ChevronRight className="w-4 h-4 text-slate-400" />
                                                     </div>
                                                 </div>
@@ -2011,7 +2240,16 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         </div>
 
                                         {/* Action Buttons Bar */}
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsLargeDetailModalOpen(true)}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm hover:shadow transition"
+                                                title="대형 모달 창으로 전체 상세 정보와 담당자 배정 인터페이스 열기"
+                                            >
+                                                <Maximize2 className="w-3.5 h-3.5" />
+                                                대형 화면 검토·배정
+                                            </button>
                                             {currentUser.role === 'admin' && (
                                                 <button
                                                     onClick={() => handleOpenDeleteSubjectModal(currentSelectedItem)}
@@ -2752,6 +2990,612 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             {/* MODALS                                                                    */}
             {/* ========================================================================= */}
 
+            {/* 0. Responsive Large Detail & Assignment Modal (P0 UX Improvement) */}
+            {isLargeDetailModalOpen && currentSelectedItem && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="large-detail-modal-title"
+                    className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-0 md:p-4 lg:p-6 overflow-hidden animate-in fade-in duration-150"
+                >
+                    <div className="w-full md:w-[min(96vw,1440px)] h-full md:h-[min(92vh,1000px)] max-h-none md:max-h-[min(92vh,1000px)] bg-white md:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 text-left animate-in zoom-in-95 duration-150">
+                        {/* Sticky Header */}
+                        <div className="px-5 py-3.5 md:px-6 md:py-4 border-b border-slate-200 bg-slate-50/95 backdrop-blur-sm flex items-center justify-between gap-4 shrink-0">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-10 h-10 rounded-2xl bg-teal-100/80 text-teal-700 flex items-center justify-center shrink-0 shadow-xs">
+                                    <ClipboardList className="w-5 h-5" />
+                                </div>
+                                <div className="min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <h2 id="large-detail-modal-title" className="text-base md:text-xl font-black text-slate-900 truncate">
+                                            {submissionDetail?.submission?.contact?.clientName || currentSelectedItem.maskedClientName} 님 상세·배정 검토
+                                        </h2>
+                                        {renderPriorityBadge(currentSelectedItem.assignmentPriority)}
+                                        {renderStatusBadge(currentSelectedItem.consultationStatus, currentSelectedItem.isSbqrQuarantined)}
+                                        {currentSelectedItem.assignedUserId ? (
+                                            <span className="px-2.5 py-0.5 bg-indigo-50 border border-indigo-200 rounded-full text-xs font-bold text-indigo-700 flex items-center gap-1">
+                                                <UserCheck className="w-3.5 h-3.5" />
+                                                배정: {getStaffDisplayName(currentSelectedItem.assignedUserId)}
+                                            </span>
+                                        ) : (
+                                            <span className="px-2.5 py-0.5 bg-amber-50 border border-amber-200 rounded-full text-xs font-bold text-amber-700 flex items-center gap-1">
+                                                <UserX className="w-3.5 h-3.5" />
+                                                미배정
+                                            </span>
+                                        )}
+                                        {(() => {
+                                            const exp = getExpiryInfo(currentSelectedItem.retentionUntil);
+                                            if (!exp) return null;
+                                            return (
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border flex items-center gap-1 ${
+                                                    exp.isUrgent ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200'
+                                                }`}>
+                                                    <AlertTriangle className="w-3 h-3" />
+                                                    {exp.label}
+                                                </span>
+                                            );
+                                        })()}
+                                    </div>
+                                    <div className="text-xs text-slate-500 font-medium mt-0.5 flex items-center gap-2 flex-wrap">
+                                        <span>접수 ID: <span className="font-mono text-slate-700 font-bold">{currentSelectedItem.submissionId}</span></span>
+                                        <span>• 접수일시: <strong>{formatKstDateTime(currentSelectedItem.submittedAt || currentSelectedItem.importedAt, 'detail')}</strong></span>
+                                        {currentSelectedItem.refNo && (
+                                            <span>• 의뢰번호: <strong className="text-indigo-600 font-mono">{currentSelectedItem.refNo}</strong></span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => setIsLargeDetailModalOpen(false)}
+                                className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 rounded-xl transition shrink-0"
+                                aria-label="상세 창 닫기"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Navigation Tabs Bar */}
+                        <div className="px-4 md:px-6 pt-2 bg-slate-50/90 border-b border-slate-200 flex gap-1.5 shrink-0 overflow-x-auto custom-scrollbar">
+                            <button
+                                type="button"
+                                onClick={() => setDetailActiveTab('basic')}
+                                className={`px-4 py-2.5 rounded-t-xl text-xs md:text-sm font-bold flex items-center gap-2 transition border-b-2 whitespace-nowrap min-h-[44px] ${
+                                    detailActiveTab === 'basic'
+                                        ? 'bg-white text-teal-700 border-teal-600 shadow-xs'
+                                        : 'text-slate-600 hover:text-slate-900 border-transparent hover:bg-slate-100/60'
+                                }`}
+                            >
+                                <UserCheck className="w-4 h-4 text-teal-600" />
+                                기본정보 및 상담신청
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setDetailActiveTab('scales')}
+                                className={`px-4 py-2.5 rounded-t-xl text-xs md:text-sm font-bold flex items-center gap-2 transition border-b-2 whitespace-nowrap min-h-[44px] ${
+                                    detailActiveTab === 'scales'
+                                        ? 'bg-white text-indigo-700 border-indigo-600 shadow-xs'
+                                        : 'text-slate-600 hover:text-slate-900 border-transparent hover:bg-slate-100/60'
+                                }`}
+                            >
+                                <Brain className="w-4 h-4 text-indigo-600" />
+                                선별 검사결과 ({currentSelectedItem.assessmentId.toUpperCase()})
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setDetailActiveTab('pdf')}
+                                className={`px-4 py-2.5 rounded-t-xl text-xs md:text-sm font-bold flex items-center gap-2 transition border-b-2 whitespace-nowrap min-h-[44px] ${
+                                    detailActiveTab === 'pdf'
+                                        ? 'bg-white text-emerald-700 border-emerald-600 shadow-xs'
+                                        : 'text-slate-600 hover:text-slate-900 border-transparent hover:bg-slate-100/60'
+                                }`}
+                            >
+                                <FileText className="w-4 h-4 text-emerald-600" />
+                                공문 리포트 (A4 PDF)
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setDetailActiveTab('assignment')}
+                                className={`px-4 py-2.5 rounded-t-xl text-xs md:text-sm font-bold flex items-center gap-2 transition border-b-2 whitespace-nowrap min-h-[44px] ${
+                                    detailActiveTab === 'assignment'
+                                        ? 'bg-white text-indigo-700 border-indigo-600 shadow-xs'
+                                        : 'text-slate-600 hover:text-slate-900 border-transparent hover:bg-slate-100/60'
+                                }`}
+                            >
+                                <UserPlus className="w-4 h-4 text-indigo-600" />
+                                담당 직원 배정 및 관리
+                            </button>
+                        </div>
+
+                        {/* Scrollable Tab Content Area */}
+                        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar">
+                            {/* TAB 1: 기본정보 및 상담신청 */}
+                            {detailActiveTab === 'basic' && (
+                                <div className="space-y-5 animate-in fade-in duration-100">
+                                    <div className="bg-slate-50/70 rounded-2xl border border-slate-200 p-5">
+                                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                            <UserCheck className="w-4 h-4 text-teal-600" />
+                                            신청자 인적사항
+                                        </h3>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                            <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-xs">
+                                                <span className="text-[11px] font-bold text-slate-400 block mb-1">성명</span>
+                                                <span className="text-base font-black text-slate-900">
+                                                    {submissionDetail?.submission?.contact?.clientName || currentSelectedItem.maskedClientName}
+                                                </span>
+                                            </div>
+                                            <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-xs">
+                                                <span className="text-[11px] font-bold text-slate-400 block mb-1">연락처</span>
+                                                <span className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                                                    <Phone className="w-3.5 h-3.5 text-slate-400" />
+                                                    {submissionDetail?.submission?.contact?.phone || currentSelectedItem.maskedPhone}
+                                                </span>
+                                            </div>
+                                            <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-xs">
+                                                <span className="text-[11px] font-bold text-slate-400 block mb-1">지역 (거주지)</span>
+                                                <span className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                                                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                                                    {submissionDetail?.submission?.contact?.region || currentSelectedItem.region || '이천시'}
+                                                </span>
+                                            </div>
+                                            <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-xs">
+                                                <span className="text-[11px] font-bold text-slate-400 block mb-1">성별 / 생년월일 / 연령</span>
+                                                <div className="text-sm font-bold text-slate-900">
+                                                    <span>{submissionDetail?.submission?.contact?.gender || '미입력'} / {submissionDetail?.submission?.contact?.birthDate || '미입력'}</span>
+                                                    <span className="ml-1 text-xs text-indigo-600 font-black">
+                                                        ({calculateCompletedAge(submissionDetail?.submission?.contact?.birthDate, currentSelectedItem.submittedAt || currentSelectedItem.importedAt)})
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Counseling Note Text */}
+                                    <div className="bg-slate-50/70 rounded-2xl border border-slate-200 p-5">
+                                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                            <FileText className="w-4 h-4 text-slate-500" />
+                                            상담 신청 사유 및 주 호소 내용
+                                        </h3>
+                                        <div className="p-4 bg-white rounded-xl border border-slate-200 text-sm text-slate-800 leading-relaxed whitespace-pre-wrap font-medium shadow-xs">
+                                            {submissionDetail?.submission?.contact?.counselingRequestText ||
+                                                currentSelectedItem.counselingRequestText ||
+                                                '작성된 상담 신청 메모가 없습니다.'}
+                                        </div>
+                                    </div>
+
+                                    {/* Consent Status */}
+                                    <div className="p-4 bg-white rounded-xl border border-slate-200 flex items-center gap-4 text-xs font-medium text-slate-600 flex-wrap">
+                                        <span className="flex items-center gap-1.5 text-emerald-700 font-bold">
+                                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                            개인정보 수집 및 이용 동의 완료
+                                        </span>
+                                        {currentSelectedItem.contactOnly ? (
+                                            <span className="flex items-center gap-1.5 text-slate-500 font-medium">
+                                                <AlertCircle className="w-4 h-4 text-slate-400" />
+                                                민감정보 미동의 (접촉 전용)
+                                            </span>
+                                        ) : (
+                                            <span className="flex items-center gap-1.5 text-emerald-700 font-bold">
+                                                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                                민감정보(검사결과) 처리 동의 완료
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* TAB 2: 검사결과 및 위험도 */}
+                            {detailActiveTab === 'scales' && (
+                                <div className="space-y-5 animate-in fade-in duration-100">
+                                    {currentSelectedItem.contactOnly ? (
+                                        <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 text-slate-600 text-sm flex items-center gap-3">
+                                            <AlertCircle className="w-6 h-6 text-slate-400 shrink-0" />
+                                            <div>
+                                                <strong className="block text-slate-800 mb-1">접촉 전용 접수 건</strong>
+                                                내담자가 민감정보 처리에 동의하지 않아 온라인 자가검사 결과가 등록되지 않았습니다. 기본 연락처 기반의 초기면접 접촉을 진행해 주세요.
+                                            </div>
+                                        </div>
+                                    ) : currentSelectedItem.isSbqrQuarantined ? (
+                                        <div className="p-6 bg-purple-50 rounded-2xl border border-purple-200 text-purple-900 text-sm flex items-center gap-3">
+                                            <ShieldAlert className="w-8 h-8 text-purple-600 shrink-0" />
+                                            <div>
+                                                <strong className="text-purple-900 text-base block mb-1">SBQ-R 임상 안전 게이트 격리 보호 중</strong>
+                                                본 건은 자살 관련 척도(SBQ-R)를 포함하고 있어 기관 승인 프로토콜에 따라 자동 의뢰 연계가 보류되고 격리 보관되었습니다. 총점 및 세부 응답은 사전 승인 없이 노출되지 않습니다.
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            {(() => {
+                                                const nested = submissionDetail?.submission?.assessment?.scaleScores || submissionDetail?.submission?.assessment?.scales;
+                                                const phq = nested?.['phq-9'] || nested?.phq9;
+                                                const gad = nested?.['gad-7'] || nested?.gad7;
+                                                const isi = nested?.['isi-k'] || nested?.isik;
+                                                const bepsi = nested?.['bepsi-k'] || nested?.bepsik;
+                                                const sbqr = nested?.['sbq-r'] || nested?.sbqr;
+                                                const has5Scales = Boolean(phq && gad && isi && bepsi && sbqr);
+
+                                                if (has5Scales) {
+                                                    return (
+                                                        <div className="space-y-4">
+                                                            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                                                                <span className="text-sm font-black text-slate-800">Track A 5대 선별검사 도메인별 종합 결과 (32문항)</span>
+                                                                <span className="text-xs font-bold px-2.5 py-1 bg-indigo-100 text-indigo-800 rounded-lg">5개 도메인 완료</span>
+                                                            </div>
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                                {/* 1. PHQ-9 */}
+                                                                <div className="p-4 rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50/70 to-white shadow-xs">
+                                                                    <div className="flex items-center justify-between mb-2">
+                                                                        <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                                                                            <Activity className="w-4 h-4 text-blue-600" />
+                                                                            우울 건강선별 (PHQ-9)
+                                                                        </span>
+                                                                        <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded">9문항</span>
+                                                                    </div>
+                                                                    <div className="flex items-baseline gap-2 my-2">
+                                                                        <span className="text-3xl font-black text-slate-900">{phq.totalScore ?? '-'}</span>
+                                                                        <span className="text-xs text-slate-500 font-bold">점</span>
+                                                                    </div>
+                                                                    <div className="text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-100">
+                                                                        판정: {phq.severity || '평가 완료'}
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* 2. GAD-7 */}
+                                                                <div className="p-4 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50/70 to-white shadow-xs">
+                                                                    <div className="flex items-center justify-between mb-2">
+                                                                        <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                                                                            <Activity className="w-4 h-4 text-emerald-600" />
+                                                                            불안 선별도구 (GAD-7)
+                                                                        </span>
+                                                                        <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">7문항</span>
+                                                                    </div>
+                                                                    <div className="flex items-baseline gap-2 my-2">
+                                                                        <span className="text-3xl font-black text-slate-900">{gad.totalScore ?? '-'}</span>
+                                                                        <span className="text-xs text-slate-500 font-bold">점</span>
+                                                                    </div>
+                                                                    <div className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-100">
+                                                                        판정: {gad.severity || '평가 완료'}
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* 3. ISI-K */}
+                                                                <div className="p-4 rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50/70 to-white shadow-xs">
+                                                                    <div className="flex items-center justify-between mb-2">
+                                                                        <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                                                                            <Moon className="w-4 h-4 text-indigo-600" />
+                                                                            불면증 심각도 (ISI-K)
+                                                                        </span>
+                                                                        <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded">7문항</span>
+                                                                    </div>
+                                                                    <div className="flex items-baseline gap-2 my-2">
+                                                                        <span className="text-3xl font-black text-slate-900">{isi.totalScore ?? '-'}</span>
+                                                                        <span className="text-xs text-slate-500 font-bold">점</span>
+                                                                    </div>
+                                                                    <div className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1.5 rounded-lg border border-indigo-100">
+                                                                        판정: {isi.severity || '평가 완료'}
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* 4. BEPSI-K */}
+                                                                <div className="p-4 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/70 to-white shadow-xs">
+                                                                    <div className="flex items-center justify-between mb-2">
+                                                                        <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                                                                            <Flame className="w-4 h-4 text-amber-600" />
+                                                                            스트레스 척도 (BEPSI-K)
+                                                                        </span>
+                                                                        <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-800 rounded">5문항</span>
+                                                                    </div>
+                                                                    <div className="flex items-baseline gap-2 my-2">
+                                                                        <span className="text-3xl font-black text-slate-900">{bepsi.totalScore ?? '-'}</span>
+                                                                        <span className="text-xs text-slate-500 font-bold">점 (평균: {bepsi.meanScore || '-'})</span>
+                                                                    </div>
+                                                                    <div className="text-xs font-bold text-amber-800 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-100">
+                                                                        판정: {bepsi.severity || '평가 완료'}
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* 5. SBQ-R */}
+                                                                <div className="p-4 rounded-2xl border border-rose-200 bg-gradient-to-br from-rose-50/70 to-white shadow-xs">
+                                                                    <div className="flex items-center justify-between mb-2">
+                                                                        <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                                                                            <ShieldAlert className="w-4 h-4 text-rose-600" />
+                                                                            자살행동 척도 (SBQ-R)
+                                                                        </span>
+                                                                        <span className="text-[10px] font-bold px-2 py-0.5 bg-rose-100 text-rose-800 rounded">4문항</span>
+                                                                    </div>
+                                                                    <div className="flex items-baseline gap-2 my-2">
+                                                                        <span className="text-3xl font-black text-slate-900">{sbqr.totalScore ?? '-'}</span>
+                                                                        <span className="text-xs text-slate-500 font-bold">점</span>
+                                                                    </div>
+                                                                    <div className="text-xs font-bold text-rose-800 bg-rose-50 px-2.5 py-1.5 rounded-lg border border-rose-100">
+                                                                        선별: {Number(sbqr.totalScore) >= 7 ? '임상 확인 요망' : '기준점 미만'}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }
+
+                                                return (
+                                                    <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200">
+                                                        <h4 className="text-sm font-black text-slate-800 mb-2">척도 종합 평가 결과</h4>
+                                                        <div className="flex items-center gap-4">
+                                                            <div className="text-3xl font-black text-slate-900">
+                                                                {currentSelectedItem.totalScore ?? '-'}점
+                                                            </div>
+                                                            <div className="px-3 py-1.5 rounded-xl bg-teal-100 text-teal-900 text-xs font-bold">
+                                                                판정: {currentSelectedItem.severity || '정상 검진 완료'}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })()}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* TAB 3: PDF 리포트 바로보기 */}
+                            {detailActiveTab === 'pdf' && (
+                                <div className="space-y-5 animate-in fade-in duration-100">
+                                    <div className="bg-slate-50/80 rounded-2xl border border-slate-200 p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                                        <div>
+                                            <div className="flex items-center gap-2 mb-1.5">
+                                                <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                                                    <FileText className="w-5 h-5 text-emerald-600" />
+                                                    공문 서식 종합 결과보고서 (A4 PDF)
+                                                </h3>
+                                                <span className={`text-xs font-bold px-2.5 py-0.5 rounded-md ${
+                                                    currentSelectedItem.hasReport ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'
+                                                }`}>
+                                                    {currentSelectedItem.hasReport ? '리포트 준비 완료' : '리포트 대기'}
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-slate-500 font-mono">
+                                                파일명: {currentSelectedItem.reportAttachment?.name || '온라인 마음건강 검진 결과보고서.pdf'}
+                                            </p>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (!currentSelectedItem.hasReport) {
+                                                    const errMsg = '검사결과 리포트를 찾을 수 없습니다.';
+                                                    if (showToast) showToast(errMsg, 'error');
+                                                    else alert(errMsg);
+                                                    return;
+                                                }
+                                                const reportUrl = `/api/surveys/submissions/${encodeURIComponent(currentSelectedItem.submissionId)}/report`;
+                                                setPreviewFile({
+                                                    id: `att_${currentSelectedItem.submissionId}`,
+                                                    name: currentSelectedItem.reportAttachment?.name || '온라인 마음건강 검진 결과보고서.pdf',
+                                                    type: 'application/pdf',
+                                                    url: reportUrl
+                                                });
+                                            }}
+                                            className="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-md hover:shadow transition flex items-center gap-2 shrink-0 min-h-[44px]"
+                                        >
+                                            <Eye className="w-4 h-4" />
+                                            결과보고서 바로보기 (PDF 뷰어)
+                                        </button>
+                                    </div>
+                                    {currentSelectedItem.hasReport ? (
+                                        <div className="w-full h-[540px] md:h-[620px] rounded-2xl border border-slate-200 overflow-hidden bg-slate-100 shadow-inner">
+                                            <iframe
+                                                src={`/api/surveys/submissions/${encodeURIComponent(currentSelectedItem.submissionId)}/report`}
+                                                title="PDF 결과보고서 미리보기"
+                                                className="w-full h-full border-0"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="p-12 text-center bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
+                                            <FileText className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                                            <p className="text-sm font-bold text-slate-600">결과보고서 PDF 파일이 아직 생성되지 않았거나 대기 중입니다.</p>
+                                        </div>
+                                    )}
+                                    <div className="p-4 bg-white rounded-2xl border border-slate-200 text-xs text-slate-600 space-y-1">
+                                        <p className="font-bold text-slate-800">📄 리포트 문서 보안 안내</p>
+                                        <p>• 첨부 리포트 PDF는 서버측 감사 로그와 접근 제어가 적용되어 있어 인가된 담당자 및 관리자만 열람할 수 있습니다.</p>
+                                        <p>• 30일 보존기간 만료 시 자동으로 안전하게 파기 처리됩니다.</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* TAB 4: 담당 직원 배정 및 관리 */}
+                            {detailActiveTab === 'assignment' && (
+                                <div className="space-y-6 animate-in fade-in duration-100">
+                                    {/* Current Assignment Status Card */}
+                                    <div className="bg-slate-50/80 rounded-2xl border border-slate-200 p-5">
+                                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                            <UserCheck className="w-4 h-4 text-indigo-600" />
+                                            현재 담당 직원 배정 현황
+                                        </h3>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-xs">
+                                                <span className="text-[11px] font-bold text-slate-400 block mb-1">현재 배정자</span>
+                                                <strong className="text-sm font-black text-slate-900">
+                                                    {getStaffDisplayName(currentSelectedItem.assignedUserId)}
+                                                </strong>
+                                            </div>
+                                            <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-xs">
+                                                <span className="text-[11px] font-bold text-slate-400 block mb-1">소속 부서 / 역할</span>
+                                                <span className="text-sm font-bold text-slate-800">
+                                                    {currentSelectedItem.assignedDepartmentId || '지정 없음'}
+                                                </span>
+                                            </div>
+                                            <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-xs">
+                                                <span className="text-[11px] font-bold text-slate-400 block mb-1">배정일시</span>
+                                                <span className="text-xs font-bold text-slate-700">
+                                                    {currentSelectedItem.assignedAt ? formatKstDateTime(currentSelectedItem.assignedAt, 'detail') : '미배정'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Assignment Form (Admin Only) */}
+                                    {currentUser.role === 'admin' ? (
+                                        <div className="bg-white rounded-2xl border border-indigo-200/90 p-5 shadow-sm space-y-4">
+                                            <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                                                <UserPlus className="w-4 h-4 text-indigo-600" />
+                                                {currentSelectedItem.assignedUserId ? '담당 직원 재배정' : '신규 담당 직원 배정'}
+                                            </h3>
+
+                                            {detailAssignFeedback && (
+                                                <div className={`p-3.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                                                    detailAssignFeedback.type === 'success'
+                                                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                                        : 'bg-rose-50 text-rose-800 border border-rose-200'
+                                                }`}>
+                                                    {detailAssignFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                                                    {detailAssignFeedback.message}
+                                                </div>
+                                            )}
+
+                                            {/* Staff Selector */}
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                                                    배정할 직원 선택 (온라인 설문 권한 보유 직원) *
+                                                </label>
+                                                <select
+                                                    value={detailSelectedStaffId}
+                                                    onChange={e => setDetailSelectedStaffId(e.target.value)}
+                                                    className="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-medium text-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 min-h-[44px]"
+                                                >
+                                                    <option value="">담당 직원을 선택하세요</option>
+                                                    {assignableStaff.map(staff => (
+                                                        <option key={staff.id} value={staff.id}>
+                                                            {staff.name} ({staff.team || '소속팀 없음'} · {staff.role}) [미처리: {staff.pendingAssignmentCount ?? 0}건]
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            {/* Priority Selector */}
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-700 mb-1.5">검토 우선순위 *</label>
+                                                <div className="grid grid-cols-3 gap-2.5">
+                                                    {[
+                                                        { id: 'NORMAL', label: '일반 검토' },
+                                                        { id: 'PRIORITY_REVIEW', label: '우선 검토' },
+                                                        { id: 'IMMEDIATE_REVIEW', label: '긴급 검토' }
+                                                    ].map(p => (
+                                                        <button
+                                                            key={p.id}
+                                                            type="button"
+                                                            onClick={() => setDetailSelectedPriority(p.id as any)}
+                                                            className={`py-2.5 text-xs font-bold rounded-xl border transition min-h-[44px] ${
+                                                                detailSelectedPriority === p.id
+                                                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                                            }`}
+                                                        >
+                                                            {p.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Reason Note */}
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-700 mb-1.5">배정 사유 및 전달 메모</label>
+                                                <textarea
+                                                    value={detailAssignReason}
+                                                    onChange={e => setDetailAssignReason(e.target.value)}
+                                                    placeholder="담당 직원에게 전달할 특이사항이나 배정 사유를 입력하세요..."
+                                                    rows={3}
+                                                    className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 resize-none"
+                                                />
+                                            </div>
+
+                                            {/* Actions */}
+                                            <div className="pt-2 flex items-center justify-between gap-3 flex-wrap">
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleOpenHistoryModal(currentSelectedItem)}
+                                                        className="px-4 py-2.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl border border-slate-200 transition flex items-center gap-1.5 min-h-[44px]"
+                                                    >
+                                                        <History className="w-3.5 h-3.5" />
+                                                        배정 이력 확인
+                                                    </button>
+                                                    {currentSelectedItem.assignedUserId && currentSelectedItem.assignmentStatus !== 'unassigned' && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleLargeDetailUnassign}
+                                                            className="px-4 py-2.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-xl border border-rose-200 transition flex items-center gap-1.5 min-h-[44px]"
+                                                        >
+                                                            <UserMinus className="w-3.5 h-3.5" />
+                                                            배정 취소
+                                                        </button>
+                                                    )}
+                                                </div>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={handleLargeDetailAssign}
+                                                    disabled={isDetailAssigning || !detailSelectedStaffId}
+                                                    className="px-6 py-2.5 text-xs md:text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition disabled:opacity-50 flex items-center gap-2 min-h-[44px]"
+                                                >
+                                                    {isDetailAssigning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
+                                                    {currentSelectedItem.assignedUserId ? '담당 직원 재배정 실행' : '신규 담당 직원 배정'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-500">
+                                            담당 직원 배정 및 변경은 센터 관리자(Admin) 권한 보유자만 실행할 수 있습니다.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Sticky Action Footer */}
+                        <div className="px-5 py-3.5 md:px-6 md:py-4 border-t border-slate-200 bg-slate-50/95 flex items-center justify-between gap-3 shrink-0 flex-wrap">
+                            <div className="text-xs text-slate-600 font-medium">
+                                대상자: <strong className="text-slate-900">{currentSelectedItem.maskedClientName}</strong> • {currentSelectedItem.maskedPhone}
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsLargeDetailModalOpen(false)}
+                                    className="px-5 py-2.5 text-xs md:text-sm font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 rounded-xl transition min-h-[44px]"
+                                >
+                                    닫기
+                                </button>
+                                {currentSelectedItem.refNo && onNavigateToReferrals ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsLargeDetailModalOpen(false);
+                                            onNavigateToReferrals({ targetReferralId: currentSelectedItem.referralId || currentSelectedItem.refNo });
+                                        }}
+                                        className="px-5 py-2.5 text-xs md:text-sm font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-xl shadow-sm transition flex items-center gap-2 min-h-[44px]"
+                                    >
+                                        <ExternalLink className="w-4 h-4" />
+                                        등록된 의뢰대장 열기
+                                    </button>
+                                ) : (currentSelectedItem.assignedUserId === currentUser.id || currentUser.role === 'admin') ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsLargeDetailModalOpen(false);
+                                            handleOpenReferralRegister(currentSelectedItem);
+                                        }}
+                                        disabled={loadingDraftId === currentSelectedItem.submissionId}
+                                        className="px-5 py-2.5 text-xs md:text-sm font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-xl shadow-sm transition flex items-center gap-2 min-h-[44px] disabled:opacity-50"
+                                    >
+                                        {loadingDraftId === currentSelectedItem.submissionId ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
+                                        의뢰대장 열기 (신규 등록)
+                                    </button>
+                                ) : null}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* 1. Staff Assignment Modal */}
             {isAssignModalOpen && assignTargetItem && (
                 <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
@@ -3435,6 +4279,80 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                 결과 닫기
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Sync Progress Modal */}
+            {syncProgress.isOpen && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="sync-progress-title"
+                    className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+                >
+                    <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150 text-left">
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                            <div className="flex items-center gap-2.5">
+                                <div className={`p-2.5 rounded-2xl ${syncProgress.isSyncing ? 'bg-teal-100 text-teal-700 animate-pulse' : 'bg-emerald-100 text-emerald-700'}`}>
+                                    {syncProgress.isSyncing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+                                </div>
+                                <div>
+                                    <h3 id="sync-progress-title" className="text-sm font-black text-slate-900">
+                                        {syncProgress.isSyncing ? '설문 안전 동기화 진행 중' : '설문 동기화 완료'}
+                                    </h3>
+                                    <p className="text-[11px] text-slate-500 font-medium">Track A 암호문 수신 및 검사 결과 리포트 처리</p>
+                                </div>
+                            </div>
+                            {!syncProgress.isSyncing && (
+                                <button
+                                    onClick={() => setSyncProgress(prev => ({ ...prev, isOpen: false }))}
+                                    className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition"
+                                    aria-label="닫기"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            )}
+                        </div>
+
+                        <div className="py-4 space-y-3">
+                            <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs font-medium text-slate-700">
+                                {syncProgress.isSyncing ? '온라인 설문을 안전하게 동기화하고 있습니다...' : syncProgress.message}
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2 text-center">
+                                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                                    <div className="text-[10px] text-emerald-600 font-bold">신규 수신</div>
+                                    <div className="text-lg font-black text-emerald-800">{syncProgress.imported}건</div>
+                                </div>
+                                <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl">
+                                    <div className="text-[10px] text-indigo-600 font-bold">재사용/중복</div>
+                                    <div className="text-lg font-black text-indigo-800">{syncProgress.reused}건</div>
+                                </div>
+                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                                    <div className="text-[10px] text-amber-600 font-bold">오류/격리</div>
+                                    <div className="text-lg font-black text-amber-800">{syncProgress.failed}건</div>
+                                </div>
+                            </div>
+
+                            {syncProgress.stopReason && (
+                                <div className="text-[11px] text-slate-400 font-mono text-center">
+                                    처리 상태: {syncProgress.stopReason}
+                                </div>
+                            )}
+                        </div>
+
+                        {!syncProgress.isSyncing && (
+                            <div className="pt-3 border-t border-slate-100 flex justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => setSyncProgress(prev => ({ ...prev, isOpen: false }))}
+                                    className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow transition cursor-pointer"
+                                >
+                                    확인
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

@@ -34,6 +34,46 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ onNavigate, 
     const [notifications, setNotifications] = useState<NotificationItem[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const popoverRef = useRef<HTMLDivElement>(null);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties>({});
+
+    // Dynamic viewport-safe positioning calculation
+    const updatePosition = useCallback(() => {
+        if (!buttonRef.current) return;
+        const rect = buttonRef.current.getBoundingClientRect();
+        const isMobile = window.innerWidth < 640;
+        const width = Math.min(window.innerWidth - 24, 380);
+
+        let top = rect.bottom + 8;
+        let left = rect.left;
+
+        if (isMobile) {
+            left = Math.max(12, (window.innerWidth - width) / 2);
+        } else {
+            // Desktop: if overflowing right edge, align with right boundary
+            if (left + width > window.innerWidth - 12) {
+                left = window.innerWidth - width - 12;
+            }
+            if (left < 12) {
+                left = 12;
+            }
+        }
+
+        // Avoid overflowing viewport bottom
+        const maxH = Math.min(window.innerHeight * 0.7, 500);
+        if (top + maxH > window.innerHeight - 12) {
+            top = Math.max(12, rect.top - maxH - 8);
+        }
+
+        setPopoverStyle({
+            position: 'fixed',
+            top: `${top}px`,
+            left: `${left}px`,
+            width: `${width}px`,
+            maxWidth: 'min(calc(100vw - 24px), 380px)',
+            zIndex: 9999
+        });
+    }, []);
 
     // Poll unread count every 30s
     const fetchUnreadCount = useCallback(async () => {
@@ -71,24 +111,52 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ onNavigate, 
     const toggleOpen = () => {
         if (!isOpen) {
             fetchNotifications();
+            updatePosition();
             setIsOpen(true);
         } else {
             setIsOpen(false);
         }
     };
 
-    // Close on click outside
+    // Close on click outside, Escape key, or window resize/scroll
     useEffect(() => {
+        if (!isOpen) return;
+
+        updatePosition();
+
         const handleClickOutside = (e: MouseEvent) => {
-            if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+            const target = e.target as Node;
+            if (
+                popoverRef.current &&
+                !popoverRef.current.contains(target) &&
+                buttonRef.current &&
+                !buttonRef.current.contains(target)
+            ) {
                 setIsOpen(false);
             }
         };
-        if (isOpen) {
-            document.addEventListener('mousedown', handleClickOutside);
-        }
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [isOpen]);
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setIsOpen(false);
+            }
+        };
+
+        const handleResize = () => updatePosition();
+        const handleScroll = () => updatePosition();
+
+        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('scroll', handleScroll, true);
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('resize', handleResize);
+            window.removeEventListener('scroll', handleScroll, true);
+        };
+    }, [isOpen, updatePosition]);
 
     const handleMarkAsRead = async (item: NotificationItem) => {
         try {
@@ -161,8 +229,9 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ onNavigate, 
     };
 
     return (
-        <div className="relative inline-block" ref={popoverRef}>
+        <div className="relative inline-block">
             <button
+                ref={buttonRef}
                 type="button"
                 onClick={toggleOpen}
                 className="relative p-2 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-indigo-50/80 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -179,7 +248,11 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ onNavigate, 
 
             {/* Popover Dropdown */}
             {isOpen && (
-                <div className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-80 sm:w-96 rounded-2xl bg-white shadow-2xl border border-slate-200/80 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                <div
+                    ref={popoverRef}
+                    style={popoverStyle}
+                    className="rounded-2xl bg-white shadow-2xl border border-slate-200/90 py-2 animate-in fade-in slide-in-from-top-2 duration-150"
+                >
                     {/* Header */}
                     <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
                         <div className="flex items-center gap-2">
@@ -202,7 +275,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ onNavigate, 
                     </div>
 
                     {/* List */}
-                    <div className="max-h-96 overflow-y-auto divide-y divide-slate-100">
+                    <div className="max-h-[70vh] overflow-y-auto divide-y divide-slate-100">
                         {isLoading ? (
                             <div className="py-8 text-center text-slate-400 text-xs">
                                 <div className="inline-block animate-spin rounded-full h-5 w-5 border-2 border-indigo-600 border-t-transparent mb-2"></div>
@@ -211,7 +284,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ onNavigate, 
                         ) : notifications.length === 0 ? (
                             <div className="py-10 text-center text-slate-400 text-xs">
                                 <Bell size={28} className="mx-auto mb-2 text-slate-300" />
-                                <p>도착한 새로운 알림이 없습니다.</p>
+                                <p>새로운 알림이 없습니다.</p>
                             </div>
                         ) : (
                             notifications.map(item => (

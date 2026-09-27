@@ -54,6 +54,73 @@ function formatPdfDateOnly(dateStr) {
     } catch { return '-'; }
 }
 
+export function formatPdfGender(genderRaw) {
+    if (!genderRaw || typeof genderRaw !== 'string') return '-';
+    const trimmed = genderRaw.trim();
+    if (!trimmed) return '-';
+    const lower = trimmed.toLowerCase();
+    if (lower === 'female' || lower === 'f' || trimmed === '여성' || trimmed === '여자') return '여성';
+    if (lower === 'male' || lower === 'm' || trimmed === '남성' || trimmed === '남자') return '남성';
+    if (trimmed === '기타' || lower === 'other') return '기타';
+    if (trimmed === '응답 안 함' || trimmed === '응답안함' || lower === 'none' || lower === 'prefer_not_to_say') return '응답 안 함';
+    return '-';
+}
+
+export function calculateCompletedAgeFromBirthDate(birthDateStr, submittedAt) {
+    if (!birthDateStr || typeof birthDateStr !== 'string') return '-';
+    const match = birthDateStr.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return '-';
+
+    const bYear = parseInt(match[1], 10);
+    const bMonth = parseInt(match[2], 10);
+    const bDay = parseInt(match[3], 10);
+
+    // Basic validity check
+    if (bYear < 1900 || bMonth < 1 || bMonth > 12 || bDay < 1 || bDay > 31) return '-';
+
+    // Determine submittedAt calendar date in Asia/Seoul
+    let subYear, subMonth, subDay;
+    if (submittedAt) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(String(submittedAt).trim())) {
+            const parts = String(submittedAt).trim().split('-').map(Number);
+            subYear = parts[0];
+            subMonth = parts[1];
+            subDay = parts[2];
+        } else {
+            const d = (submittedAt instanceof Date) ? submittedAt : new Date(submittedAt);
+            if (isNaN(d.getTime())) return '-';
+            try {
+                const fmt = new Intl.DateTimeFormat('ko-KR', {
+                    timeZone: 'Asia/Seoul',
+                    year: 'numeric', month: '2-digit', day: '2-digit'
+                });
+                const parts = fmt.formatToParts(d);
+                const getVal = (type) => parseInt((parts.find(p => p.type === type) || {}).value, 10);
+                subYear = getVal('year');
+                subMonth = getVal('month');
+                subDay = getVal('day');
+            } catch {
+                return '-';
+            }
+        }
+    } else {
+        return '-';
+    }
+
+    if (!subYear || !subMonth || !subDay) return '-';
+
+    let age = subYear - bYear;
+    if (subMonth < bMonth || (subMonth === bMonth && subDay < bDay)) {
+        age--;
+    }
+
+    if (age < 0 || age > 130) {
+        return '-';
+    }
+
+    return `만 ${age}세`;
+}
+
 // Project-local official Noto Sans KR font asset (SIL Open Font License 1.1)
 // Bundled in server/survey/assets/fonts/ and included in Docker via COPY server/ ./server/
 const PROJECT_FONT_TTF = path.join(__dirname, 'assets', 'fonts', 'NotoSansKR[wght].ttf');
@@ -210,13 +277,16 @@ export class SurveyReportGenerator {
 
         doc.setFontSize(9);
         doc.setTextColor(71, 85, 105);
+        const genderText = formatPdfGender(contact.gender);
+        const ageText = calculateCompletedAgeFromBirthDate(contact.birthDate, payload.submittedAt || payload.submittedDate);
         doc.text(`성 명: ${contact.clientName || '-'}`, 24, 61);
-        doc.text(`연 락 처: ${contact.phone || '-'}`, 80, 61);
-        doc.text(`성 별: ${contact.gender || '기타'}`, 140, 61);
+        doc.text(`연 락 처: ${contact.phone || '-'}`, 68, 61);
+        doc.text(`성별: ${genderText}`, 118, 61);
+        doc.text(`연령: ${ageText}`, 156, 61);
 
         doc.text(`생년월일: ${contact.birthDate || '-'}`, 24, 69);
         doc.text(`거주지역: ${contact.region || '-'}`, 80, 69);
-        doc.text(`접수일자: ${submittedDateStr}`, 140, 69);
+        doc.text(`접수일자: ${submittedDateStr}`, 135, 69);
 
         const requestNote = contact.counselingRequestText ? String(contact.counselingRequestText).substring(0, 70) : '기재 내용 없음';
         doc.text(`신청사유: ${requestNote}`, 24, 77);

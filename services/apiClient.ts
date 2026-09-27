@@ -560,23 +560,50 @@ class ApiClient {
         return this.request('/surveys/status');
     }
 
-    async importOnlineSurveys(limit: number = 50): Promise<{
+    async importOnlineSurveys(options?: number | { batchSize?: number; maxItems?: number }): Promise<{
         success: boolean;
         message: string;
         summary: {
+            jobId?: string;
             batchId: string;
+            discovered?: number;
             totalFetched: number;
             imported: number;
+            reused?: number;
             duplicates: number;
+            failed?: number;
             quarantined: number;
+            acknowledged?: number;
+            deleted?: number;
+            skipped?: number;
+            stopReason?: string;
             ackPending: number;
             deletePending: number;
         };
     }> {
+        const body = typeof options === 'number'
+            ? { limit: options }
+            : (options || {});
         return this.request('/surveys/import', {
             method: 'POST',
-            body: JSON.stringify({ limit })
+            body: JSON.stringify(body)
         });
+    }
+
+    async getSurveySyncStatus(): Promise<{
+        success: boolean;
+        autoSyncEnabled: boolean;
+        intervalMinutes: number;
+        batchSize: number;
+        maxItems: number;
+        isRunning: boolean;
+        lastSyncAt: string | null;
+        lastResult: string | null;
+        nextScheduledAt: string | null;
+        lastImportedCount: number;
+        lastFailedCount: number;
+    }> {
+        return this.request('/surveys/sync-status');
     }
 
     async getSurveyImports(params?: {

@@ -83,31 +83,92 @@ export class SurveyImportService {
     }
 
     /**
-     * Main manual import operation triggered by "신규 온라인 설문 가져오기".
-     * 
-     * @param {Object} options
-     * @param {string} options.actorId - User ID of authorized administrator
-     * @param {number} [options.limit=50] - Bounded batch limit
-     * @returns {Promise<{ batchId: string, totalFetched: number, imported: number, duplicates: number, quarantined: number, ackPending: number, deletePending: number, completedAt: string }>}
+     * Check if an import job is currently executing.
      */
-    async runManualImport({ actorId, limit = 50 }) {
+    get isImportRunning() {
+        return this._isImportRunning;
+    }
+
+    /**
+     * Main manual import operation triggered by "지금 동기화".
+     * Processes all currently available Track A pending submissions through bounded batches.
+     */
+    async runManualImport(options = {}) {
+        return this._drainAndImportSubmissions({
+            actorId: options.actorId || 'admin',
+            mode: 'MANUAL',
+            limit: options.limit,
+            batchSize: options.batchSize,
+            maxItems: options.maxItems,
+            maxDurationMs: options.maxDurationMs,
+            delayBetweenBatchesMs: options.delayBetweenBatchesMs
+        });
+    }
+
+    /**
+     * Automatic server-side scheduled import cycle.
+     */
+    async runAutoImportCycle(options = {}) {
+        return this._drainAndImportSubmissions({
+            actorId: options.actorId || 'system_auto_import',
+            mode: 'AUTO',
+            batchSize: options.batchSize || 10,
+            maxItems: options.maxItems || 100,
+            maxDurationMs: options.maxDurationMs || 300000,
+            delayBetweenBatchesMs: options.delayBetweenBatchesMs || 300
+        });
+    }
+
+    /**
+     * Safe, bounded batch drain loop for ingesting all Track A pending submissions.
+     */
+    async _drainAndImportSubmissions({
+        actorId = 'system',
+        mode = 'MANUAL',
+        limit = 50,
+        batchSize = 10,
+        maxItems = 200,
+        maxDurationMs = 600000,
+        delayBetweenBatchesMs = 300
+    } = {}) {
         const batchId = this._acquireLock();
+        const startTime = Date.now();
+
+        const effBatchSize = Math.max(1, Math.min(50, Number(batchSize) || Number(limit) || 10));
+        const effMaxItems = Math.max(1, Math.min(500, Number(maxItems) || 200));
+        const effMaxDuration = Math.max(5000, Math.min(1800000, Number(maxDurationMs) || 600000));
+        const effDelayMs = Math.max(0, Math.min(5000, Number(delayBetweenBatchesMs) || 300));
 
         const summary = {
+            jobId: batchId,
             batchId,
-            totalFetched: 0,
+            mode,
+            startedAt: new Date(startTime).toISOString(),
+            completedAt: null,
+            requestedBatches: 0,
+            discovered: 0,
             imported: 0,
+            reused: 0,
+            failed: 0,
+            acknowledged: 0,
+            deleted: 0,
+            skipped: 0,
+            remainingEstimate: 0,
+            stopReason: 'QUEUE_DRAINED',
+            // backwards compatibility
+            totalFetched: 0,
             duplicates: 0,
             quarantined: 0,
             ackPending: 0,
-            deletePending: 0,
-            completedAt: null
+            deletePending: 0
         };
+
+        const failedSubmissionIdsInRun = new Set();
 
         try {
             await this.repository.recordAuditEvent({
                 actorId,
-                action: 'SURVEY_IMPORT_BATCH_STARTED',
+                action: mode === 'AUTO' ? 'SURVEY_AUTO_IMPORT_STARTED' : 'SURVEY_MANUAL_IMPORT_STARTED',
                 result: 'STARTED',
                 batchId
             });
@@ -132,53 +193,87 @@ export class SurveyImportService {
             }
             console.log(`📡 [E2E_STEP 01/14] Track A 연결: 성공 (COUNSELING_SUBMISSION_ENABLED=true)`);
 
-            // [E2E_STEP 02/14] pending 조회
-            const parsedLimit = Number(limit);
-            const requestedLimit = (Number.isInteger(parsedLimit) && parsedLimit >= 1) ? parsedLimit : 50;
-            const effectiveLimit = Math.min(requestedLimit, this.maxBatchSize);
-
-            console.log(`📥 [E2E_STEP 02/14] pending 조회: 시작 (limit: ${effectiveLimit}, leaseSeconds: ${this.defaultLeaseSeconds})`);
-            let externalResponse;
-            try {
-                if (typeof this.externalApiClient.leasePendingSubmissions === 'function') {
-                    externalResponse = await this.externalApiClient.leasePendingSubmissions({
-                        limit: effectiveLimit,
-                        leaseSeconds: this.defaultLeaseSeconds
-                    });
-                } else {
-                    externalResponse = await this.externalApiClient.fetchPending({
-                        limit: effectiveLimit,
-                        leaseSeconds: this.defaultLeaseSeconds
-                    });
+            while (true) {
+                // Safety 1: Max runtime limit
+                const elapsed = Date.now() - startTime;
+                if (elapsed >= effMaxDuration) {
+                    summary.stopReason = 'MAX_RUNTIME_EXCEEDED';
+                    console.warn(`⚠️ [DRAIN_LOOP] Maximum runtime of ${effMaxDuration}ms reached.`);
+                    break;
                 }
-            } catch (err) {
-                await this.repository.recordAuditEvent({
-                    actorId,
-                    action: 'SURVEY_IMPORT_BATCH_FAILED',
-                    result: 'NETWORK_ERROR',
-                    errorCode: SURVEY_ERROR_CODES.EXTERNAL_API_UNAVAILABLE,
-                    batchId
-                });
-                // SAFE OBSERVABILITY PATCH: Log upstream error details without sensitive data
-                console.error('[SURVEY_IMPORT_UPSTREAM_ERROR]', {
-                  name: typeof err?.name === 'string' ? err.name : 'UnknownError',
-                  message: typeof err?.message === 'string' ? err.message : 'Unknown upstream error',
-                  trackACode: typeof err?.trackACode === 'string' ? err.trackACode : null,
-                  statusCode: Number.isInteger(err?.statusCode) ? err.statusCode : null,
-                  batchId
-                });
-                throw new SurveyOperationError(
-                    SURVEY_ERROR_CODES.EXTERNAL_API_UNAVAILABLE,
-                    '외부 설문 수집 서비스에 연결할 수 없습니다.'
-                );
-            }
 
-            const envelopes = externalResponse?.submissions || [];
-            summary.totalFetched = envelopes.length;
-            console.log(`📥 [E2E_STEP 02/14] pending 조회: 완료 (${envelopes.length}건 수신)`);
+                // Safety 2: Max items limit
+                const totalProcessedSoFar = summary.imported + summary.failed + summary.reused + summary.skipped;
+                if (totalProcessedSoFar >= effMaxItems) {
+                    summary.stopReason = 'MAX_ITEMS_EXCEEDED';
+                    console.log(`ℹ️ [DRAIN_LOOP] Maximum items limit of ${effMaxItems} reached.`);
+                    break;
+                }
 
-            // 2. Process each leased envelope atomically
-            for (const envelope of envelopes) {
+                const currentBatchLimit = Math.min(effBatchSize, effMaxItems - totalProcessedSoFar);
+                summary.requestedBatches++;
+
+                // [E2E_STEP 02/14] pending 조회
+                console.log(`📥 [E2E_STEP 02/14] pending 조회: 시작 (batch #${summary.requestedBatches}, limit: ${currentBatchLimit}, leaseSeconds: ${this.defaultLeaseSeconds})`);
+                let externalResponse;
+                try {
+                    if (typeof this.externalApiClient.leasePendingSubmissions === 'function') {
+                        externalResponse = await this.externalApiClient.leasePendingSubmissions({
+                            limit: currentBatchLimit,
+                            leaseSeconds: this.defaultLeaseSeconds
+                        });
+                    } else {
+                        externalResponse = await this.externalApiClient.fetchPending({
+                            limit: currentBatchLimit,
+                            leaseSeconds: this.defaultLeaseSeconds
+                        });
+                    }
+                } catch (err) {
+                    await this.repository.recordAuditEvent({
+                        actorId,
+                        action: mode === 'AUTO' ? 'SURVEY_AUTO_IMPORT_FAILED' : 'SURVEY_IMPORT_BATCH_FAILED',
+                        result: 'NETWORK_ERROR',
+                        errorCode: SURVEY_ERROR_CODES.EXTERNAL_API_UNAVAILABLE,
+                        batchId
+                    });
+                    console.error('[SURVEY_IMPORT_UPSTREAM_ERROR]', {
+                        name: typeof err?.name === 'string' ? err.name : 'UnknownError',
+                        message: typeof err?.message === 'string' ? err.message : 'Unknown upstream error',
+                        trackACode: typeof err?.trackACode === 'string' ? err.trackACode : null,
+                        statusCode: Number.isInteger(err?.statusCode) ? err.statusCode : null,
+                        batchId
+                    });
+                    if (summary.requestedBatches === 1) {
+                        throw new SurveyOperationError(
+                            SURVEY_ERROR_CODES.EXTERNAL_API_UNAVAILABLE,
+                            '외부 설문 수집 서비스에 연결할 수 없습니다.'
+                        );
+                    } else {
+                        summary.stopReason = 'UPSTREAM_FETCH_FAILED';
+                        break;
+                    }
+                }
+
+                const envelopes = externalResponse?.submissions || [];
+                if (!Array.isArray(envelopes) || envelopes.length === 0) {
+                    summary.stopReason = 'QUEUE_DRAINED';
+                    break;
+                }
+
+                summary.discovered += envelopes.length;
+                summary.totalFetched += envelopes.length;
+                console.log(`📥 [E2E_STEP 02/14] pending 조회: 완료 (${envelopes.length}건 수신, 누적 발견: ${summary.discovered}건)`);
+
+                // Safety 3: Prevent infinite loop on repeated failures
+                const unfailedItems = envelopes.filter(e => e?.submissionId && !failedSubmissionIdsInRun.has(e.submissionId));
+                if (unfailedItems.length === 0) {
+                    summary.stopReason = 'FAILED_ITEM_LOOP_PREVENTED';
+                    console.warn('⚠️ [DRAIN_LOOP] Only repeated failed submissions returned. Breaking drain loop.');
+                    break;
+                }
+
+                // 2. Process each leased envelope atomically
+                for (const envelope of envelopes) {
                 const subId = envelope?.submissionId;
                 if (!subId) {
                     summary.quarantined++;
@@ -192,20 +287,37 @@ export class SurveyImportService {
                 const leaseUntil = lease.leaseUntil || new Date(Date.now() + this.defaultLeaseSeconds * 1000).toISOString();
                 const now = Date.now();
 
-                // Check submission uniqueness in ledger
+                // Check submission uniqueness in ledger and stored submissions
                 const existing = this.repository.findBySubmissionId(subId);
+                const existingSubmission = typeof this.repository.findSubmissionById === 'function'
+                    ? this.repository.findSubmissionById(subId)
+                    : (this.repository.getSurveySubmissions ? this.repository.getSurveySubmissions().find(s => s.submissionId === subId) : null);
+                const isAlreadyPersisted = Boolean(existingSubmission || existing?.internalSurveyId);
                 const isExistingCompleted = existing && (existing.internalStatus === SURVEY_INTERNAL_STATUS.COMPLETED || existing.internalStatus === SURVEY_INTERNAL_STATUS.STORED);
-                if (isExistingCompleted && (existing.requestType === 'CONSULTATION_REQUEST' || existing.consultationRequested === true)) {
+
+                // Incomplete or stored error records must route to dedicated recovery policy and not be repeatedly consumed
+                if (existing && existing.internalStatus === SURVEY_INTERNAL_STATUS.ERROR) {
+                    summary.skipped++;
+                    summary.failed++;
+                    failedSubmissionIdsInRun.add(subId);
+                    console.warn(`⚠️ [RECOVERY_ROUTE] Existing stored error/incomplete record routed to recovery policy: submissionId=${subId}`);
+                    continue;
+                }
+
+                if ((isExistingCompleted || isAlreadyPersisted) && (existing?.requestType === 'CONSULTATION_REQUEST' || existing?.consultationRequested === true || existingSubmission)) {
                     summary.duplicates++;
+                    summary.reused++;
                     console.log(`ℹ️ [E2E_DEDUP] 이미 처리 완료된 설문입니다. 중복 생성 방지: submissionId=${subId}`);
                     // Re-verify ACK / Delete status in case previous run failed midway
-                    await this._reconcileExternalState(existing, { leaseId, leaseUntil });
+                    await this._reconcileExternalState(existing || { submissionId: subId, internalSurveyId: existingSubmission?.internalSurveyId }, { leaseId, leaseUntil });
                     continue;
                 }
 
                 // Check lease expiration before starting processing
                 if (leaseUntil && new Date(leaseUntil).getTime() <= now) {
                     summary.quarantined++;
+                    summary.failed++;
+                    failedSubmissionIdsInRun.add(subId);
                     await this.repository.createOrUpdateImportRecord({
                         submissionId: subId,
                         leaseId,
@@ -257,6 +369,8 @@ export class SurveyImportService {
                             envelope.consultationRequestedAt.trim() !== ''
                         ) {
                             payload.consultationRequestedAt = envelope.consultationRequestedAt;
+                        } else if (!payload.consultationRequestedAt) {
+                            payload.consultationRequestedAt = payload.submittedAt || envelope.receivedAt || new Date().toISOString();
                         }
                     } else if (
                         envelope.requestType === 'SCREENING_ONLY' &&
@@ -277,6 +391,8 @@ export class SurveyImportService {
                     });
                 } catch (decErr) {
                     summary.quarantined++;
+                    summary.failed++;
+                    failedSubmissionIdsInRun.add(subId);
                     await this.repository.createOrUpdateImportRecord({
                         submissionId: subId,
                         internalStatus: SURVEY_INTERNAL_STATUS.QUARANTINED_TAMPERED,
@@ -326,6 +442,8 @@ export class SurveyImportService {
                     });
                 } catch (valErr) {
                     summary.quarantined++;
+                    summary.failed++;
+                    failedSubmissionIdsInRun.add(subId);
                     const quarantineStatus = valErr.code === SURVEY_ERROR_CODES.CONSENT_VIOLATION_PERSONAL ||
                                             valErr.code === SURVEY_ERROR_CODES.CONSENT_VIOLATION_SENSITIVE
                                             ? SURVEY_INTERNAL_STATUS.QUARANTINED_CONSENT
@@ -437,10 +555,12 @@ export class SurveyImportService {
 
                     if (validationResult.isSbqrQuarantined) {
                         summary.quarantined++;
-                    } else {
-                        summary.imported++;
+                        summary.failed++;
+                        failedSubmissionIdsInRun.add(subId);
                     }
                 } catch (persistErr) {
+                    summary.failed++;
+                    failedSubmissionIdsInRun.add(subId);
                     await this.repository.createOrUpdateImportRecord({
                         submissionId: subId,
                         internalStatus: SURVEY_INTERNAL_STATUS.ERROR,
@@ -575,6 +695,8 @@ export class SurveyImportService {
                                 step: SURVEY_WORKFLOW_STEPS.READ_BACK_VERIFIED
                             });
                         } catch (reportErr) {
+                            summary.failed++;
+                            failedSubmissionIdsInRun.add(subId);
                             console.error(`❌ [SCREENING_PDF_FAILED] ${subId}:`, reportErr.message);
                             await this.repository.createOrUpdateImportRecord({
                                 submissionId: subId,
@@ -596,7 +718,7 @@ export class SurveyImportService {
                 }
 
                 // Phase 12 & 13: External ACK Readiness Gate and Ciphertext Deletion Sequence
-                await this._acknowledgeAndDeleteExternalRecord(
+                const ackResult = await this._acknowledgeAndDeleteExternalRecord(
                     subId,
                     { leaseId, leaseUntil },
                     actorId,
@@ -608,9 +730,44 @@ export class SurveyImportService {
                         priority: validationResult?.priority || 'NORMAL'
                     }
                 );
+                if (ackResult && ackResult.acknowledged) {
+                    if (!validationResult.isSbqrQuarantined) {
+                        summary.imported++;
+                    }
+                } else {
+                    summary.failed++;
+                    failedSubmissionIdsInRun.add(subId);
+                }
             }
 
+                // If fewer envelopes were returned than requested, queue is drained
+                if (envelopes.length < currentBatchLimit) {
+                    summary.stopReason = 'QUEUE_DRAINED';
+                    break;
+                }
+
+                // Brief pause between batches
+                if (effDelayMs > 0) {
+                    await new Promise(resolve => setTimeout(resolve, effDelayMs));
+                }
+            } // end while (true)
+
             summary.completedAt = new Date().toISOString();
+
+            const finalAction = mode === 'AUTO'
+                ? (summary.failed > 0 && summary.imported > 0
+                    ? 'SURVEY_AUTO_IMPORT_PARTIAL_FAILURE'
+                    : summary.failed > 0
+                        ? 'SURVEY_AUTO_IMPORT_FAILED'
+                        : 'SURVEY_AUTO_IMPORT_COMPLETED')
+                : 'SURVEY_MANUAL_IMPORT_COMPLETED';
+
+            await this.repository.recordAuditEvent({
+                actorId,
+                action: finalAction,
+                result: summary.failed > 0 ? (summary.imported > 0 ? 'PARTIAL' : 'FAILED') : 'SUCCESS',
+                batchId
+            });
 
             await this.repository.recordAuditEvent({
                 actorId,
@@ -646,7 +803,7 @@ export class SurveyImportService {
                 details: { status: 'REQUIRES_REACQUIRE', reason: 'LOCAL_LEASE_EXPIRED' }
             });
             if (summary) summary.ackPending++;
-            return;
+            return { success: false, acknowledged: false };
         }
 
         // Reuse or create stable ackRequestId
@@ -687,6 +844,9 @@ export class SurveyImportService {
                     internalStatus: SURVEY_INTERNAL_STATUS.COMPLETED,
                     acknowledgedAt: new Date().toISOString()
                 });
+                if (summary && summary.acknowledged !== undefined) {
+                    summary.acknowledged++;
+                }
                 await this.repository.recordWorkflowStep({
                     submissionId,
                     step: SURVEY_WORKFLOW_STEPS.ACKED,
@@ -713,7 +873,7 @@ export class SurveyImportService {
                 errorCode,
                 batchId
             });
-            return; // Cannot proceed without successful ACK!
+            return { success: false, acknowledged: false }; // Cannot proceed without successful ACK!
         }
 
         // 2. External Delete Sequence: Sent immediately after ACK succeeds!
@@ -752,6 +912,9 @@ export class SurveyImportService {
                     externalStatus: SURVEY_EXTERNAL_STATUS.DELETED,
                     externalDeletedAt: new Date().toISOString()
                 });
+                if (summary && summary.deleted !== undefined) {
+                    summary.deleted++;
+                }
                 await this.repository.recordWorkflowStep({
                     submissionId,
                     step: SURVEY_WORKFLOW_STEPS.COMPLETED,
@@ -843,6 +1006,8 @@ export class SurveyImportService {
                 details: { status: 'UNASSIGNED', workflow: 'PENDING_STAFF_REVIEW' }
             });
         }
+
+        return { success: true, acknowledged: true };
     }
 
     /**

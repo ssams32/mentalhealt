@@ -49,7 +49,8 @@ import {
     TrackAClient,
     createSurveyImportRouter,
     MockTrackAApi,
-    validateTrackABaseUrl
+    validateTrackABaseUrl,
+    SurveyAutoImportScheduler
 } from './server/survey/index.js';
 
 // --- In-App Internal Notifications ---
@@ -697,6 +698,14 @@ const surveyImportService = new SurveyImportService({
 
 const surveyExportService = new SurveyExportService();
 
+const surveyAutoImportScheduler = new SurveyAutoImportScheduler({
+    surveyImportService,
+    repository: surveyRepository,
+    externalApiClient: externalSurveyApiClient,
+    keyProvider: surveyKeyProvider,
+    auditLogger: surveyAuditLogger
+});
+
 const surveyImportRouter = createSurveyImportRouter({
     requireAuth,
     surveyImportService,
@@ -705,6 +714,7 @@ const surveyImportRouter = createSurveyImportRouter({
     notificationRepository: internalNotificationRepository,
     surveyExportService,
     referralService: surveyReferralService,
+    autoImportScheduler: surveyAutoImportScheduler,
     getUsers: () => getData('Users', []),
     keyProvider: surveyKeyProvider,
     externalApiClient: externalSurveyApiClient,
@@ -723,6 +733,9 @@ const notificationRouter = createNotificationRouter({
 
 app.use('/api/surveys', surveyImportRouter);
 app.use('/api/notifications', notificationRouter);
+
+// Start autonomous background survey synchronization (60s initial delay, 5m cycle)
+surveyAutoImportScheduler.start();
 
 // Startup workflow recovery for pending deletions or lease reacquisition
 surveyImportService.recoverPendingWorkflows('startup_recovery').catch(err => {

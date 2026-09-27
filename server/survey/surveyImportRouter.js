@@ -49,6 +49,7 @@ export function createSurveyImportRouter(deps = {}) {
         notificationRepository,
         surveyExportService,
         referralService,
+        autoImportScheduler = null,
         getUsers = () => [],
         auditLogger = null
     } = deps;
@@ -287,15 +288,17 @@ export function createSurveyImportRouter(deps = {}) {
         }
     });
 
-    // 2. POST /api/surveys/import - Trigger manual import workflow
+    // 2. POST /api/surveys/import - Trigger manual import workflow (processes all pending in safe batches)
     router.post('/import', requireAuth, requireSurveyImportPermission, async (req, res) => {
         try {
             const actorId = req.auth.userId || req.auth.id || req.auth.username || 'admin';
-            const limit = Number(req.body?.limit) || 50;
+            const batchSize = Number(req.body?.batchSize) || Number(req.body?.limit) || 10;
+            const maxItems = Number(req.body?.maxItems) || 200;
 
             const summary = await surveyImportService.runManualImport({
                 actorId,
-                limit
+                batchSize,
+                maxItems
             });
 
             res.json({
@@ -304,7 +307,7 @@ export function createSurveyImportRouter(deps = {}) {
                 summary
             });
         } catch (err) {
-            const statusCode = err.code === 'IMPORT_ALREADY_IN_PROGRESS' ? 409 : 500;
+            const statusCode = (err.code === 'IMPORT_ALREADY_IN_PROGRESS' || err.code === 'IMPORT_ALREADY_RUNNING') ? 409 : 500;
             res.status(statusCode).json({
                 success: false,
                 error: {
@@ -312,6 +315,34 @@ export function createSurveyImportRouter(deps = {}) {
                     message: err.message
                 }
             });
+        }
+    });
+
+    // 2-1. GET /api/surveys/sync-status - Query server-side automatic synchronization state
+    router.get('/sync-status', requireAuth, requireSurveyImportPermission, (req, res) => {
+        try {
+            const scheduler = autoImportScheduler || null;
+            const status = scheduler && typeof scheduler.getStatus === 'function'
+                ? scheduler.getStatus()
+                : {
+                    autoSyncEnabled: false,
+                    intervalMinutes: 5,
+                    batchSize: 10,
+                    maxItems: 100,
+                    isRunning: surveyImportService.isImportRunning,
+                    lastSyncAt: null,
+                    lastResult: null,
+                    nextScheduledAt: null,
+                    lastImportedCount: 0,
+                    lastFailedCount: 0
+                };
+
+            res.json({
+                success: true,
+                ...status
+            });
+        } catch (err) {
+            res.status(500).json({ error: { code: 'SYNC_STATUS_ERROR', message: err.message } });
         }
     });
 
