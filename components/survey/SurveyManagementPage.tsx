@@ -479,6 +479,11 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         return `만 ${age}세`;
     }, []);
 
+    // Selected item object (P0: Declared before hooks and handlers referencing it to prevent TDZ)
+    const currentSelectedItem = useMemo(() => {
+        return imports.find(i => i.submissionId === selectedSubmissionId) ?? null;
+    }, [imports, selectedSubmissionId]);
+
     // Synchronize large detail modal assignment inputs when selected item changes
     useEffect(() => {
         if (currentSelectedItem) {
@@ -1233,12 +1238,6 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filteredImports]);
-
-
-    // Selected item object
-    const currentSelectedItem = useMemo(() => {
-        return imports.find(i => i.submissionId === selectedSubmissionId) || null;
-    }, [imports, selectedSubmissionId]);
 
     // Helper: Staff option display with duplicate resolution (직원명 · 소속팀 · ID 일부)
     const getStaffOptionLabel = (staff: AssignableStaff, allStaff: AssignableStaff[]) => {
