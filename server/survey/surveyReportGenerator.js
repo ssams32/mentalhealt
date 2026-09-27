@@ -54,71 +54,90 @@ function formatPdfDateOnly(dateStr) {
     } catch { return '-'; }
 }
 
+export function resolveCanonicalGender(payload) {
+    const contact = payload?.contact;
+    const identity = payload?.identity;
+
+    if (contact && contact.gender !== undefined && contact.gender !== null) {
+        const val = String(contact.gender).trim();
+        if (val !== '') {
+            return val;
+        }
+    }
+    if (identity && identity.gender !== undefined && identity.gender !== null) {
+        const val = String(identity.gender).trim();
+        if (val !== '') {
+            return val;
+        }
+    }
+    return null;
+}
+
 export function formatPdfGender(genderRaw) {
     if (!genderRaw || typeof genderRaw !== 'string') return '-';
     const trimmed = genderRaw.trim();
     if (!trimmed) return '-';
-    const lower = trimmed.toLowerCase();
-    if (lower === 'female' || lower === 'f' || trimmed === '여성' || trimmed === '여자') return '여성';
-    if (lower === 'male' || lower === 'm' || trimmed === '남성' || trimmed === '남자') return '남성';
-    if (trimmed === '기타' || lower === 'other') return '기타';
-    if (trimmed === '응답 안 함' || trimmed === '응답안함' || lower === 'none' || lower === 'prefer_not_to_say') return '응답 안 함';
+    const upper = trimmed.toUpperCase();
+
+    // Canonical Track A English codes
+    if (upper === 'MALE' || trimmed === '남성' || trimmed === '남자') return '남성';
+    if (upper === 'FEMALE' || trimmed === '여성' || trimmed === '여자') return '여성';
+    if (upper === 'OTHER' || trimmed === '기타') return '기타';
+    if (upper === 'PREFER_NOT_TO_SAY' || trimmed === '응답하지 않음' || trimmed === '응답 안 함' || trimmed === '응답안함') {
+        return '응답하지 않음';
+    }
+
     return '-';
 }
 
-export function calculateCompletedAgeFromBirthDate(birthDateStr, submittedAt) {
-    if (!birthDateStr || typeof birthDateStr !== 'string') return '-';
-    const match = birthDateStr.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!match) return '-';
+export const ALLOWED_TRACK_A_AGE_BANDS = Object.freeze([
+    '10대 미만',
+    '10대',
+    '20대',
+    '30대',
+    '40대',
+    '50대',
+    '60대',
+    '70대 이상',
+    '70대이상',
+    '70대',
+    '80대 이상',
+    '80대이상'
+]);
 
-    const bYear = parseInt(match[1], 10);
-    const bMonth = parseInt(match[2], 10);
-    const bDay = parseInt(match[3], 10);
+const ALLOWED_AGE_SET = new Set(ALLOWED_TRACK_A_AGE_BANDS);
 
-    // Basic validity check
-    if (bYear < 1900 || bMonth < 1 || bMonth > 12 || bDay < 1 || bDay > 31) return '-';
+export function resolveCanonicalAge(payload) {
+    const contactDemo = payload?.contact?.demographics;
+    const identityDemo = payload?.identity?.demographics;
 
-    // Determine submittedAt calendar date in Asia/Seoul
-    let subYear, subMonth, subDay;
-    if (submittedAt) {
-        if (/^\d{4}-\d{2}-\d{2}$/.test(String(submittedAt).trim())) {
-            const parts = String(submittedAt).trim().split('-').map(Number);
-            subYear = parts[0];
-            subMonth = parts[1];
-            subDay = parts[2];
-        } else {
-            const d = (submittedAt instanceof Date) ? submittedAt : new Date(submittedAt);
-            if (isNaN(d.getTime())) return '-';
-            try {
-                const fmt = new Intl.DateTimeFormat('ko-KR', {
-                    timeZone: 'Asia/Seoul',
-                    year: 'numeric', month: '2-digit', day: '2-digit'
-                });
-                const parts = fmt.formatToParts(d);
-                const getVal = (type) => parseInt((parts.find(p => p.type === type) || {}).value, 10);
-                subYear = getVal('year');
-                subMonth = getVal('month');
-                subDay = getVal('day');
-            } catch {
-                return '-';
-            }
+    if (contactDemo && contactDemo.age !== undefined && contactDemo.age !== null) {
+        const val = String(contactDemo.age).trim();
+        if (val !== '') {
+            return val;
         }
-    } else {
-        return '-';
+    }
+    if (identityDemo && identityDemo.age !== undefined && identityDemo.age !== null) {
+        const val = String(identityDemo.age).trim();
+        if (val !== '') {
+            return val;
+        }
+    }
+    return null;
+}
+
+export function formatPdfDemographicsAge(ageRaw) {
+    if (!ageRaw || typeof ageRaw !== 'string') return '-';
+    const trimmed = ageRaw.trim();
+    if (!trimmed) return '-';
+
+    if (ALLOWED_AGE_SET.has(trimmed)) {
+        if (trimmed === '70대이상') return '70대 이상';
+        if (trimmed === '80대이상') return '80대 이상';
+        return trimmed;
     }
 
-    if (!subYear || !subMonth || !subDay) return '-';
-
-    let age = subYear - bYear;
-    if (subMonth < bMonth || (subMonth === bMonth && subDay < bDay)) {
-        age--;
-    }
-
-    if (age < 0 || age > 130) {
-        return '-';
-    }
-
-    return `만 ${age}세`;
+    return '-';
 }
 
 // Project-local official Noto Sans KR font asset (SIL Open Font License 1.1)
@@ -277,10 +296,12 @@ export class SurveyReportGenerator {
 
         doc.setFontSize(9);
         doc.setTextColor(71, 85, 105);
-        const genderText = formatPdfGender(contact.gender);
-        const ageText = calculateCompletedAgeFromBirthDate(contact.birthDate, payload.submittedAt || payload.submittedDate);
-        doc.text(`성 명: ${contact.clientName || '-'}`, 24, 61);
-        doc.text(`연 락 처: ${contact.phone || '-'}`, 68, 61);
+        const genderText = formatPdfGender(resolveCanonicalGender(payload));
+        const ageText = formatPdfDemographicsAge(resolveCanonicalAge(payload));
+        const clientNameText = contact.clientName || payload.identity?.clientName || payload.identity?.name || '-';
+        const phoneText = contact.phone || payload.identity?.phone || '-';
+        doc.text(`성 명: ${clientNameText}`, 24, 61);
+        doc.text(`연 락 처: ${phoneText}`, 68, 61);
         doc.text(`성별: ${genderText}`, 118, 61);
         doc.text(`연령: ${ageText}`, 156, 61);
 

@@ -196,54 +196,124 @@ async function run() {
         assert.strictEqual(parseDate('invalid-date'), '-');
     });
 
-    const { formatPdfGender, calculateCompletedAgeFromBirthDate } = await import('../server/survey/surveyReportGenerator.js');
+    // Helper to decode text from PDF buffer using ToUnicode CMap
+    function extractTextFromPdf(pdfBuf) {
+        const pdfStr = pdfBuf.toString('latin1');
+        const cmap = new Map();
+        const bfcharRegex = /<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g;
+        let match;
+        while ((match = bfcharRegex.exec(pdfStr)) !== null) {
+            const cid = parseInt(match[1], 16);
+            const uni = String.fromCharCode(parseInt(match[2], 16));
+            cmap.set(cid, uni);
+        }
 
-    await testCase('3.6 Gender normalization preserves supported labels and handles unknown as "-"', async () => {
-        assert.strictEqual(formatPdfGender('여성'), '여성');
-        assert.strictEqual(formatPdfGender('남성'), '남성');
-        assert.strictEqual(formatPdfGender('female'), '여성');
+        const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+        let extracted = '';
+        while ((match = streamRegex.exec(pdfStr)) !== null) {
+            let streamBuf = Buffer.from(match[1], 'latin1');
+            try {
+                streamBuf = zlib.inflateSync(streamBuf);
+            } catch {}
+            const s = streamBuf.toString('latin1');
+            const tjRegex = /<([0-9a-fA-F]+)>\s*Tj/g;
+            let m2;
+            while ((m2 = tjRegex.exec(s)) !== null) {
+                const hex = m2[1];
+                for (let i = 0; i < hex.length; i += 4) {
+                    const cid = parseInt(hex.substring(i, i + 4), 16);
+                    extracted += cmap.get(cid) || '';
+                }
+                extracted += ' ';
+            }
+        }
+        return extracted;
+    }
+
+    const {
+        formatPdfGender,
+        formatPdfDemographicsAge,
+        resolveCanonicalGender,
+        resolveCanonicalAge,
+        ALLOWED_TRACK_A_AGE_BANDS
+    } = await import('../server/survey/surveyReportGenerator.js');
+    const { SurveyPayloadValidator } = await import('../server/survey/surveyPayloadValidator.js');
+
+    await testCase('3.6 Gender normalization: Canonical codes and Korean labels mapped correctly', async () => {
+        // Canonical Track A English codes
+        assert.strictEqual(formatPdfGender('MALE'), '남성');
+        assert.strictEqual(formatPdfGender('FEMALE'), '여성');
+        assert.strictEqual(formatPdfGender('OTHER'), '기타');
+        assert.strictEqual(formatPdfGender('PREFER_NOT_TO_SAY'), '응답하지 않음');
+
+        // Case insensitivity
         assert.strictEqual(formatPdfGender('male'), '남성');
+        assert.strictEqual(formatPdfGender('female'), '여성');
+        assert.strictEqual(formatPdfGender('other'), '기타');
+        assert.strictEqual(formatPdfGender('prefer_not_to_say'), '응답하지 않음');
+
+        // Backward compatibility Korean labels
+        assert.strictEqual(formatPdfGender('남성'), '남성');
+        assert.strictEqual(formatPdfGender('여성'), '여성');
         assert.strictEqual(formatPdfGender('기타'), '기타');
-        assert.strictEqual(formatPdfGender('응답 안 함'), '응답 안 함');
+        assert.strictEqual(formatPdfGender('응답하지 않음'), '응답하지 않음');
+        assert.strictEqual(formatPdfGender('응답 안 함'), '응답하지 않음');
+        assert.strictEqual(formatPdfGender('응답안함'), '응답하지 않음');
+
+        // Missing, null, empty, unsupported -> '-'
         assert.strictEqual(formatPdfGender(null), '-');
         assert.strictEqual(formatPdfGender(''), '-');
         assert.strictEqual(formatPdfGender(undefined), '-');
+        assert.strictEqual(formatPdfGender('   '), '-');
+        assert.strictEqual(formatPdfGender('UNKNOWN'), '-');
+        assert.strictEqual(formatPdfGender('invalid'), '-');
     });
 
-    await testCase('3.7 Completed age: Birthday before submission (1995-03-20 -> 만 31세)', async () => {
-        const res = calculateCompletedAgeFromBirthDate('1995-03-20', '2026-09-25T15:30:00.000Z');
-        assert.strictEqual(res, '만 31세');
+    await testCase('3.7 Track A demographics age formatting and allowlist', async () => {
+        assert.strictEqual(formatPdfDemographicsAge('10대'), '10대');
+        assert.strictEqual(formatPdfDemographicsAge('20대'), '20대');
+        assert.strictEqual(formatPdfDemographicsAge('30대'), '30대');
+        assert.strictEqual(formatPdfDemographicsAge('40대'), '40대');
+        assert.strictEqual(formatPdfDemographicsAge('50대'), '50대');
+        assert.strictEqual(formatPdfDemographicsAge('60대'), '60대');
+        assert.strictEqual(formatPdfDemographicsAge('70대 이상'), '70대 이상');
+        assert.strictEqual(formatPdfDemographicsAge('70대이상'), '70대 이상');
+        assert.strictEqual(formatPdfDemographicsAge('80대 이상'), '80대 이상');
+        assert.strictEqual(formatPdfDemographicsAge('80대이상'), '80대 이상');
+
+        // Missing, null, empty, unsupported, numeric age, or birthDate -> '-'
+        assert.strictEqual(formatPdfDemographicsAge(null), '-');
+        assert.strictEqual(formatPdfDemographicsAge(''), '-');
+        assert.strictEqual(formatPdfDemographicsAge(undefined), '-');
+        assert.strictEqual(formatPdfDemographicsAge('invalid-age'), '-');
+        assert.strictEqual(formatPdfDemographicsAge('31'), '-');
+        assert.strictEqual(formatPdfDemographicsAge(31), '-');
+        assert.strictEqual(formatPdfDemographicsAge('만 31세'), '-');
+        assert.strictEqual(formatPdfDemographicsAge('1990-05-15'), '-');
     });
 
-    await testCase('3.8 Completed age: Birthday after submission (1995-12-20 -> 만 30세)', async () => {
-        const res = calculateCompletedAgeFromBirthDate('1995-12-20', '2026-09-25T15:30:00.000Z');
-        assert.strictEqual(res, '만 30세');
-    });
+    await testCase('3.8 Canonical priority resolution: contact vs identity fallback', async () => {
+        // Gender priority: contact.gender > identity.gender
+        assert.strictEqual(resolveCanonicalGender({ contact: { gender: 'MALE' }, identity: { gender: 'FEMALE' } }), 'MALE');
+        assert.strictEqual(resolveCanonicalGender({ contact: { gender: 'FEMALE' } }), 'FEMALE');
+        assert.strictEqual(resolveCanonicalGender({ identity: { gender: 'FEMALE' } }), 'FEMALE');
+        assert.strictEqual(resolveCanonicalGender({ contact: {}, identity: { gender: 'PREFER_NOT_TO_SAY' } }), 'PREFER_NOT_TO_SAY');
+        assert.strictEqual(resolveCanonicalGender({}), null);
 
-    await testCase('3.9 Completed age: Same-day birthday (2026-09-26 -> 만 0세)', async () => {
-        const res = calculateCompletedAgeFromBirthDate('2026-09-26', '2026-09-25T15:30:00.000Z');
-        assert.strictEqual(res, '만 0세');
-    });
-
-    await testCase('3.10 Completed age: Leap-day birthday (2000-02-29)', async () => {
-        // Non-leap year Feb 28: birthday not yet reached in 2025
-        assert.strictEqual(calculateCompletedAgeFromBirthDate('2000-02-29', '2025-02-28T00:00:00.000Z'), '만 24세');
-        // Non-leap year Mar 01: birthday has occurred
-        assert.strictEqual(calculateCompletedAgeFromBirthDate('2000-02-29', '2025-03-01T00:00:00.000Z'), '만 25세');
-    });
-
-    await testCase('3.11 Completed age: Missing or invalid birthDate safely returns "-"', async () => {
-        assert.strictEqual(calculateCompletedAgeFromBirthDate(null, '2026-09-25T15:30:00.000Z'), '-');
-        assert.strictEqual(calculateCompletedAgeFromBirthDate('', '2026-09-25T15:30:00.000Z'), '-');
-        assert.strictEqual(calculateCompletedAgeFromBirthDate('invalid-date', '2026-09-25T15:30:00.000Z'), '-');
-        assert.strictEqual(calculateCompletedAgeFromBirthDate('2030-01-01', '2026-09-25T15:30:00.000Z'), '-'); // negative age
-    });
-
-    await testCase('3.12 Completed age: KST calendar date boundary sensitivity', async () => {
-        // 2026-09-25 14:59 UTC = 2026-09-25 23:59 KST -> birthday Sep 26 has not occurred
-        assert.strictEqual(calculateCompletedAgeFromBirthDate('1990-09-26', '2026-09-25T14:59:00.000Z'), '만 35세');
-        // 2026-09-25 15:00 UTC = 2026-09-26 00:00 KST -> birthday Sep 26 has occurred
-        assert.strictEqual(calculateCompletedAgeFromBirthDate('1990-09-26', '2026-09-25T15:00:00.000Z'), '만 36세');
+        // Age priority: contact.demographics.age > identity.demographics.age
+        assert.strictEqual(resolveCanonicalAge({
+            contact: { demographics: { age: '30대' } },
+            identity: { demographics: { age: '40대' } }
+        }), '30대');
+        assert.strictEqual(resolveCanonicalAge({
+            contact: {},
+            identity: { demographics: { age: '40대' } }
+        }), '40대');
+        assert.strictEqual(resolveCanonicalAge({
+            contact: { demographics: {} },
+            identity: { demographics: { age: '50대' } }
+        }), '50대');
+        assert.strictEqual(resolveCanonicalAge({}), null);
     });
 
     // -------------------------------------------------------------
@@ -258,7 +328,10 @@ async function run() {
         contact: {
             clientName: '홍길동',
             phone: '010-1234-5678',
-            gender: '남성',
+            gender: 'MALE',
+            demographics: {
+                age: '30대'
+            },
             birthDate: '1990-05-15',
             region: '서울특별시 강남구',
             counselingRequestText: '온라인 마음건강 검진 결과보고서 상담 요청: 위기 상황에서는 즉시 전문기관에 도움을 요청하세요.'
@@ -299,40 +372,7 @@ async function run() {
     console.log('\n--- 5. Actual Text Extraction from Generated PDF ---');
 
     await testCase('5.1 Decompress and extract Unicode text through ToUnicode CMap', async () => {
-        const pdfBuf = generatedPdfResult.buffer;
-        const pdfStr = pdfBuf.toString('latin1');
-
-        // Extract ToUnicode CMap
-        const cmap = new Map();
-        const bfcharRegex = /<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g;
-        let match;
-        while ((match = bfcharRegex.exec(pdfStr)) !== null) {
-            const cid = parseInt(match[1], 16);
-            const uni = String.fromCharCode(parseInt(match[2], 16));
-            cmap.set(cid, uni);
-        }
-        assert.ok(cmap.size > 20, `CMap must contain encoded glyphs, got: ${cmap.size}`);
-
-        // Decompress content streams and decode text
-        const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
-        let extracted = '';
-        while ((match = streamRegex.exec(pdfStr)) !== null) {
-            let streamBuf = Buffer.from(match[1], 'latin1');
-            try {
-                streamBuf = zlib.inflateSync(streamBuf);
-            } catch {}
-            const s = streamBuf.toString('latin1');
-            const tjRegex = /<([0-9a-fA-F]+)>\s*Tj/g;
-            let m2;
-            while ((m2 = tjRegex.exec(s)) !== null) {
-                const hex = m2[1];
-                for (let i = 0; i < hex.length; i += 4) {
-                    const cid = parseInt(hex.substring(i, i + 4), 16);
-                    extracted += cmap.get(cid) || '';
-                }
-                extracted += ' ';
-            }
-        }
+        const extracted = extractTextFromPdf(generatedPdfResult.buffer);
 
         // Required Korean phrases
         assert.ok(extracted.includes('온라인 마음건강 선별검진 및 상담접수 결과지'), 'Must contain header title');
@@ -353,9 +393,14 @@ async function run() {
         // Required KST date
         assert.ok(extracted.includes('2026. 09. 26. 00:30'), 'Must contain KST timestamp');
 
-        // Required Gender and Completed Age in PDF text
-        assert.ok(extracted.includes('남성'), 'Must contain gender: 남성');
-        assert.ok(extracted.includes('만 36세'), 'Must contain completed age: 만 36세');
+        // Required Gender and Demographics Age in PDF text
+        assert.ok(extracted.includes('성별: 남성') || extracted.includes('남성'), 'Must contain gender: 남성');
+        assert.ok(extracted.includes('연령: 30대') || extracted.includes('30대'), 'Must contain demographics age: 30대');
+
+        // Strictly verify that calculated age and wrong labels are absent
+        assert.ok(!extracted.includes('만 36세'), 'Must not contain calculated completed age (만 36세)');
+        assert.ok(!extracted.includes('만 35세'), 'Must not contain calculated age');
+        assert.ok(!extracted.includes('나이:'), 'Must not use 나이 label');
 
         // Zero defects check
         const ufffdCount = (extracted.match(/\uFFFD/g) || []).length;
@@ -365,10 +410,158 @@ async function run() {
     });
 
     // -------------------------------------------------------------
-    // SECTION 6: Docker Packaging Audit
+    // SECTION 6: Synthetic Contract Tests A through J
     // -------------------------------------------------------------
-    console.log('\n--- 6. Docker Packaging Audit ---');
-    await testCase('6.1 .dockerignore does not exclude server/survey/assets', async () => {
+    console.log('\n--- 6. Synthetic Contract Tests A through J ---');
+
+    await testCase('6.1 Test A: Canonical FEMALE and 30대 -> 성별: 여성, 연령: 30대', async () => {
+        const payload = {
+            submittedAt: '2026-09-26T10:00:00.000Z',
+            contact: {
+                clientName: '테스트A',
+                phone: '010-1111-2222',
+                gender: 'FEMALE',
+                demographics: { age: '30대' }
+            },
+            consentEvidence: { personalInfoConsent: true, sensitiveInfoConsent: true }
+        };
+        const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-A', payload });
+        const text = extractTextFromPdf(res.buffer);
+        assert.ok(text.includes('성별: 여성'), 'Must display 성별: 여성');
+        assert.ok(text.includes('연령: 30대'), 'Must display 연령: 30대');
+    });
+
+    await testCase('6.2 Test B: Canonical MALE and 20대 -> 성별: 남성, 연령: 20대', async () => {
+        const payload = {
+            submittedAt: '2026-09-26T10:00:00.000Z',
+            contact: {
+                clientName: '테스트B',
+                phone: '010-1111-2222',
+                gender: 'MALE',
+                demographics: { age: '20대' }
+            },
+            consentEvidence: { personalInfoConsent: true, sensitiveInfoConsent: true }
+        };
+        const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-B', payload });
+        const text = extractTextFromPdf(res.buffer);
+        assert.ok(text.includes('성별: 남성'), 'Must display 성별: 남성');
+        assert.ok(text.includes('연령: 20대'), 'Must display 연령: 20대');
+    });
+
+    await testCase('6.3 Test C: OTHER -> 성별: 기타', async () => {
+        const payload = {
+            contact: { gender: 'OTHER' }
+        };
+        const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-C', payload });
+        const text = extractTextFromPdf(res.buffer);
+        assert.ok(text.includes('성별: 기타'), 'Must display 성별: 기타');
+    });
+
+    await testCase('6.4 Test D: PREFER_NOT_TO_SAY -> 성별: 응답하지 않음', async () => {
+        const payload = {
+            contact: { gender: 'PREFER_NOT_TO_SAY' }
+        };
+        const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-D', payload });
+        const text = extractTextFromPdf(res.buffer);
+        assert.ok(text.includes('성별: 응답하지 않음'), 'Must display 성별: 응답하지 않음');
+    });
+
+    await testCase('6.5 Test E: Missing gender -> 성별: - (Never convert to 기타)', async () => {
+        const payload = {
+            contact: { clientName: '테스트E', phone: '010-0000-0000' }
+        };
+        const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-E', payload });
+        const text = extractTextFromPdf(res.buffer);
+        assert.ok(text.includes('성별: -'), 'Must display 성별: -');
+        assert.ok(!text.includes('성별: 기타'), 'Must not display 성별: 기타');
+    });
+
+    await testCase('6.6 Test F: Missing age -> 연령: -', async () => {
+        const payload = {
+            contact: { clientName: '테스트F', demographics: {} }
+        };
+        const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-F', payload });
+        const text = extractTextFromPdf(res.buffer);
+        assert.ok(text.includes('연령: -'), 'Must display 연령: -');
+        assert.ok(!text.includes('나이'), 'Must not display 나이 label');
+    });
+
+    await testCase('6.7 Test G: Legacy identity fallback -> 성별: 여성, 연령: 40대', async () => {
+        const payload = {
+            contact: { clientName: '테스트G' },
+            identity: {
+                gender: 'FEMALE',
+                demographics: { age: '40대' }
+            }
+        };
+        const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-G', payload });
+        const text = extractTextFromPdf(res.buffer);
+        assert.ok(text.includes('성별: 여성'), 'Must display 성별: 여성 from identity fallback');
+        assert.ok(text.includes('연령: 40대'), 'Must display 연령: 40대 from identity fallback');
+    });
+
+    await testCase('6.8 Test H: Contact priority over identity -> 성별: 남성', async () => {
+        const payload = {
+            contact: { clientName: '테스트H', gender: 'MALE' },
+            identity: { gender: 'FEMALE' }
+        };
+        const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-H', payload });
+        const text = extractTextFromPdf(res.buffer);
+        assert.ok(text.includes('성별: 남성'), 'Must display 성별: 남성 (contact priority)');
+        assert.ok(!text.includes('성별: 여성'), 'Must not be overridden by identity');
+    });
+
+    await testCase('6.9 Test I: Unsupported values fail-safe -> 성별: -, 연령: -', async () => {
+        const payload = {
+            contact: {
+                gender: 'UNKNOWN',
+                demographics: { age: 'invalid-age' }
+            }
+        };
+        const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-I', payload });
+        const text = extractTextFromPdf(res.buffer);
+        assert.ok(text.includes('성별: -'), 'Unsupported gender must display -');
+        assert.ok(text.includes('연령: -'), 'Unsupported age must display -');
+    });
+
+    await testCase('6.10 Test J: Legacy payload with no new fields accepted and rendered', async () => {
+        const validator = new SurveyPayloadValidator({ sbqrApproved: true });
+        const legacyPayload = {
+            submissionId: 'sub-legacy-001',
+            schemaVersion: 'v1.0',
+            assessmentId: 'phq-9',
+            submittedAt: '2026-09-25T15:30:00.000Z',
+            contact: {
+                clientName: '레거시테스터',
+                phone: '010-9999-8888'
+            },
+            consentEvidence: {
+                personalInfoConsent: true,
+                sensitiveInfoConsent: true,
+                transmittedFieldSet: ['clientName', 'phone', 'totalScore', 'severity']
+            },
+            assessment: {
+                totalScore: 5,
+                severity: '경도'
+            }
+        };
+
+        const valResult = validator.validate(legacyPayload);
+        assert.strictEqual(valResult.valid, true, 'Legacy payload must validate successfully');
+
+        const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-J', payload: legacyPayload });
+        assert.ok(res.buffer.length > 50000, 'PDF generated');
+        const text = extractTextFromPdf(res.buffer);
+        assert.ok(text.includes('레거시테스터'), 'Client name rendered');
+        assert.ok(text.includes('성별: -'), 'Missing gender displays -');
+        assert.ok(text.includes('연령: -'), 'Missing age displays -');
+    });
+
+    // -------------------------------------------------------------
+    // SECTION 7: Docker Packaging Audit
+    // -------------------------------------------------------------
+    console.log('\n--- 7. Docker Packaging Audit ---');
+    await testCase('7.1 .dockerignore does not exclude server/survey/assets', async () => {
         const diPath = path.join(ROOT_DIR, '.dockerignore');
         if (fs.existsSync(diPath)) {
             const diContent = fs.readFileSync(diPath, 'utf8');
@@ -377,7 +570,7 @@ async function run() {
         }
     });
 
-    await testCase('6.2 Dockerfile includes COPY server/ ./server/', async () => {
+    await testCase('7.2 Dockerfile includes COPY server/ ./server/', async () => {
         const dfPath = path.join(ROOT_DIR, 'Dockerfile');
         const dfContent = fs.readFileSync(dfPath, 'utf8');
         assert.ok(dfContent.includes('COPY server/ ./server/'), 'Must copy server directory');

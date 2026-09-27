@@ -284,20 +284,23 @@ export class SurveyPayloadValidator {
         }
 
         // 3. Contact / Identity keys check
-        const contactObj = payload.contact || payload.identity;
-        if (contactObj && typeof contactObj === 'object') {
-            const basePath = payload.identity ? '$.identity' : '$.contact';
-            for (const cKey of Object.keys(contactObj)) {
-                if (!ALLOWED_CONTACT_KEYS.has(cKey)) {
-                    collector.add(basePath, cKey);
+        for (const [obj, basePath] of [
+            [payload.contact, '$.contact'],
+            [payload.identity, '$.identity']
+        ]) {
+            if (obj && typeof obj === 'object') {
+                for (const cKey of Object.keys(obj)) {
+                    if (!ALLOWED_CONTACT_KEYS.has(cKey)) {
+                        collector.add(basePath, cKey);
+                    }
                 }
-            }
 
-            if (contactObj.demographics && typeof contactObj.demographics === 'object') {
-                const demoPath = `${basePath}.demographics`;
-                for (const dKey of Object.keys(contactObj.demographics)) {
-                    if (!ALLOWED_DEMOGRAPHICS_KEYS.has(dKey)) {
-                        collector.add(demoPath, dKey);
+                if (obj.demographics && typeof obj.demographics === 'object') {
+                    const demoPath = `${basePath}.demographics`;
+                    for (const dKey of Object.keys(obj.demographics)) {
+                        if (!ALLOWED_DEMOGRAPHICS_KEYS.has(dKey)) {
+                            collector.add(demoPath, dKey);
+                        }
                     }
                 }
             }
@@ -414,19 +417,55 @@ export class SurveyPayloadValidator {
             delete payload.retentionPolicyReference;
         }
 
-        // 3. identity -> contact
+        // 3. identity -> contact (contact priority, identity fallback)
         if (payload.identity && typeof payload.identity === 'object') {
-            if (!payload.contact) {
-                const id = payload.identity;
-                payload.contact = {
-                    clientName: id.name || id.clientName || '',
-                    phone: id.phone || '',
-                    preferredTime: id.preferredTime || '',
-                    counselingRequestText: id.note || id.counselingRequestText || '',
-                    demographics: id.demographics || null,
-                    region: id.demographics?.region || id.region || ''
-                };
+            const id = payload.identity;
+            if (!payload.contact || typeof payload.contact !== 'object') {
+                payload.contact = {};
             }
+
+            // clientName / name
+            if (!payload.contact.clientName && !payload.contact.name) {
+                if (id.clientName || id.name) {
+                    payload.contact.clientName = id.clientName || id.name;
+                }
+            }
+            // phone
+            if (!payload.contact.phone && id.phone) {
+                payload.contact.phone = id.phone;
+            }
+            // preferredTime
+            if (!payload.contact.preferredTime && id.preferredTime) {
+                payload.contact.preferredTime = id.preferredTime;
+            }
+            // counselingRequestText / note
+            if (!payload.contact.counselingRequestText && !payload.contact.note) {
+                if (id.counselingRequestText || id.note) {
+                    payload.contact.counselingRequestText = id.counselingRequestText || id.note;
+                }
+            }
+            // gender (contact.gender has priority; identity.gender is legacy fallback)
+            const hasContactGender = payload.contact.gender !== undefined && payload.contact.gender !== null && String(payload.contact.gender).trim() !== '';
+            if (!hasContactGender && id.gender !== undefined && id.gender !== null && String(id.gender).trim() !== '') {
+                payload.contact.gender = id.gender;
+            }
+            // demographics (contact.demographics.age has priority; identity.demographics.age is legacy fallback)
+            if (!payload.contact.demographics && id.demographics) {
+                payload.contact.demographics = { ...id.demographics };
+            } else if (payload.contact.demographics && typeof payload.contact.demographics === 'object' && id.demographics && typeof id.demographics === 'object') {
+                const hasContactAge = payload.contact.demographics.age !== undefined && payload.contact.demographics.age !== null && String(payload.contact.demographics.age).trim() !== '';
+                if (!hasContactAge && id.demographics.age !== undefined && id.demographics.age !== null && String(id.demographics.age).trim() !== '') {
+                    payload.contact.demographics.age = id.demographics.age;
+                }
+                if (!payload.contact.demographics.region && id.demographics.region) {
+                    payload.contact.demographics.region = id.demographics.region;
+                }
+            }
+            // region
+            if (!payload.contact.region) {
+                payload.contact.region = payload.contact.demographics?.region || id.region || '';
+            }
+
             delete payload.identity;
         }
 
@@ -553,6 +592,12 @@ export class SurveyPayloadValidator {
             } else {
                 if (payload.assessment?.scaleScores && !payload.consentEvidence.transmittedFieldSet.includes('scaleScores')) {
                     payload.consentEvidence.transmittedFieldSet.push('scaleScores');
+                }
+                if (payload.contact?.demographics && !payload.consentEvidence.transmittedFieldSet.includes('demographics')) {
+                    payload.consentEvidence.transmittedFieldSet.push('demographics');
+                }
+                if (payload.contact?.gender && !payload.consentEvidence.transmittedFieldSet.includes('gender')) {
+                    payload.consentEvidence.transmittedFieldSet.push('gender');
                 }
             }
         }
