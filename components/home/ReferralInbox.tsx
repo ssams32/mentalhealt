@@ -169,13 +169,28 @@ const ReferralInbox: React.FC<ReferralInboxProps> = ({ pendingReferrals, onAccep
                                         <Trash2 size={16} />
                                         삭제
                                     </button>
-                                    <button
-                                        onClick={() => onImport(referral)}
-                                        className="flex-1 py-3 bg-blue-500 text-white rounded-xl font-black text-sm shadow-lg shadow-blue-200 hover:bg-blue-600 transition-all flex items-center justify-center gap-2"
-                                    >
-                                        <FileInput size={16} />
-                                        의뢰대장 추가
-                                    </button>
+                                    {Boolean(referral.source === 'registered' || referral.refNo || referral.referralId) ? (
+                                        <button
+                                            onClick={() => onImport({
+                                                targetReferralId: referral.refNo || referral.referralId,
+                                                source: 'registered',
+                                                refNo: referral.refNo,
+                                                referralId: referral.referralId
+                                            })}
+                                            className="flex-1 py-3 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl font-black text-sm transition-all flex items-center justify-center gap-2"
+                                        >
+                                            <FileInput size={16} />
+                                            등록된 의뢰 보기
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={() => onImport(referral)}
+                                            className="flex-1 py-3 bg-blue-500 text-white rounded-xl font-black text-sm shadow-lg shadow-blue-200 hover:bg-blue-600 transition-all flex items-center justify-center gap-2"
+                                        >
+                                            <FileInput size={16} />
+                                            신규 의뢰 등록
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         )}

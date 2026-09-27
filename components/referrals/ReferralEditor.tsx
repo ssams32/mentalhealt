@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Referral, User, Attachment, Note, ReferralNote } from '../../types';
 import { GENDER_OPTIONS, ICHEON_REGIONS, DIAGNOSIS_OPTIONS, REFERRAL_PATH_OPTIONS, CRI_LEVELS, INTERVENTION_GUIDE_TEXT, MAIN_TEAMS, ALL_TEAMS, ACTION_RESULT_OPTIONS, NAMBU_SUB_TEAMS } from '../../constants';
-import { 
-    X, Check, Save, Share2, Printer, AlertCircle, FileText, Download, Trash2, 
-    MessageSquare, Clock, User as UserIcon, Phone, MapPin, Building2, Calendar, 
-    MoreHorizontal, ChevronDown, ChevronRight, Edit2, History, Paperclip, 
-    Sparkles, Eye, Loader2, Plus, Search, Star, CheckCircle2, PhoneCall, 
-    Filter, LayoutGrid, List, FileUp, Pencil, ArrowRightCircle, RotateCcw, 
+import {
+    X, Check, Save, Share2, Printer, AlertCircle, FileText, Download, Trash2,
+    MessageSquare, Clock, User as UserIcon, Phone, MapPin, Building2, Calendar,
+    MoreHorizontal, ChevronDown, ChevronRight, Edit2, History, Paperclip,
+    Sparkles, Eye, Loader2, Plus, Search, Star, CheckCircle2, PhoneCall,
+    Filter, LayoutGrid, List, FileUp, Pencil, ArrowRightCircle, RotateCcw,
     Monitor, UserCheck, ChevronLeft
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
@@ -163,7 +163,7 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
     // 모달이 열리거나 편집 데이터가 변경될 때 폼 데이터를 초기화하는 Hook
     useEffect(() => {
         // [MODIFIED] Use ID-based check to ensure fresh initialization for every new external referral import
-        const initId = referralData?.externalIdx || referralData?.refNo || 'new';
+        const initId = referralData?.refNo || (referralData as any)?.externalIdx || (referralData as any)?.id || (referralData ? 'external_prefill' : 'new_blank');
         if (lastInitializedRef.current === initId) {
             // [CRITICAL] 같은 의뢰이지만 부모/서버에서 version 또는 notes가 갱신된 경우:
             // 사용자가 타이핑 중인 입력값(formData)은 보존하고 version과 서버 필드만 안전하게 동기화!
@@ -184,7 +184,7 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
             return;
         }
         lastInitializedRef.current = initId;
-        
+
         setError('');
         setCurrentNote('');
 
@@ -196,39 +196,43 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                 if (found) detectedRegion = found;
             }
 
-            // Consolidate all external fields into a summary block
+            // Consolidate available external fields into a summary block (missing fields remain blank, no fabricated text)
             const summaryParts = [
                 `[홈페이지 의뢰 상세 정보]`,
-                `등록번호: ${referralData.externalIdx || '미상'}`,
+                referralData.externalIdx ? `등록번호: ${referralData.externalIdx}` : '',
                 referralData.problem ? `주문제: ${referralData.problem}` : '',
                 referralData.medicalInsurance ? `의료보장: ${referralData.medicalInsurance}` : '',
                 referralData.disabilityStatus ? `장애등록여부: ${referralData.disabilityStatus}` : '',
-                `보호자유무: ${referralData.guardianPresence || 'N'}`,
-                referralData.guardianName ? `보호자: ${referralData.guardianName} (${referralData.guardianRelation || '관계미상'}) / ${referralData.guardianPhone || '연락처없음'}` : '',
+                referralData.guardianPresence ? `보호자유무: ${referralData.guardianPresence}` : '',
+                referralData.guardianName ? `보호자: ${referralData.guardianName}${referralData.guardianRelation ? ` (${referralData.guardianRelation})` : ''}${referralData.guardianPhone ? ` / ${referralData.guardianPhone}` : ''}` : '',
                 referralData.guardianNotes ? `보호자 비고: ${referralData.guardianNotes}` : '',
-                `의뢰동의여부: ${referralData.consentToReferral || '미상'} ${referralData.consentNotes ? `(${referralData.consentNotes})` : ''}`,
-                `\n[의뢰인 정보]`,
-                `의뢰처: ${referralData.agency || '미상'}`,
-                `의뢰인: ${referralData.requesterName || '미상'} (${referralData.requesterPhone || '연락처없음'})`,
+                referralData.consentToReferral ? `의뢰동의여부: ${referralData.consentToReferral}${referralData.consentNotes ? ` (${referralData.consentNotes})` : ''}` : '',
+                (referralData.agency || referralData.requesterName || referralData.requesterPhone) ? `\n[의뢰인 정보]` : '',
+                referralData.agency ? `의뢰처: ${referralData.agency}` : '',
+                referralData.requesterName ? `의뢰인: ${referralData.requesterName}${referralData.requesterPhone ? ` (${referralData.requesterPhone})` : ''}` : '',
                 referralData.requesterFax ? `팩스: ${referralData.requesterFax}` : '',
                 referralData.requesterEmail ? `이메일: ${referralData.requesterEmail}` : '',
-                `\n[의뢰이유]\n${referralData.reason || '내용없음'}`
+                referralData.reason ? `\n[의뢰이유]\n${referralData.reason}` : ''
             ].filter(Boolean).join('\n');
 
-            // [FIXED] Always create a note for external referrals, not just when reason is present
             const isExternal = !!(referralData.externalIdx || referralData.isWebsiteReferral);
-            const initialNotes: ReferralNote[] = (referralData.reason || isExternal) ? [{
+            const initialNotes: ReferralNote[] = (referralData.reason || isExternal) && summaryParts ? [{
                 id: `note_${Date.now()}`,
                 content: summaryParts,
                 createdAt: new Date().toISOString(),
                 author: currentUser?.name || '시스템'
             }] : [];
 
-            // Merge incoming data with defaults to ensure all fields exist
+            const validGender = (referralData.gender === '남성' || referralData.gender === '여성' || referralData.gender === '기타') ? referralData.gender : '';
+            const validAge = (typeof referralData.age === 'number' && !isNaN(referralData.age) && referralData.age > 0)
+                ? referralData.age
+                : (referralData.age && !isNaN(parseInt(String(referralData.age), 10)) && parseInt(String(referralData.age), 10) > 0)
+                    ? parseInt(String(referralData.age), 10)
+                    : '';
+
             setFormData({
-                requestDate: new Date().toISOString().split('T')[0],
+                requestDate: referralData.requestDate || (referralData.externalReceivedAt ? String(referralData.externalReceivedAt).split('T')[0].split(' ')[0] : new Date().toISOString().split('T')[0]),
                 team: currentUser?.team || '증진팀',
-                gender: '남성',
                 closureStatus: '미종결',
                 diagnosisProtectionRequest: false,
                 writtenRequest: false,
@@ -237,16 +241,20 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                 reply: false,
                 isWebsiteReferral: isExternal,
                 criLevel: 'c',
-                attachments: [], // [CLEANUP] Remove summaryAttachment (HTML version)
+                attachments: [],
                 ...referralData, // spread incoming data
+                gender: validGender as any,
+                age: validAge as any,
                 notes: (referralData.notes && referralData.notes.length > 0) ? referralData.notes : initialNotes,
-                interventionContent: '', // [CLEANUP] Redundant field removed from UI
-                requestAgency: referralData.agency || referralData.requestAgency || '', 
-                region: detectedRegion || ICHEON_REGIONS[ICHEON_REGIONS.length - 1]
+                interventionContent: '',
+                requestAgency: referralData.agency || referralData.requestAgency || '',
+                requesterName: referralData.requesterName || (referralData as any).requestorName || '',
+                requestorName: referralData.requesterName || (referralData as any).requestorName || '',
+                region: detectedRegion || referralData.region || ICHEON_REGIONS[0]
             });
 
             setPreviewFile(null);
-            
+
             // [NEW] Trigger PNG Summary Generation for new external imports
             // Only trigger if it's a NEW import (not editing) and doesn't already have the summary
             const hasExistingSummary = referralData.attachments?.some((a: any) => a.name && a.name.startsWith('[홈페이지의뢰요약]'));
@@ -257,7 +265,7 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
             setFormData({
                 requestDate: new Date().toISOString().split('T')[0],
                 team: currentUser?.team || '증진팀',
-                gender: '기타',
+                gender: '',
                 region: ICHEON_REGIONS[0],
                 closureStatus: '미종결',
                 diagnosisProtectionRequest: false,
@@ -283,10 +291,10 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                         logging: false,
                         useCORS: true
                     });
-                    
+
                     const base64 = canvas.toDataURL('image/png');
                     const fileName = `[홈페이지의뢰요약]_${formData.name || '미상'}.png`;
-                    
+
                     const newAttachment: Attachment = {
                         id: `summary_img_${Date.now()}`,
                         name: fileName,
@@ -296,18 +304,18 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                         uploadedAt: new Date().toISOString(),
                         url: '#'
                     };
-                    
+
                     setFormData(prev => {
                         // Prevent duplicates if it was already generated
                         const exists = prev.attachments?.some(a => a.name && a.name.startsWith('[홈페이지의뢰요약]'));
                         if (exists) return prev;
-                        
+
                         return {
                             ...prev,
                             attachments: [...(prev.attachments || []), newAttachment]
                         };
                     });
-                    
+
                     console.log("PNG Summary generated successfully");
                 } catch (err) {
                     console.error("Failed to generate PNG summary", err);
@@ -321,7 +329,7 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
 
     const performSave = async (dataToSave: Partial<Referral> = latestFormDataRef.current) => {
         if (!isEditing || !dataToSave.refNo) return;
-        
+
         // Clear timer if exists
         if (autoSaveTimerRef.current) {
             clearTimeout(autoSaveTimerRef.current);
@@ -339,7 +347,7 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
         try {
             // Call the onSubmit function strictly for background syncing
             const saved = await onSubmit(dataToSave, dataToSave.refNo);
-            
+
             // [CRITICAL] 최신 버전 및 서버 상태 즉각 동기화
             if (saved && saved.version !== undefined) {
                 setFormData(prev => ({
@@ -536,10 +544,10 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
     // 입력 필드(input, select, textarea) 값 변경 핸들러
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
-        
+
         setFormData(prev => {
             const updated = { ...prev, [name]: value };
-            
+
             // [NEW] Auto-populate requestAgency for '가족' or '본인' per user request
             if (name === 'referralPath' && (value === '가족' || value === '본인')) {
                 updated.requestAgency = value;
@@ -634,7 +642,7 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
 
             isSavingRef.current = true;
             const saved = await onSubmit(submissionData, originalRefNo);
-            
+
             // [CRITICAL] 수동 저장 성공 후에도 최신 version 및 갱신 상태 즉시 반영
             if (saved && saved.version !== undefined) {
                 setFormData(prev => ({
@@ -913,7 +921,8 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                     </div>
                     <div className="col-span-2 lg:col-span-1">
                         <label className={`${labelClass} text-rose-800`}>성별 <span className="text-rose-500">*</span></label>
-                        <select name="gender" value={formData.gender || '기타'} onChange={handleInputChange} className={`${inputClass} border-rose-200 focus:ring-rose-500/20 shadow-sm`}>
+                        <select name="gender" value={formData.gender || ''} onChange={handleInputChange} className={`${inputClass} border-rose-200 focus:ring-rose-500/20 shadow-sm`}>
+                            <option value="">성별 선택</option>
                             {GENDER_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
                         </select>
                     </div>
@@ -1341,7 +1350,7 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                                 if (isDriveFile && isHwp) {
                                     return <iframe src={`https://drive.google.com/file/d/${previewFile.id}/preview`} className="w-full h-full border-none" title="Document Preview" />;
                                 }
-                                
+
                                 // [NEW] Image Preview Support
                                 if (previewFile.type?.startsWith('image/') || previewFile.name.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/)) {
                                     let srcUrl = previewFile.url || '';
@@ -1394,19 +1403,19 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                 />
             )}
 
-            {/* FilePreviewModal is now only for modal mode if needed, but we keep it here as a safety fallback or remove if we prefer purely inline. 
-                Let's keep it but only trigger if NOT in workspace mode? 
+            {/* FilePreviewModal is now only for modal mode if needed, but we keep it here as a safety fallback or remove if we prefer purely inline.
+                Let's keep it but only trigger if NOT in workspace mode?
                 Actually, the user wants it inline, so we can hide the global modal in workspace mode.
             */}
             {mode !== 'workspace' && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
 
             {/* [NEW] Hidden Summary Renderer for PNG Export */}
             <div className="fixed -left-[9999px] top-0 pointer-events-none">
-                <div 
-                    ref={summaryRef} 
-                    style={{ 
-                        width: '600px', 
-                        padding: '40px', 
+                <div
+                    ref={summaryRef}
+                    style={{
+                        width: '600px',
+                        padding: '40px',
                         background: '#ffffff',
                         fontFamily: 'sans-serif'
                     }}

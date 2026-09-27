@@ -430,7 +430,27 @@ export const SeptemberWebsiteReferralBanner: React.FC<SeptemberWebsiteReferralBa
 
                                                 {/* Right Action Button */}
                                                 <div className="shrink-0 flex items-center gap-2 self-end md:self-center">
-                                                    {isPending ? (
+                                                    {Boolean(item.source === 'registered' || item.refNo || item.referralId) ? (
+                                                        <button
+                                                            onClick={() => {
+                                                                setIsModalOpen(false);
+                                                                if (onImportReferral) {
+                                                                    onImportReferral({
+                                                                        targetReferralId: item.refNo || item.referralId,
+                                                                        source: 'registered',
+                                                                        refNo: item.refNo,
+                                                                        referralId: item.referralId
+                                                                    });
+                                                                } else if (onNavigate) {
+                                                                    onNavigate('referrals');
+                                                                }
+                                                            }}
+                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                                                        >
+                                                            <span>등록된 의뢰 보기</span>
+                                                            <ArrowRight size={13} />
+                                                        </button>
+                                                    ) : (
                                                         <button
                                                             onClick={() => {
                                                                 setIsModalOpen(false);
@@ -441,20 +461,7 @@ export const SeptemberWebsiteReferralBanner: React.FC<SeptemberWebsiteReferralBa
                                                             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm hover:shadow transition-all"
                                                         >
                                                             <FileText size={14} />
-                                                            <span>의뢰서 작성으로 가져오기</span>
-                                                        </button>
-                                                    ) : (
-                                                        <button
-                                                            onClick={() => {
-                                                                setIsModalOpen(false);
-                                                                if (onNavigate) {
-                                                                    onNavigate('referrals');
-                                                                }
-                                                            }}
-                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
-                                                        >
-                                                            <span>의뢰대장에서 보기</span>
-                                                            <ArrowRight size={13} />
+                                                            <span>신규 의뢰 등록</span>
                                                         </button>
                                                     )}
                                                 </div>

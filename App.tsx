@@ -642,6 +642,69 @@ function App() {
         }
     }, [currentUser, showToast]);
 
+    const mapWebsiteReferralToInitialForm = useCallback((item: any): Partial<Omit<Referral, 'refNo' | 'clientId'>> => {
+        if (!item || typeof item !== 'object') return {};
+
+        // If already registered, pass through targetReferralId
+        if (item.targetReferralId || item.refNo || (item.source === 'registered' && item.referralId)) {
+            return { targetReferralId: item.targetReferralId || item.refNo || item.referralId } as any;
+        }
+
+        const cleanStr = (val: any): string => {
+            if (val === undefined || val === null) return '';
+            const s = String(val).trim();
+            if (s === 'undefined' || s === 'null' || s === '미상') return '';
+            return s;
+        };
+
+        const validGender = (item.gender === '남성' || item.gender === '여성' || item.gender === '기타') ? item.gender : undefined;
+
+        let validAge: number | undefined = undefined;
+        if (typeof item.age === 'number' && !isNaN(item.age) && item.age > 0) {
+            validAge = item.age;
+        } else if (item.age) {
+            const parsed = parseInt(String(item.age).replace(/[^0-9]/g, ''), 10);
+            if (!isNaN(parsed) && parsed > 0 && parsed <= 130) {
+                validAge = parsed;
+            }
+        }
+
+        let receiptDate = '';
+        const rawDate = item.externalReceivedAt || item.registrationDate || item.createdAt || '';
+        if (rawDate) {
+            const dateMatch = String(rawDate).match(/^(\d{4}-\d{2}-\d{2})/);
+            if (dateMatch) {
+                receiptDate = dateMatch[1];
+            }
+        }
+
+        const stableId = cleanStr(item.id || item.externalIdx);
+
+        return {
+            id: stableId,
+            externalIdx: cleanStr(item.externalIdx || item.id),
+            externalReferralId: cleanStr(item.externalReferralId || (item.externalIdx ? item.externalIdx.replace(/^ext_/, '') : (item.id ? String(item.id).replace(/^ext_/, '') : ''))),
+            name: cleanStr(item.name),
+            phone: cleanStr(item.phone),
+            ...(validGender ? { gender: validGender } : {}),
+            ...(validAge !== undefined ? { age: validAge } : {}),
+            birthDate: cleanStr(item.birthDate),
+            address: cleanStr(item.address),
+            region: cleanStr(item.region),
+            agency: cleanStr(item.agency || item.requestAgency),
+            requestAgency: cleanStr(item.agency || item.requestAgency),
+            requesterName: cleanStr(item.requesterName || item.requestorName),
+            requestorName: cleanStr(item.requesterName || item.requestorName),
+            requesterPhone: cleanStr(item.requesterPhone || item.agencyPhone),
+            problem: cleanStr(item.problem),
+            reason: cleanStr(item.reason),
+            requestDate: receiptDate,
+            referralPath: cleanStr(item.referralPath) || '홈페이지',
+            isWebsiteReferral: true,
+            source: 'website'
+        };
+    }, []);
+
     const handleInitialFormConsumed = useCallback(() => {
         console.log("[App] Multi-Step Transfer: initialFormData consumed.");
         setPendingTransfer(null);
@@ -758,7 +821,8 @@ function App() {
                     onNavigate={(page) => setActivePage(page as Page)}
                     onAddReferral={handleAddNewReferral as any}
                     onImportReferral={(pendingData) => {
-                        setPendingTransfer(pendingData);
+                        const prefill = mapWebsiteReferralToInitialForm(pendingData);
+                        setPendingTransfer(prefill);
                         setActivePage('referrals');
                     }}
                     websiteReferralItems={websiteReferralItems}
@@ -916,7 +980,8 @@ function App() {
                     onNavigate={(page) => setActivePage(page as Page)}
                     onAddReferral={handleAddNewReferral as any}
                     onImportReferral={(pendingData) => {
-                        setPendingTransfer(pendingData);
+                        const prefill = mapWebsiteReferralToInitialForm(pendingData);
+                        setPendingTransfer(prefill);
                         setActivePage('referrals');
                     }}
                     websiteReferralItems={websiteReferralItems}
