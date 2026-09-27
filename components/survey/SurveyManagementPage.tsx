@@ -49,7 +49,8 @@ import {
     CalendarRange,
     ArrowUpDown,
     UserMinus,
-    Layers
+    Layers,
+    Users
 } from 'lucide-react';
 import { formatKstDateTime, getKstPresetDateStrings } from '../../server/survey/kstUtils.js';
 
