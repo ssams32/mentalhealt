@@ -97,19 +97,33 @@ export const SeptemberWebsiteReferralBanner: React.FC<SeptemberWebsiteReferralBa
         }
     };
 
-    // Filtered items in detail modal
+    // Filtered items in detail modal (strictly isolating website referrals)
     const filteredItems = useMemo(() => {
         if (!summary || !summary.items) return [];
+        const baseItems = summary.items.filter(item => {
+            if (!item || typeof item !== 'object') return false;
+            // Strictly exclude online surveys
+            if (item.source === 'online_survey' || item.surveySubmissionId || item.submissionId || item.sourceSurveyId || item.sourceSubmissionId) return false;
+            if (item.referralPath === '온라인설문' || item.requestAgency === '온라인 자가검진') return false;
+            // Strictly exclude voice calls
+            if (item.source === 'voice_call' || item.voiceCallId || item.referralPath === '음성통화' || item.referralPath === '음성접수') return false;
+            // Explicit website channel requirement (fail-closed, externalIdx alone is not sufficient)
+            const isExplicitWeb = item.source === 'website' || item.source === 'homepage' || item.source === 'web' || item.source === 'pending' ||
+                item.referralPath === '홈페이지' || item.referralPath === '홈페이지 의뢰' || item.referralPath === '홈페이지 상담신청' ||
+                item.requestAgency === '홈페이지' || item.isWebsiteReferral === true;
+            return isExplicitWeb;
+        });
+
         switch (activeFilter) {
             case 'unseen':
-                return summary.items.filter(item => !item.isSeen);
+                return baseItems.filter(item => !item.isSeen);
             case 'processing':
-                return summary.items.filter(item => item.status === 'processing' || item.status === 'pending');
+                return baseItems.filter(item => item.status === 'processing' || item.status === 'pending');
             case 'completed':
-                return summary.items.filter(item => item.status === 'completed');
+                return baseItems.filter(item => item.status === 'completed');
             case 'all':
             default:
-                return summary.items;
+                return baseItems;
         }
     }, [summary, activeFilter]);
 
@@ -323,14 +337,15 @@ export const SeptemberWebsiteReferralBanner: React.FC<SeptemberWebsiteReferralBa
                                     <p className="text-xs text-slate-400 mt-1">새로운 의뢰가 접수되면 자동으로 표시됩니다.</p>
                                 </div>
                             ) : (
-                                filteredItems.map((item) => {
+                                filteredItems.map((item, index) => {
                                     const isPending = item.status === 'pending';
                                     const isProcessing = item.status === 'processing';
                                     const isCompleted = item.status === 'completed';
+                                    const itemKey = item.id || item.externalIdx || `web_ref_item_${index}`;
 
                                     return (
                                         <div
-                                            key={item.id || item.externalIdx}
+                                            key={itemKey}
                                             className="bg-white rounded-2xl border border-slate-200 hover:border-indigo-300 p-5 shadow-sm hover:shadow-md transition-all"
                                         >
                                             <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">

@@ -82,14 +82,14 @@ const ANALYSIS_CACHE_VERSION = 'v3.1.3';
 
 // [Health Check] For Docker/NAS health checks
 app.get('/api/health', (req, res) => {
-    res.json({ 
+    res.json({
         success: true,
-        status: 'ok', 
+        status: 'ok',
         service: 'icheon-center-backend',
         port: PORT,
         startedAt: START_TIME,
         optimizationVersion: OPTIMIZATION_VERSION,
-        uptime: process.uptime(), 
+        uptime: process.uptime(),
         version: SERVER_VERSION,
         timestamp: new Date().toISOString()
     });
@@ -231,7 +231,7 @@ const getData = (filename, defaultValue = []) => {
             }
             const data = JSON.parse(content);
             memoryCache[filename] = data;
-            
+
             if (Array.isArray(data) && data.length > 0) {
                 const lastItem = data[data.length - 1];
                 const firstItem = data[0];
@@ -240,7 +240,7 @@ const getData = (filename, defaultValue = []) => {
                     console.log('✅ [CONFIRMED] Latest May data is present in the loaded file.');
                 }
             }
-            
+
             return memoryCache[filename];
         } catch (e) {
             console.error(`❌ [CRITICAL ERROR] Failed to parse ${filename}.json:`, e);
@@ -1539,10 +1539,10 @@ app.post('/api/referrals', optionalAuth, async (req, res) => {
                     console.log(`[API] Returning cached response for idempotency key: ${idempotencyKey}`);
                     return res.status(cached.statusCode).json(cached.response);
                 } else {
-                    return res.status(409).json({ 
-                        success: false, 
+                    return res.status(409).json({
+                        success: false,
                         code: 'IDEMPOTENCY_KEY_REUSED',
-                        error: "Idempotency key reused with different request payload" 
+                        error: "Idempotency key reused with different request payload"
                     });
                 }
             }
@@ -1778,10 +1778,10 @@ const handleReferralUpdate = async (req, res) => {
                     console.log(`[API] Returning cached response for update idempotency key: ${idempotencyKey}`);
                     return res.status(cached.statusCode).json(cached.response);
                 } else {
-                    return res.status(409).json({ 
-                        success: false, 
+                    return res.status(409).json({
+                        success: false,
                         code: 'IDEMPOTENCY_KEY_REUSED',
-                        error: "Idempotency key reused with different request payload" 
+                        error: "Idempotency key reused with different request payload"
                     });
                 }
             }
@@ -1923,7 +1923,7 @@ const handleReferralDelete = async (req, res) => {
             const trash = getData('Trash', []);
             trash.push({ ...deletedItem, _trashSource: 'Referrals', deletedAt: new Date().toISOString() });
             referrals.splice(index, 1);
-            
+
             await persistData('Referrals', referrals);
             await persistData('Trash', trash);
             res.json({ success: true, deletedRefNo: deletedItem.refNo, referralId: deletedItem.referralId });
@@ -2075,11 +2075,11 @@ function evaluateIspAchievement(actualCount, targetCount, month, year) {
 
     if (isCurrent) {
         // 현재월: 목표 달성시 달성(진행중), 미달시 진행중
-        return { 
-            status: actualCount >= targetCount && targetCount > 0 ? 'success' : 'inprogress', 
-            label: actualCount >= targetCount && targetCount > 0 ? '달성(진행중)' : '진행중', 
-            isFuture: false, 
-            isCurrent: true 
+        return {
+            status: actualCount >= targetCount && targetCount > 0 ? 'success' : 'inprogress',
+            label: actualCount >= targetCount && targetCount > 0 ? '달성(진행중)' : '진행중',
+            isFuture: false,
+            isCurrent: true
         };
     }
 
@@ -2087,7 +2087,7 @@ function evaluateIspAchievement(actualCount, targetCount, month, year) {
     if (targetCount === 0) {
         return { status: 'not_evaluated', label: '미평가', isFuture: false, isCurrent: false };
     }
-    
+
     if (actualCount >= targetCount) {
         return { status: 'success', label: '달성', isFuture: false, isCurrent: false };
     } else {
@@ -2144,12 +2144,12 @@ function calculateInterventionActualForMemberMonth(member, month) {
 app.get('/api/analysis/isp-achievement-yearly', (req, res) => {
     const startTotal = performance.now();
     const { year, detailLevel = 'summary' } = req.query;
-    
+
     if (!year) return res.status(400).json({ success: false, error: "Year is required (YYYY)" });
 
     const targetYear = parseInt(year);
     const analysisBlob = getData('GlobalCaseAnalysis', null);
-    
+
     if (!analysisBlob || (!analysisBlob.memberPerformance && !analysisBlob.data)) {
         return res.json({ success: true, data: {} });
     }
@@ -2161,12 +2161,12 @@ app.get('/api/analysis/isp-achievement-yearly', (req, res) => {
     // --- CACHE HIT ---
     if (ispAchievementCache.has(cacheKey)) {
         const cached = ispAchievementCache.get(cacheKey);
-        return res.json({ 
-            ...cached, 
-            diagnostics: { 
-                ...cached.diagnostics, 
-                cache: { hit: true } 
-            } 
+        return res.json({
+            ...cached,
+            diagnostics: {
+                ...cached.diagnostics,
+                cache: { hit: true }
+            }
         });
     }
 
@@ -2217,7 +2217,7 @@ app.get('/api/analysis/isp-achievement-yearly', (req, res) => {
         const evaluationKey = buildMemberEvaluationKey(member);
         const normRegNo = normalizeMemberRegistrationNo(member.registrationNo);
         const normMemberName = normalizePersonName(member.memberName);
-        
+
         let matchedIspPlans = [];
         let matchStatus = 'NOT_MATCHED';
         let matchMethod = 'NONE';
@@ -2231,7 +2231,7 @@ app.get('/api/analysis/isp-achievement-yearly', (req, res) => {
         } else if (normMemberName && ispByName[normMemberName]) {
             const sameNameRows = ispByName[normMemberName];
             const masterCount = (membersByName[normMemberName] || []).length;
-            
+
             if (masterCount > 1) {
                 matchStatus = 'AMBIGUOUS';
                 matchReason = 'MULTIPLE_MASTER_MEMBERS_WITH_SAME_NAME';
@@ -2248,7 +2248,7 @@ app.get('/api/analysis/isp-achievement-yearly', (req, res) => {
 
         const monthlyItems = [];
         const effectiveSegments = [];
-        
+
         if (matchStatus === 'MATCHED' && matchedIspPlans.length > 0) {
             const sortedPlans = [...matchedIspPlans].sort((a, b) => (a.establishedDate || '').localeCompare(b.establishedDate || ''));
             const preYearPlans = sortedPlans.filter(p => p.establishedDate && p.establishedDate < `${targetYear}-01-01`);
@@ -2282,9 +2282,9 @@ app.get('/api/analysis/isp-achievement-yearly', (req, res) => {
                 const idx = effectiveSegments.indexOf(seg);
                 const nextSeg = effectiveSegments[idx + 1];
                 const actualStart = seg.startDate < monthStart ? monthStart : seg.startDate;
-                const actualEnd = (nextSeg && nextSeg.startDate <= monthEnd) ? 
+                const actualEnd = (nextSeg && nextSeg.startDate <= monthEnd) ?
                     new Date(new Date(nextSeg.startDate).getTime() - 86400000).toISOString().split('T')[0] : monthEnd;
-                
+
                 const overlapDays = (new Date(actualEnd) - new Date(actualStart)) / 86400000 + 1;
                 if (overlapDays > 0) {
                     const type = seg.plan.managementCategory || '유지관리';
@@ -2300,10 +2300,10 @@ app.get('/api/analysis/isp-achievement-yearly', (req, res) => {
                 const catShort = type.substring(0, 2);
                 if (type.includes('집중')) segTarget = Math.ceil(days / 7);
                 else if (type.includes('유지') || type.includes('단기')) segTarget = days >= 1 ? 1 : 0;
-                
+
                 totalTarget += segTarget;
                 managementTypeSummary += (managementTypeSummary ? ' / ' : '') + `${catShort} ${Math.round(days)}일`;
-                
+
                 if (detailLevel !== 'summary') {
                     mergedSegmentsList.push({
                         managementType: type,
@@ -2315,7 +2315,7 @@ app.get('/api/analysis/isp-achievement-yearly', (req, res) => {
 
             const actualCount = calculateInterventionActualForMemberMonth(member, m);
             const evaluation = evaluateIspAchievement(actualCount, totalTarget, m, targetYear);
-            
+
             const monthItem = {
                 month: m,
                 managementTypeSummary: managementTypeSummary || "-",
@@ -2369,10 +2369,10 @@ app.get('/api/analysis/isp-achievement-yearly', (req, res) => {
     });
 
     const tEnd = performance.now();
-    const response = { 
-        success: true, 
-        year: targetYear, 
-        detailLevel, 
+    const response = {
+        success: true,
+        year: targetYear,
+        detailLevel,
         data: result,
         members: membersList,
         diagnostics: {
@@ -2383,7 +2383,7 @@ app.get('/api/analysis/isp-achievement-yearly', (req, res) => {
             cache: { hit: false }
         }
     };
-    
+
     ispAchievementCache.set(cacheKey, response);
     res.json(response);
 });
@@ -2448,19 +2448,44 @@ app.post('/api/analysis/current', (req, res) => {
     res.json({ success: true });
 });
 
-// PENDING REFERRALS (Scraper Sync)
+// Helper to identify genuine website referrals and strictly exclude online surveys and voice calls
+function isWebsiteReferralItem(item) {
+    if (!item) return false;
+    // Strictly exclude online survey items
+    if (item.source === 'online_survey') return false;
+    if (item.surveySubmissionId || item.submissionId || item.sourceSurveyId || item.sourceSubmissionId) return false;
+    if (item.referralPath === '온라인설문' || item.requestAgency === '온라인 자가검진') return false;
+
+    // Strictly exclude voice calls
+    if (item.source === 'voice_call' || item.source === 'voiceCalls' || item.voiceCallId || item.referralPath === '음성통화') return false;
+
+    // Strictly exclude quarantined items
+    if (item.isSbqrQuarantined || item.quarantinedAt) return false;
+
+    // Explicit website source check (fail-closed against unknown/missing sources; externalIdx alone does NOT classify as website)
+    const isExplicitWebSource = item.source === 'website' || item.source === 'homepage' || item.source === 'web' || item.sourceType === 'website' || item.sourceType === 'homepage';
+    const isExplicitWebPath = item.referralPath === '홈페이지' || item.referralPath === '홈페이지 의뢰' || item.referralPath === '홈페이지 상담신청' || item.requestAgency === '홈페이지';
+    const isExplicitWebFlag = item.isWebsiteReferral === true;
+
+    return isExplicitWebSource || isExplicitWebPath || isExplicitWebFlag;
+}
+
+// PENDING REFERRALS (Scraper Sync - Website Referrals Only)
 app.get('/api/pending-referrals', (req, res) => {
     const referrals = getData('Referrals', []);
-    let list = getData('PendingReferrals', []);
-    const normalizePhone = (num) => num ? num.replace(/[^0-9]/g, '') : '';
-    
+    let allPending = getData('PendingReferrals', []);
+    const normalizePhone = (num) => num ? String(num).replace(/[^0-9]/g, '') : '';
+
     // Filter out scanner probes / spam
-    list = list.filter(p => !/sparrow|dast|<script|alert\(/i.test(`${p.name} ${p.phone} ${p.problem} ${p.reason}`));
-    
-    const beforeCount = list.length;
-    list = list.filter(p => {
+    allPending = allPending.filter(p => !/sparrow|dast|<script|alert\(/i.test(`${p.name} ${p.phone} ${p.problem} ${p.reason}`));
+
+    const beforeCount = allPending.length;
+    allPending = allPending.filter(p => {
+        // Only prune registered website referrals from PendingReferrals; preserve non-website items (e.g. survey/voice) untouched
+        if (!isWebsiteReferralItem(p)) return true;
+
         const isRegistered = referrals.some(r => {
-            const nameMatch = r.name && r.name.trim() === p.name.trim();
+            const nameMatch = r.name && p.name && r.name.trim() === p.name.trim();
             if (!nameMatch) return false;
 
             const rPhone = normalizePhone(r.phone);
@@ -2474,11 +2499,13 @@ app.get('/api/pending-referrals', (req, res) => {
         return !isRegistered;
     });
 
-    if (list.length !== beforeCount) {
-        saveData('PendingReferrals', list);
+    if (allPending.length !== beforeCount) {
+        saveData('PendingReferrals', allPending);
     }
-    
-    res.json(list);
+
+    // Return ONLY website referrals to caller (0 surveys, 0 voice calls)
+    const websiteList = allPending.filter(p => isWebsiteReferralItem(p));
+    res.json(websiteList);
 });
 
 // 스크레이퍼 상태 진단 API
@@ -2533,13 +2560,13 @@ app.get('/api/health/storage', (req, res) => {
         const stats = files.map(filename => {
             const filePath = path.join(DATA_DIR, `${filename}.json`);
             let fileInfo = { filename, exists: false, size: 0, lastModified: null, recordCount: 0 };
-            
+
             if (fs.existsSync(filePath)) {
                 const stat = fs.statSync(filePath);
                 fileInfo.exists = true;
                 fileInfo.size = stat.size;
                 fileInfo.lastModified = stat.mtime;
-                
+
                 // Get record count from memory cache if available, else 0
                 const data = memoryCache[filename];
                 if (Array.isArray(data)) {
@@ -2593,9 +2620,9 @@ app.post('/api/users/import', (req, res) => {
 
         saveData('Users', users);
         console.log(`📥 [Import] Users imported: ${createdCount} created, ${updatedCount} updated.`);
-        res.json({ 
-            success: true, 
-            message: `엑셀 데이터 가져오기 완료: 신규 ${createdCount}명 추가, 기존 ${updatedCount}명 업데이트되었습니다.` 
+        res.json({
+            success: true,
+            message: `엑셀 데이터 가져오기 완료: 신규 ${createdCount}명 추가, 기존 ${updatedCount}명 업데이트되었습니다.`
         });
     } catch (e) {
         console.error('❌ User import error:', e);
@@ -2706,7 +2733,7 @@ app.put('/api/suicideattempters', (req, res) => {
 app.delete('/api/suicideattempters/:uid', (req, res) => {
     const { uid } = req.params;
     console.log(`[DELETE] Request for SuicideAttempter: ${uid}`);
-    
+
     let records = getData('SuicideAttempters', []);
     const index = records.findIndex(r => r.uid === uid);
 
@@ -2722,7 +2749,7 @@ app.delete('/api/suicideattempters/:uid', (req, res) => {
         records.splice(index, 1);
         saveData('SuicideAttempters', records);
         saveData('Trash', trash);
-        
+
         console.log(`[DELETE] Successfully removed: ${uid}`);
         res.json({ success: true, movedToTrash: true });
     } else {
@@ -2735,7 +2762,7 @@ app.delete('/api/suicideattempters/:uid', (req, res) => {
 app.post('/api/suicideattempters/bulk-delete', (req, res) => {
     const { uids } = req.body;
     console.log(`[BULK-DELETE] Request for UIDs: ${JSON.stringify(uids)}`);
-    
+
     if (!Array.isArray(uids) || uids.length === 0) {
         // [NAS FIX] Even if empty, return success to avoid 400 error in UI
         return res.json({ success: true, message: "No UIDs provided", deletedCount: 0 });
@@ -2941,13 +2968,13 @@ app.delete('/api/pending-referrals/:id', (req, res) => {
     let list = getData('PendingReferrals', []);
     list = list.filter(item => item.id !== id);
     saveData('PendingReferrals', list);
-    
+
     // Explicitly add to ScrapedExternalIds to prevent re-scraping
     const scrapedIdsArray = getData('ScrapedExternalIds', []);
     const scrapedIds = new Set(scrapedIdsArray);
     scrapedIds.add(id);
     saveData('ScrapedExternalIds', Array.from(scrapedIds));
-    
+
     res.json({ success: true });
 });
 
@@ -3181,16 +3208,16 @@ app.get('/api/analysis/isp-achievement', (req, res) => {
 
     const clients = getData('clients', []);
     const counselingRecords = getData('counseling_records', []);
-    
+
     // Get year and month info for duration calculation
     const [year, mm] = month.split('-').map(Number);
     const daysInMonth = new Date(year, mm, 0).getDate();
 
     const result = clients.map(client => {
         const segments = [
-            { 
-                category: client.managementCategory, 
-                duration: daysInMonth 
+            {
+                category: client.managementCategory,
+                duration: daysInMonth
             }
         ];
 
@@ -3207,8 +3234,8 @@ app.get('/api/analysis/isp-achievement', (req, res) => {
             totalTarget += segmentTarget;
         });
 
-        const sessions = counselingRecords.filter(r => 
-            r.clientId === client.id && 
+        const sessions = counselingRecords.filter(r =>
+            r.clientId === client.id &&
             r.date.startsWith(month) &&
             (r.type === 'visit' || r.type === 'inOffice')
         );
@@ -3256,10 +3283,10 @@ app.post('/api/saveNotes', async (req, res) => {
                     console.log(`[API] Returning cached response for saveNotes idempotency key: ${idempotencyKey}`);
                     return res.status(cached.statusCode).json(cached.response);
                 } else {
-                    return res.status(409).json({ 
-                        success: false, 
+                    return res.status(409).json({
+                        success: false,
                         code: 'IDEMPOTENCY_KEY_REUSED',
-                        error: "Idempotency key reused with different request payload" 
+                        error: "Idempotency key reused with different request payload"
                     });
                 }
             }
@@ -3267,7 +3294,7 @@ app.post('/api/saveNotes', async (req, res) => {
 
         const { refNo, notes, referralId, version } = req.body;
         const referrals = getData('Referrals', []);
-        
+
         let index = -1;
         if (referralId) {
             index = referrals.findIndex(r => r.referralId === referralId);
@@ -3820,6 +3847,7 @@ function getWebsiteReferralsSummary() {
 
     // 1. Pending referrals
     pendingReferrals.forEach(p => {
+        if (!isWebsiteReferralItem(p)) return;
         const extId = p.externalIdx || (p.id && String(p.id).startsWith('ext_') ? p.id : null);
         if (!extId && !p.isWebsiteReferral) return;
 
@@ -3859,6 +3887,7 @@ function getWebsiteReferralsSummary() {
 
     // 2. Registered referrals (registered items override pending if matching)
     referrals.forEach(r => {
+        if (!isWebsiteReferralItem(r)) return;
         const extId = r.externalIdx || (r.id && String(r.id).startsWith('ext_') ? r.id : null);
         if (!extId && !r.isWebsiteReferral) return;
 
@@ -3967,7 +3996,7 @@ app.post('/api/website-referrals/mark-seen', async (req, res) => {
                 meta.seenExternalIds[id] = now;
             });
             pendingReferrals.forEach(p => {
-                if (ids.includes(p.id) || ids.includes(p.externalIdx)) {
+                if (isWebsiteReferralItem(p) && (ids.includes(p.id) || ids.includes(p.externalIdx))) {
                     p.websiteReferralSeenAt = now;
                 }
             });
@@ -3978,7 +4007,7 @@ app.post('/api/website-referrals/mark-seen', async (req, res) => {
                 if (item.id) meta.seenExternalIds[item.id] = now;
             });
             pendingReferrals.forEach(p => {
-                if (isSeptember2026InSeoul(p.externalReceivedAt || p.registrationDate || p.createdAt || '')) {
+                if (isWebsiteReferralItem(p) && isSeptember2026InSeoul(p.externalReceivedAt || p.registrationDate || p.createdAt || '')) {
                     p.websiteReferralSeenAt = now;
                 }
             });
@@ -4038,7 +4067,7 @@ const sanitizeReferralsOnStartup = async () => {
                 const teamCode = TEAM_CODES[team] || 'ET';
                 teamMaxSeq[teamCode] = (teamMaxSeq[teamCode] || 0) + 1;
                 const newRefNo = `${teamCode}-26-${String(teamMaxSeq[teamCode]).padStart(3, '0')}`;
-                
+
                 if (currentRefNo && !r.originalRefNo) r.originalRefNo = currentRefNo;
                 r.refNo = newRefNo;
                 r.updatedAt = new Date().toISOString();

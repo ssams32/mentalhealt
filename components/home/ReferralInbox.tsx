@@ -34,11 +34,23 @@ const ReferralInbox: React.FC<ReferralInboxProps> = ({ pendingReferrals, onAccep
     const [selectedAssignee, setSelectedAssignee] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
 
-    // [Security & Noise Filter] Exclude automated scanner probes or test spam
+    // [Security & Channel Isolation Filter] Ensure only website referrals are shown, strictly exclude surveys/voice/spam
     const cleanReferrals = useMemo(() => {
-        return (pendingReferrals || []).filter(p => !/sparrow|dast|<script|alert\(/i.test(
-            `${p.name} ${p.phone} ${p.problem} ${p.reason}`
-        ));
+        return (pendingReferrals || []).filter(p => {
+            if (!p || typeof p !== 'object') return false;
+            // Strictly exclude online surveys
+            if (p.source === 'online_survey' || p.surveySubmissionId || p.submissionId || p.sourceSurveyId) return false;
+            if (p.referralPath === '온라인설문' || p.requestAgency === '온라인 자가검진') return false;
+            // Strictly exclude voice calls
+            if (p.source === 'voice_call' || p.voiceCallId || p.referralPath === '음성통화' || p.referralPath === '음성접수') return false;
+            // Exclude automated scanner probes or test spam
+            if (/sparrow|dast|<script|alert\(/i.test(`${p.name} ${p.phone} ${p.problem} ${p.reason}`)) return false;
+            // Explicit website channel requirement (fail-closed, externalIdx alone is not sufficient)
+            const isExplicitWeb = p.source === 'website' || p.source === 'homepage' || p.source === 'web' ||
+                p.referralPath === '홈페이지' || p.referralPath === '홈페이지 의뢰' || p.referralPath === '홈페이지 상담신청' ||
+                p.requestAgency === '홈페이지' || p.isWebsiteReferral === true;
+            return isExplicitWeb;
+        });
     }, [pendingReferrals]);
 
     const handleAccept = async (referral: PendingReferral) => {
@@ -83,14 +95,16 @@ const ReferralInbox: React.FC<ReferralInboxProps> = ({ pendingReferrals, onAccep
             </div>
 
             <div className="space-y-3">
-                {cleanReferrals.map((referral) => (
-                    <div
-                        key={referral.id}
-                        className={`bg-white rounded-2xl border-2 transition-all duration-300 overflow-hidden ${expandedId === referral.id
-                            ? 'border-amber-400 shadow-xl'
-                            : 'border-amber-100 hover:border-amber-300 hover:shadow-md'
-                            }`}
-                    >
+                {cleanReferrals.map((referral, index) => {
+                    const itemKey = referral.id || referral.externalIdx || `pending_ref_${index}`;
+                    return (
+                        <div
+                            key={itemKey}
+                            className={`bg-white rounded-2xl border-2 transition-all duration-300 overflow-hidden ${expandedId === referral.id
+                                ? 'border-amber-400 shadow-xl'
+                                : 'border-amber-100 hover:border-amber-300 hover:shadow-md'
+                                }`}
+                        >
                         {/* Header */}
                         <div
                             className="p-4 cursor-pointer flex items-center justify-between"
@@ -166,7 +180,8 @@ const ReferralInbox: React.FC<ReferralInboxProps> = ({ pendingReferrals, onAccep
                             </div>
                         )}
                     </div>
-                ))}
+                    );
+                })}
             </div>
         </div >
     );

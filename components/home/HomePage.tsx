@@ -21,8 +21,11 @@ interface HomePageProps {
     onNavigate: (page: string) => void;
     onAddReferral: (referral: Referral) => void;
     onImportReferral: (pendingData: any) => void;
-    pendingReferrals: any[];
-    setPendingReferrals: React.Dispatch<React.SetStateAction<any[]>>;
+    websiteReferralItems?: any[];
+    setWebsiteReferralItems?: React.Dispatch<React.SetStateAction<any[]>>;
+    // Backwards-compatible aliases
+    pendingReferrals?: any[];
+    setPendingReferrals?: React.Dispatch<React.SetStateAction<any[]>>;
     selectedTeam: Team | 'all';
     setSelectedTeam: (team: Team | 'all') => void;
     showToast?: (msg: string) => void;
@@ -38,21 +41,16 @@ const HomePage: React.FC<HomePageProps> = ({
     onNavigate,
     onAddReferral,
     onImportReferral,
+    websiteReferralItems,
+    setWebsiteReferralItems,
     pendingReferrals,
     setPendingReferrals,
     selectedTeam,
     setSelectedTeam,
     showToast
 }) => {
-    // [Removed] Local state lifted to App.tsx
-    // const [pendingReferrals, setPendingReferrals] = useState<any[]>([]);
-
-    // [Removed] Initial fetch moved to App.tsx
-    // useEffect(() => {
-    //     sheetsService.getPendingReferrals()
-    //         .then(data => setPendingReferrals(Array.isArray(data) ? data : []))
-    //         .catch(() => setPendingReferrals([]));
-    // }, []);
+    const activeWebsiteItems = websiteReferralItems || pendingReferrals || [];
+    const updateWebsiteItems = setWebsiteReferralItems || setPendingReferrals || (() => {});
 
     const handleAcceptReferral = async (pending: any, team: string, assignee: string) => {
         const newReferral: Referral = {
@@ -65,22 +63,19 @@ const HomePage: React.FC<HomePageProps> = ({
         onAddReferral(newReferral);
         // 백엔드에서 pending 항목 삭제 (실패해도 무시)
         try { await fetch(`/api/pending-referrals/${pending.id}`, { method: 'DELETE' }); } catch { }
-        setPendingReferrals(prev => prev.filter(p => p.id !== pending.id));
+        updateWebsiteItems(prev => prev.filter(p => p.id !== pending.id));
     };
 
     const handleDismissReferral = async (id: string) => {
         if (!window.confirm('이 홈페이지 의뢰를 정말 삭제하시겠습니까? (삭제하면 의뢰대장에 추가할 수 없게 됩니다.)')) return;
         await fetch(`/api/pending-referrals/${id}`, { method: 'DELETE' });
-        setPendingReferrals(prev => prev.filter(p => p.id !== id));
+        updateWebsiteItems(prev => prev.filter(p => p.id !== id));
     };
 
     const handleImportReferral = async (pending: any) => {
-        // Just navigate and set transfer data. Deletion will happen on successful save.
         onImportReferral(pending);
-        // [REMOVED] Premature deletion
-        // await fetch(`/api/pending-referrals/${pending.id}`, { method: 'DELETE' });
-        // setPendingReferrals(prev => prev.filter(p => p.id !== pending.id));
     };
+
     // Statistics (중복 제거 적용하여 대시보드/보고서와 정합성 통일)
     const stats = useMemo(() => {
         // 중복 제거 로직
@@ -183,31 +178,49 @@ const HomePage: React.FC<HomePageProps> = ({
                 </div>
             </div>
 
-            {/* 🌐 2026년 9월 홈페이지 의뢰 알림 배너 */}
-            <SeptemberWebsiteReferralBanner
-                onImportReferral={handleImportReferral}
-                onNavigate={onNavigate}
-                onSyncComplete={async () => {
-                    try {
-                        const raw = await apiClient.getPendingReferrals();
-                        setPendingReferrals(raw);
-                    } catch (e) {
-                        console.error('Failed to reload pending after sync', e);
-                    }
-                }}
-                showToast={showToast}
-            />
+            {/* 🌐 홈페이지 의뢰 영역 (단 1회 렌더링) */}
+            <div className="mb-8">
+                {/* 1. 2026년 9월 홈페이지 의뢰 요약 배너 */}
+                <SeptemberWebsiteReferralBanner
+                    onImportReferral={handleImportReferral}
+                    onNavigate={onNavigate}
+                    onSyncComplete={async () => {
+                        try {
+                            const raw = await apiClient.getPendingReferrals();
+                            const uniqueMap = new Map();
+                            (Array.isArray(raw) ? raw : []).forEach((item: any) => {
+                                if (!item || typeof item !== 'object') return;
+                                if (item.source === 'online_survey' || item.source === 'voice_call') return;
+                                if (item.surveySubmissionId || item.submissionId || item.sourceSurveyId) return;
+                                if (item.referralPath === '온라인설문' || item.referralPath === '음성통화' || item.referralPath === '음성접수') return;
+                                const isExplicitWeb = item.source === 'website' || item.source === 'homepage' || item.source === 'web' ||
+                                    item.referralPath === '홈페이지' || item.referralPath === '홈페이지 의뢰' || item.referralPath === '홈페이지 상담신청' ||
+                                    item.requestAgency === '홈페이지' || item.isWebsiteReferral === true;
+                                if (!isExplicitWeb) return;
+                                const key = item.id || item.externalIdx || `${item.name}_${item.phone || ''}`;
+                                if (!uniqueMap.has(key)) uniqueMap.set(key, item);
+                            });
+                            updateWebsiteItems(Array.from(uniqueMap.values()));
+                        } catch (e) {
+                            console.error('Failed to reload pending after sync', e);
+                        }
+                    }}
+                    showToast={showToast}
+                />
 
-            {/* Pending Referrals Inbox */}
-            <ReferralInbox
-                pendingReferrals={pendingReferrals}
-                onAccept={handleAcceptReferral}
-                onDismiss={handleDismissReferral}
-                onImport={handleImportReferral}
-                users={users.map(u => ({ name: u.name, team: u.team }))}
-            />
+                {/* 2. 신규/대기 홈페이지 의뢰 상세 목록 (의뢰 있을 때만 1회 표시, 중복 빈 카드 방지) */}
+                {activeWebsiteItems.length > 0 && (
+                    <ReferralInbox
+                        pendingReferrals={activeWebsiteItems}
+                        onAccept={handleAcceptReferral}
+                        onDismiss={handleDismissReferral}
+                        onImport={handleImportReferral}
+                        users={users.map(u => ({ name: u.name, team: u.team }))}
+                    />
+                )}
+            </div>
 
-            {/* Stat Cards Grid */}
+            {/* 📊 통계 섹션 (단 1회 렌더링, 중복 수치 카드 제거) */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
                 <StatCard
                     title="전체 의뢰"
@@ -215,6 +228,14 @@ const HomePage: React.FC<HomePageProps> = ({
                     subValue={`진행중 ${stats.ongoing} / 종결 ${stats.closed}`}
                     icon={FileText}
                     color="blue"
+                    onClick={() => onNavigate('referrals')}
+                />
+                <StatCard
+                    title="이번 달 신규"
+                    value={stats.thisMonth}
+                    subValue="이천센터 당월 접수"
+                    icon={TrendingUp}
+                    color="indigo"
                     onClick={() => onNavigate('referrals')}
                 />
                 <StatCard
@@ -233,47 +254,6 @@ const HomePage: React.FC<HomePageProps> = ({
                     color="emerald"
                     onClick={() => onNavigate('referrals')}
                 />
-                <StatCard
-                    title="통계/보고서"
-                    value={stats.total}
-                    subValue="데이터 분석 리포트"
-                    icon={BarChart3}
-                    color="violet"
-                    onClick={() => onNavigate('reports')}
-                />
-            </div>
-
-            {/* Quick Stats Row (Bento Style) */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
-                <div className="bento-card p-5 flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center shrink-0">
-                        <TrendingUp className="text-indigo-600" size={24} />
-                    </div>
-                    <div>
-                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">이번 달 신규</div>
-                        <div className="text-2xl font-black text-slate-800">{stats.thisMonth}건</div>
-                    </div>
-                </div>
-
-                <div className="bento-card p-5 flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-amber-50 flex items-center justify-center shrink-0">
-                        <Clock className="text-amber-600" size={24} />
-                    </div>
-                    <div>
-                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">진행중</div>
-                        <div className="text-2xl font-black text-slate-800">{stats.ongoing}건</div>
-                    </div>
-                </div>
-
-                <div className="bento-card p-5 flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center shrink-0">
-                        <CheckCircle2 className="text-emerald-600" size={24} />
-                    </div>
-                    <div>
-                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">종결 완료</div>
-                        <div className="text-2xl font-black text-slate-800">{stats.closed}건</div>
-                    </div>
-                </div>
             </div>
 
             {/* Trash (Subtle) */}

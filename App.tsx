@@ -89,11 +89,11 @@ function App() {
     // 토스트 메시지 상태와 핸들러 추가
     const [toastMessage, setToastMessage] = useState('');
     const [isAgentOpen, setIsAgentOpen] = useState(false);
-    // Pending transfer from 자살시도자 → 의뢰대장 
+    // Pending transfer from 자살시도자 → 의뢰대장
     const [pendingTransfer, setPendingTransfer] = useState<Partial<Omit<Referral, 'refNo' | 'clientId'>> | null>(null);
 
-    // [New] Pending referrals for notification badge and inbox
-    const [pendingReferrals, setPendingReferrals] = useState<any[]>([]);
+    // [State Separation] Website referrals, voice AI calls, online surveys
+    const [websiteReferralItems, setWebsiteReferralItems] = useState<any[]>([]);
     const [voicePendingCount, setVoicePendingCount] = useState<number>(0);
     const [surveyPendingCount, setSurveyPendingCount] = useState<number>(0);
     // ref로 referrals 최신값 유지 (폴링 의존성 배열에 referrals 포함 시 연쇄 재시작 방지)
@@ -282,20 +282,32 @@ function App() {
         };
     }, []); // Run exactly once on mount!
 
-    // Periodic fetch for pending referrals (notifications) with syncRequest integration
+    // Periodic fetch for website referrals (notifications) with syncRequest integration
     useEffect(() => {
         const fetchPending = async () => {
             try {
                 const rawData = await apiClient.getPendingReferrals();
                 if (!Array.isArray(rawData)) {
-                    setPendingReferrals([]);
+                    setWebsiteReferralItems([]);
                     return;
                 }
 
-                // Filter out automated security probes / test spam (sparrow, dast, etc.)
-                const data = rawData.filter(p => !/sparrow|dast|<script|alert\(/i.test(
-                    `${p.name} ${p.phone} ${p.problem} ${p.reason}`
-                ));
+                // Strictly filter to website referrals and exclude scanner probes/spam/surveys/voice
+                const data = rawData.filter(p => {
+                    if (!p || typeof p !== 'object') return false;
+                    // Strictly exclude online surveys
+                    if (p.source === 'online_survey' || p.surveySubmissionId || p.submissionId || p.sourceSurveyId) return false;
+                    if (p.referralPath === '온라인설문' || p.requestAgency === '온라인 자가검진') return false;
+                    // Strictly exclude voice calls
+                    if (p.source === 'voice_call' || p.voiceCallId || p.referralPath === '음성통화' || p.referralPath === '음성접수') return false;
+                    // Filter out scanner probes / spam
+                    if (/sparrow|dast|<script|alert\(/i.test(`${p.name} ${p.phone} ${p.problem} ${p.reason}`)) return false;
+                    // Explicit website channel requirement (fail-closed, externalIdx alone is not sufficient)
+                    const isExplicitWeb = p.source === 'website' || p.source === 'homepage' || p.source === 'web' ||
+                        p.referralPath === '홈페이지' || p.referralPath === '홈페이지 의뢰' || p.referralPath === '홈페이지 상담신청' ||
+                        p.requestAgency === '홈페이지' || p.isWebsiteReferral === true;
+                    return isExplicitWeb;
+                });
 
                 // Stage 2: Parallel sync using syncRequest
                 // referralsRef.current 사용 → referrals 변경 시 interval 재시작 없이 최신값 참조
@@ -304,28 +316,25 @@ function App() {
                         const syncResult = await apiClient.syncRequest(pending, referralsRef.current);
                         return { pending, alert: syncResult.alert };
                     } catch (syncErr) {
-                        console.error("[App] Sync failed for item:", pending.name || pending.id, syncErr);
                         return { pending, alert: true };
                     }
                 }));
 
                 const alertItems = syncResults.filter(r => r.alert).map(r => r.pending);
 
-                console.log(`[App] Periodic Referral Sync: ${data.length} found, ${alertItems.length} alerts triggered`);
-
-                // [De-duplication] Merge by name + phone
+                // [De-duplication] Merge by immutable ID or name + phone
                 const uniqueMap = new Map();
                 alertItems.forEach(item => {
-                    const key = `${item.name}_${item.phone || ''}`;
+                    const key = item.id || item.externalIdx || `${item.name}_${item.phone || ''}`;
                     if (!uniqueMap.has(key)) {
                         uniqueMap.set(key, item);
                     }
                 });
                 const finalData = Array.from(uniqueMap.values());
 
-                setPendingReferrals(finalData);
+                setWebsiteReferralItems(finalData);
             } catch (err) {
-                console.error("[App] Failed to periodic fetch pending referrals", err);
+                console.error("[App] Failed to periodic fetch pending website referrals", err);
             }
         };
 
@@ -378,20 +387,18 @@ function App() {
         return () => clearInterval(sInterval);
     }, [currentUser]);
 
-    // [New] Notification effect when new pending referrals arrive
+    // Notification effect when new website referrals arrive
     useEffect(() => {
-        if (pendingReferrals.length > 0) {
-            // Check if this is a fresh batch (comparing against previous count would be better, 
-            // but for now, any non-zero state on this poller can trigger once if not already seen)
+        if (websiteReferralItems.length > 0) {
             const lastSeenCount = Number(safeSessionStorage.getItem('lastSeenPendingCount') || 0);
-            if (pendingReferrals.length > lastSeenCount) {
-                setToastMessage(`📢 홈페이지에서 ${pendingReferrals.length - lastSeenCount}건의 신규 의뢰가 접수되었습니다.`);
-                safeSessionStorage.setItem('lastSeenPendingCount', String(pendingReferrals.length));
+            if (websiteReferralItems.length > lastSeenCount) {
+                setToastMessage(`📢 홈페이지에서 ${websiteReferralItems.length - lastSeenCount}건의 신규 의뢰가 접수되었습니다.`);
+                safeSessionStorage.setItem('lastSeenPendingCount', String(websiteReferralItems.length));
             }
         } else {
             safeSessionStorage.setItem('lastSeenPendingCount', '0');
         }
-    }, [pendingReferrals.length]);
+    }, [websiteReferralItems.length]);
 
     // Keep localStorage as backup
     useEffect(() => { safeLocalStorage.setItem('referrals', JSON.stringify(referrals)); }, [referrals]);
@@ -493,7 +500,7 @@ function App() {
             if (externalId && String(externalId).startsWith('ext_')) {
                 try {
                     await fetch(`/api/pending-referrals/${externalId}`, { method: 'DELETE' });
-                    setPendingReferrals(prev => prev.filter(p => p.id !== externalId));
+                    setWebsiteReferralItems(prev => prev.filter(p => p.id !== externalId));
                 } catch (delErr) {
                     console.error("Cleanup of pending referral failed:", delErr);
                 }
@@ -586,13 +593,13 @@ function App() {
                 uid: idValue,
                 refNo: idValue,
                 id: idValue,
-                
+
                 // Explicit string force
                 name: String(newReferral.name || ''),
                 age: Number(newReferral.age || 0),
                 gender: String(newReferral.gender || ''),
                 receiptDate: String(newReferral.receiptDate || ''),
-                
+
                 // Ensure other fields are at least empty strings
                 sn: String(newReferral.sn || ''),
                 birthDate: String(newReferral.birthDate || ''),
@@ -600,7 +607,7 @@ function App() {
                 region: String(newReferral.region || ''),
                 requestAgency: String(newReferral.requestAgency || ''),
                 pic: String(newReferral.pic || ''),
-                
+
                 // Restore Notes & Attachments
                 notes: newReferral.notes || [],
                 attachments: (newReferral.attachments || []).map(att => {
@@ -616,7 +623,7 @@ function App() {
             if (apiClient.isAvailable()) {
                 // 1. Primary Action: Create the record
                 await apiClient.createSuicideAttempter(sanitizedReferral);
-                
+
                 // 2. Secondary Action: Log activity (Don't let this fail the whole UI flow)
                 try {
                     await apiClient.logActivity(currentUser?.name || 'Unknown', '자살시도자 등록', `신규 등록: ${newReferral.name}`);
@@ -754,8 +761,8 @@ function App() {
                         setPendingTransfer(pendingData);
                         setActivePage('referrals');
                     }}
-                    pendingReferrals={pendingReferrals}
-                    setPendingReferrals={setPendingReferrals}
+                    websiteReferralItems={websiteReferralItems}
+                    setWebsiteReferralItems={setWebsiteReferralItems}
                     selectedTeam={selectedTeam}
                     setSelectedTeam={setSelectedTeam}
                     showToast={showToast}
@@ -912,8 +919,8 @@ function App() {
                         setPendingTransfer(pendingData);
                         setActivePage('referrals');
                     }}
-                    pendingReferrals={pendingReferrals}
-                    setPendingReferrals={setPendingReferrals}
+                    websiteReferralItems={websiteReferralItems}
+                    setWebsiteReferralItems={setWebsiteReferralItems}
                     selectedTeam={selectedTeam}
                     setSelectedTeam={setSelectedTeam}
                     showToast={showToast}
@@ -935,7 +942,7 @@ function App() {
                     }}
                     onLogout={handleLogout}
                     onToggleAgent={() => setIsAgentOpen(prev => !prev)}
-                    pendingCount={pendingReferrals.length}
+                    pendingCount={websiteReferralItems.length}
                     voicePendingCount={voicePendingCount}
                     surveyPendingCount={surveyPendingCount}
                 />
