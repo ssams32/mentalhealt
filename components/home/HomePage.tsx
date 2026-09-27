@@ -182,6 +182,7 @@ const HomePage: React.FC<HomePageProps> = ({
             <div className="mb-8">
                 {/* 1. 2026년 9월 홈페이지 의뢰 요약 배너 */}
                 <SeptemberWebsiteReferralBanner
+                    websiteReferralItems={activeWebsiteItems}
                     onImportReferral={handleImportReferral}
                     onNavigate={onNavigate}
                     onSyncComplete={async () => {
