@@ -1495,5 +1495,65 @@ export function createSurveyImportRouter(deps = {}) {
         }
     });
 
+    // 12. POST /api/surveys/admin/recover-stored-submission
+    // Dedicated, isolated, idempotent admin-only recovery path for stored survey submissions
+    router.post('/admin/recover-stored-submission', requireAuth, requireAdmin, requireSurveyImportPermission, async (req, res) => {
+        try {
+            if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+                return res.status(400).json({
+                    error: {
+                        code: 'ARRAY_NOT_ALLOWED',
+                        message: '한 번에 1건의 설문만 복구할 수 있습니다.'
+                    }
+                });
+            }
+
+            const { submissionId, expectedInternalSurveyId, dryRun, confirm } = req.body;
+
+            if (!submissionId || typeof submissionId !== 'string' || !submissionId.trim()) {
+                return res.status(400).json({
+                    error: {
+                        code: 'INVALID_SUBMISSION_ID',
+                        message: '유효한 submissionId가 필요합니다.'
+                    }
+                });
+            }
+
+            const isDryRun = dryRun !== false;
+
+            if (!isDryRun && confirm !== 'RECOVER_STORED_SUBMISSION') {
+                return res.status(400).json({
+                    error: {
+                        code: 'CONFIRMATION_REQUIRED',
+                        message: '실제 복구 실행을 위해 confirm="RECOVER_STORED_SUBMISSION" 확인이 필요합니다.'
+                    }
+                });
+            }
+
+            const actorId = String(req.auth.userId || req.auth.id || 'admin');
+            const requestId = req.headers['x-request-id'] || `req_rec_${Date.now()}`;
+
+            const result = await surveyImportService.recoverStoredSubmission({
+                submissionId: submissionId.trim(),
+                expectedInternalSurveyId: expectedInternalSurveyId ? String(expectedInternalSurveyId).trim() : null,
+                actorId,
+                dryRun: isDryRun,
+                confirm,
+                requestId
+            });
+
+            return res.json(result);
+        } catch (err) {
+            const statusCode = err.statusCode || (err.code === 'RECOVERY_IN_PROGRESS' ? 409 : (err.code === 'INVALID_SUBMISSION_ID' || err.code === 'CONFIRMATION_REQUIRED' ? 400 : (err.code === 'RECOVERY_BLOCKED' ? 422 : 500)));
+            return res.status(statusCode).json({
+                error: {
+                    code: err.code || 'RECOVERY_FAILED',
+                    message: err.message,
+                    details: err.details || undefined
+                }
+            });
+        }
+    });
+
     return router;
 }

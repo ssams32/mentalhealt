@@ -6,6 +6,8 @@
  */
 
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import {
     SURVEY_ERROR_CODES,
     SURVEY_EXTERNAL_STATUS,
@@ -1025,5 +1027,625 @@ export class SurveyImportService {
             totalSubmissions: submissions.length,
             ...stats
         };
+    }
+
+    /**
+     * Dedicated, isolated, idempotent recovery path for stored survey submissions.
+     * Reuses existing internalSurveyId, SurveySubmission, and Consent records without duplicates.
+     * Reuses existing valid PDF or generates only missing PDF.
+     * Enforces dry-run first, strict per-submissionId recovery lock, and zero PII leaks.
+     *
+     * @param {Object} params
+     * @param {string} params.submissionId
+     * @param {string} [params.expectedInternalSurveyId]
+     * @param {string} [params.actorId='system']
+     * @param {boolean} [params.dryRun=true]
+     * @param {string} [params.confirm]
+     * @param {string} [params.requestId]
+     * @returns {Promise<Object>} Safe recovery summary (Zero PII)
+     */
+    async recoverStoredSubmission({
+        submissionId,
+        expectedInternalSurveyId = null,
+        actorId = 'system',
+        dryRun = true,
+        confirm = null,
+        requestId = null
+    } = {}) {
+        if (!submissionId || typeof submissionId !== 'string' || !submissionId.trim()) {
+            const err = new Error('유효한 submissionId가 필요합니다.');
+            err.code = 'INVALID_SUBMISSION_ID';
+            err.statusCode = 400;
+            throw err;
+        }
+
+        const trimmedSubId = submissionId.trim();
+        const isDryRun = dryRun !== false;
+
+        // 1. Concurrency Lock (per-submissionId)
+        if (!this._recoveryLocks) {
+            this._recoveryLocks = new Set();
+        }
+
+        if (this._recoveryLocks.has(trimmedSubId)) {
+            const err = new Error('동일 설문에 대한 복구 작업이 현재 진행 중입니다.');
+            err.code = 'RECOVERY_IN_PROGRESS';
+            err.statusCode = 409;
+            throw err;
+        }
+
+        this._recoveryLocks.add(trimmedSubId);
+
+        try {
+            const blockingReasons = [];
+            const plannedActions = [];
+            const executedActions = [];
+
+            // 2. Query SurveySubmissions
+            const allSubs = this.repository.getSurveySubmissions();
+            const matchingSubs = allSubs.filter(s => s && s.submissionId === trimmedSubId);
+
+            if (matchingSubs.length === 0) {
+                blockingReasons.push('RECORD_NOT_FOUND');
+            } else if (matchingSubs.length > 1) {
+                blockingReasons.push('DUPLICATE_INTERNAL_RECORDS_DETECTED');
+            }
+
+            const sub = matchingSubs[0] || null;
+            const internalSurveyId = sub?.internalSurveyId || null;
+
+            if (sub && !internalSurveyId) {
+                blockingReasons.push('INTERNAL_SURVEY_ID_MISSING');
+            }
+
+            if (sub && expectedInternalSurveyId && expectedInternalSurveyId !== internalSurveyId) {
+                blockingReasons.push('INTERNAL_SURVEY_ID_MISMATCH');
+            }
+
+            // 3. Ledger & Consent records
+            const ledger = this.repository.findBySubmissionId(trimmedSubId);
+            if (!ledger) {
+                blockingReasons.push('LEDGER_RECORD_NOT_FOUND');
+            }
+
+            const allConsents = typeof this.repository.getConsentEvidenceList === 'function'
+                ? this.repository.getConsentEvidenceList()
+                : [];
+            const consent = allConsents.find(c => c && (c.submissionId === trimmedSubId || (internalSurveyId && c.internalSurveyId === internalSurveyId))) || null;
+            if (!consent) {
+                blockingReasons.push('CONSENT_RECORD_NOT_FOUND');
+            }
+
+            // 4. Referral & status checks
+            if (sub && (sub.referralId || sub.refNo)) {
+                blockingReasons.push('ALREADY_CONVERTED_TO_REFERRAL');
+            }
+
+            if (sub && (sub.status === 'deleted' || sub.deletionStatus === 'deleted')) {
+                blockingReasons.push('SURVEY_RECORD_DELETED');
+            }
+
+            const isAlreadyFullyCompleted = ledger &&
+                ledger.externalStatus === SURVEY_EXTERNAL_STATUS.DELETED &&
+                ledger.internalStatus === SURVEY_INTERNAL_STATUS.COMPLETED;
+
+            if (isAlreadyFullyCompleted) {
+                blockingReasons.push('ALREADY_COMPLETED');
+            }
+
+            // 5. Attachment Integrity Gate
+            let attachmentState = 'MISSING';
+            let existingAttachmentValid = false;
+            let targetFilePath = null;
+            const existingAttachmentId = sub?.attachmentId || sub?.attachment?.id || null;
+
+            const attachmentsRoot = this.repository.attachmentsDir || this.referralService?.attachmentsDir || null;
+
+            if (existingAttachmentId) {
+                attachmentState = 'INVALID';
+                if (!attachmentsRoot || !fs.existsSync(attachmentsRoot)) {
+                    blockingReasons.push('ATTACHMENTS_ROOT_DIR_NOT_FOUND');
+                } else {
+                    const foldersToCheck = new Set();
+                    if (internalSurveyId) foldersToCheck.add(internalSurveyId);
+                    foldersToCheck.add(trimmedSubId);
+
+                    let foundPath = null;
+                    for (const folder of foldersToCheck) {
+                        const safeFolder = folder.replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
+                        const candidate = path.join(attachmentsRoot, safeFolder, existingAttachmentId);
+                        if (fs.existsSync(candidate)) {
+                            foundPath = candidate;
+                            break;
+                        }
+                    }
+
+                    if (!foundPath) {
+                        const directCandidate = path.join(attachmentsRoot, existingAttachmentId);
+                        if (fs.existsSync(directCandidate)) {
+                            foundPath = directCandidate;
+                        }
+                    }
+
+                    if (!foundPath) {
+                        blockingReasons.push('RECOVERY_ATTACHMENT_INVALID');
+                    } else {
+                        const resolvedPath = path.resolve(foundPath);
+                        const resolvedRoot = path.resolve(attachmentsRoot);
+                        if (!resolvedPath.startsWith(resolvedRoot)) {
+                            blockingReasons.push('RECOVERY_ATTACHMENT_PATH_TRAVERSAL_DETECTED');
+                        } else {
+                            try {
+                                const stat = fs.statSync(resolvedPath);
+                                if (stat.size <= 0) {
+                                    blockingReasons.push('RECOVERY_ATTACHMENT_INVALID');
+                                } else {
+                                    const fd = fs.openSync(resolvedPath, 'r');
+                                    const headerBuf = Buffer.alloc(5);
+                                    fs.readSync(fd, headerBuf, 0, 5, 0);
+                                    fs.closeSync(fd);
+
+                                    const isPdfMagic = headerBuf.toString('utf8', 0, 5) === '%PDF-';
+                                    if (!isPdfMagic) {
+                                        blockingReasons.push('RECOVERY_ATTACHMENT_INVALID');
+                                    } else {
+                                        if (sub?.attachment?.fileHash) {
+                                            const fileData = fs.readFileSync(resolvedPath);
+                                            const calcHash = crypto.createHash('sha256').update(fileData).digest('hex');
+                                            if (calcHash !== sub.attachment.fileHash) {
+                                                blockingReasons.push('RECOVERY_ATTACHMENT_INVALID');
+                                            } else {
+                                                attachmentState = 'VALID_EXISTING';
+                                                existingAttachmentValid = true;
+                                                targetFilePath = resolvedPath;
+                                            }
+                                        } else {
+                                            attachmentState = 'VALID_EXISTING';
+                                            existingAttachmentValid = true;
+                                            targetFilePath = resolvedPath;
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                blockingReasons.push('RECOVERY_ATTACHMENT_INVALID');
+                            }
+                        }
+                    }
+                }
+            } else {
+                attachmentState = 'MISSING';
+            }
+
+            // Plan actions
+            if (attachmentState === 'VALID_EXISTING') {
+                plannedActions.push('REUSE_EXISTING_PDF');
+            } else if (attachmentState === 'MISSING') {
+                plannedActions.push('GENERATE_SCREENING_PDF');
+                plannedActions.push('BIND_ATTACHMENT');
+            }
+
+            const nowTime = Date.now();
+            let activeLeaseId = ledger?.leaseId || null;
+            let activeLeaseUntil = ledger?.leaseUntil || null;
+            const isLeaseActive = Boolean(
+                activeLeaseUntil &&
+                new Date(activeLeaseUntil).getTime() > nowTime + 10000
+            );
+
+            const needsLeaseForAck = ledger &&
+                ledger.externalStatus !== SURVEY_EXTERNAL_STATUS.ACKNOWLEDGED &&
+                ledger.externalStatus !== SURVEY_EXTERNAL_STATUS.DELETE_PENDING &&
+                !isAlreadyFullyCompleted;
+
+            const supportsDeterministicLease = typeof this.externalApiClient?.leaseSubmissionById === 'function';
+
+            if (needsLeaseForAck) {
+                if (isLeaseActive) {
+                    plannedActions.push('REUSE_EXISTING_LEASE');
+                    plannedActions.push('ACKNOWLEDGE_EXTERNAL');
+                    plannedActions.push('DELETE_EXTERNAL');
+                } else if (supportsDeterministicLease) {
+                    plannedActions.push('REACQUIRE_TARGETED_LEASE');
+                    plannedActions.push('ACKNOWLEDGE_EXTERNAL');
+                    plannedActions.push('DELETE_EXTERNAL');
+                } else {
+                    // Track A does not provide a targeted lease API by submissionId.
+                    // Generic pending calls (e.g. limit=1 or batch) are strictly prohibited
+                    // to prevent collateral leases on unrelated submissions. Fail-closed!
+                    blockingReasons.push('DETERMINISTIC_REACQUIRE_NOT_AVAILABLE');
+                }
+            } else if (ledger && (ledger.externalStatus === SURVEY_EXTERNAL_STATUS.ACKNOWLEDGED || ledger.externalStatus === SURVEY_EXTERNAL_STATUS.DELETE_PENDING) && !isAlreadyFullyCompleted) {
+                plannedActions.push('DELETE_EXTERNAL');
+            }
+
+            const safeToExecute = blockingReasons.length === 0;
+
+            // 6. Handle Dry-Run Mode
+            if (isDryRun) {
+                await this.repository.recordAuditEvent({
+                    actorId,
+                    actorUserId: actorId,
+                    action: 'SURVEY_RECOVERY_DRY_RUN',
+                    submissionId: trimmedSubId,
+                    internalSurveyId,
+                    attachmentId: existingAttachmentId,
+                    result: safeToExecute ? 'SUCCESS' : 'BLOCKED',
+                    reasonCode: blockingReasons[0] || null,
+                    requestId,
+                    dryRun: true,
+                    timestamp: new Date().toISOString()
+                });
+
+                return {
+                    success: safeToExecute,
+                    dryRun: true,
+                    submissionId: trimmedSubId,
+                    internalSurveyId,
+                    currentExternalStatus: ledger?.externalStatus || null,
+                    currentProcessingStatus: sub?.processingStatus || null,
+                    attachmentState,
+                    plannedActions,
+                    blockingReasons,
+                    safeToExecute
+                };
+            }
+
+            // 7. Non-DryRun Execution Mode
+            if (!safeToExecute) {
+                await this.repository.recordAuditEvent({
+                    actorId,
+                    actorUserId: actorId,
+                    action: 'SURVEY_RECOVERY_BLOCKED',
+                    submissionId: trimmedSubId,
+                    internalSurveyId,
+                    attachmentId: existingAttachmentId,
+                    result: 'BLOCKED',
+                    reasonCode: blockingReasons[0] || 'RECOVERY_NOT_SAFE',
+                    requestId,
+                    dryRun: false,
+                    timestamp: new Date().toISOString()
+                });
+
+                const err = new Error(`복구 사전 검증 실패: ${blockingReasons.join(', ')}`);
+                err.code = blockingReasons[0] || 'RECOVERY_BLOCKED';
+                err.statusCode = 422;
+                err.details = { blockingReasons, safeToExecute: false };
+                throw err;
+            }
+
+            if (confirm !== 'RECOVER_STORED_SUBMISSION') {
+                const err = new Error('실제 복구 실행을 위해 confirm="RECOVER_STORED_SUBMISSION" 확인이 필요합니다.');
+                err.code = 'CONFIRMATION_REQUIRED';
+                err.statusCode = 400;
+                throw err;
+            }
+
+            await this.repository.recordWorkflowStep({
+                submissionId: trimmedSubId,
+                internalSurveyId,
+                step: 'RECOVERY_STARTED',
+                details: { actorId, requestId }
+            });
+
+            await this.repository.recordAuditEvent({
+                actorId,
+                actorUserId: actorId,
+                action: 'SURVEY_RECOVERY_STARTED',
+                submissionId: trimmedSubId,
+                internalSurveyId,
+                attachmentId: existingAttachmentId,
+                result: 'STARTED',
+                requestId,
+                dryRun: false,
+                timestamp: new Date().toISOString()
+            });
+
+            // Action: Existing PDF Reuse vs Missing PDF Generation
+            if (existingAttachmentValid) {
+                executedActions.push('REUSE_EXISTING_PDF');
+                await this.repository.recordWorkflowStep({
+                    submissionId: trimmedSubId,
+                    internalSurveyId,
+                    step: 'EXISTING_ATTACHMENT_VERIFIED',
+                    details: { attachmentId: existingAttachmentId }
+                });
+                await this.repository.recordAuditEvent({
+                    actorId,
+                    actorUserId: actorId,
+                    action: 'SURVEY_RECOVERY_EXISTING_PDF_REUSED',
+                    submissionId: trimmedSubId,
+                    internalSurveyId,
+                    attachmentId: existingAttachmentId,
+                    result: 'SUCCESS',
+                    requestId,
+                    dryRun: false
+                });
+            } else if (attachmentState === 'MISSING') {
+                if (!this.referralService) {
+                    throw new Error('referralService is required to generate missing PDF');
+                }
+
+                const payload = sub.payload || {
+                    assessmentId: sub.assessmentId,
+                    assessmentVersion: sub.assessmentVersion,
+                    contactOnly: Boolean(sub.contactOnly),
+                    contact: sub.contact || {},
+                    assessment: sub.assessment || {},
+                    requestType: sub.requestType || 'CONSULTATION_REQUEST',
+                    consultationRequested: sub.consultationRequested !== false,
+                    consultationRequestedAt: sub.consultationRequestedAt,
+                    screeningCompletedAt: sub.screeningCompletedAt,
+                    consentEvidence: consent
+                };
+
+                const reportResult = await this.referralService.generateScreeningReportOnly({
+                    payload,
+                    internalSurveyId,
+                    submissionId: trimmedSubId,
+                    actorId
+                });
+
+                if (!reportResult?.attachment?.id) {
+                    throw new Error('PDF generation did not return valid attachment metadata');
+                }
+
+                // Bind to existing SurveySubmission (DO NOT create new SurveySubmission!)
+                const freshSubs = this.repository.getSurveySubmissions();
+                const subIdx = freshSubs.findIndex(s => s && (s.internalSurveyId === internalSurveyId || s.submissionId === trimmedSubId));
+                if (subIdx !== -1) {
+                    freshSubs[subIdx].attachmentId = reportResult.attachment.id;
+                    freshSubs[subIdx].attachment = reportResult.attachment;
+                    freshSubs[subIdx].updatedAt = new Date().toISOString();
+                    await this.repository.saveSurveySubmissions(freshSubs);
+                }
+
+                executedActions.push('GENERATE_SCREENING_PDF');
+                executedActions.push('BIND_ATTACHMENT');
+
+                await this.repository.recordWorkflowStep({
+                    submissionId: trimmedSubId,
+                    internalSurveyId,
+                    step: SURVEY_WORKFLOW_STEPS.REPORT_GENERATED,
+                    details: { reportAttachmentId: reportResult.attachment.id }
+                });
+                await this.repository.recordWorkflowStep({
+                    submissionId: trimmedSubId,
+                    internalSurveyId,
+                    step: SURVEY_WORKFLOW_STEPS.ATTACHMENT_REGISTERED
+                });
+                await this.repository.recordWorkflowStep({
+                    submissionId: trimmedSubId,
+                    internalSurveyId,
+                    step: SURVEY_WORKFLOW_STEPS.READ_BACK_VERIFIED
+                });
+
+                await this.repository.recordAuditEvent({
+                    actorId,
+                    actorUserId: actorId,
+                    action: 'SURVEY_RECOVERY_MISSING_PDF_GENERATED',
+                    submissionId: trimmedSubId,
+                    internalSurveyId,
+                    attachmentId: reportResult.attachment.id,
+                    result: 'SUCCESS',
+                    requestId,
+                    dryRun: false
+                });
+            }
+
+            // Action: Lease Verification / Targeted Reacquisition & Gated ACK / Delete
+            if (needsLeaseForAck) {
+                if (isLeaseActive) {
+                    // Reuse existing valid lease without calling Track A lease API
+                    executedActions.push('REUSE_EXISTING_LEASE');
+                    await this.repository.recordWorkflowStep({
+                        submissionId: trimmedSubId,
+                        internalSurveyId,
+                        step: 'EXISTING_LEASE_VERIFIED',
+                        details: { leaseId: activeLeaseId, source: 'EXISTING_ACTIVE_LEASE' }
+                    });
+                } else if (supportsDeterministicLease) {
+                    const freshEnvelope = await this.externalApiClient.leaseSubmissionById(trimmedSubId);
+                    if (!freshEnvelope || freshEnvelope.submissionId !== trimmedSubId || !freshEnvelope.lease?.leaseId) {
+                        const err = new Error('DETERMINISTIC_REACQUIRE_NOT_AVAILABLE: Targeted lease returned invalid envelope');
+                        err.code = 'DETERMINISTIC_REACQUIRE_NOT_AVAILABLE';
+                        err.statusCode = 422;
+                        throw err;
+                    }
+
+                    activeLeaseId = freshEnvelope.lease.leaseId;
+                    activeLeaseUntil = freshEnvelope.lease.leaseUntil;
+
+                    await this.repository.createOrUpdateImportRecord({
+                        submissionId: trimmedSubId,
+                        leaseId: activeLeaseId,
+                        leasedAt: freshEnvelope.lease.leasedAt || new Date().toISOString(),
+                        leaseUntil: activeLeaseUntil,
+                        workerId: this.workerId
+                    });
+
+                    executedActions.push('REACQUIRE_TARGETED_LEASE');
+
+                    await this.repository.recordWorkflowStep({
+                        submissionId: trimmedSubId,
+                        internalSurveyId,
+                        step: 'LEASE_REACQUIRED',
+                        details: { leaseId: activeLeaseId }
+                    });
+
+                    await this.repository.recordAuditEvent({
+                        actorId,
+                        actorUserId: actorId,
+                        action: 'SURVEY_RECOVERY_LEASE_ACQUIRED',
+                        submissionId: trimmedSubId,
+                        internalSurveyId,
+                        result: 'SUCCESS',
+                        requestId,
+                        dryRun: false
+                    });
+                } else {
+                    const err = new Error('DETERMINISTIC_REACQUIRE_NOT_AVAILABLE: Track A does not support targeted lease by submissionId. Generic pending calls are prohibited to prevent collateral leases on unrelated submissions.');
+                    err.code = 'DETERMINISTIC_REACQUIRE_NOT_AVAILABLE';
+                    err.statusCode = 422;
+                    throw err;
+                }
+            }
+
+            // Gated ACK
+            if (ledger.externalStatus !== SURVEY_EXTERNAL_STATUS.ACKNOWLEDGED && ledger.externalStatus !== SURVEY_EXTERNAL_STATUS.DELETE_PENDING) {
+                const ackRequestId = ledger.ackRequestId || `req_ack_${trimmedSubId}_rec_${Date.now()}`;
+                await this.repository.createOrUpdateImportRecord({
+                    submissionId: trimmedSubId,
+                    ackRequestId
+                });
+
+                let ackResp;
+                if (typeof this.externalApiClient.acknowledgeSubmission === 'function') {
+                    ackResp = await this.externalApiClient.acknowledgeSubmission(trimmedSubId, {
+                        leaseId: activeLeaseId,
+                        workerId: this.workerId,
+                        requestId: ackRequestId
+                    });
+                } else if (typeof this.externalApiClient.acknowledge === 'function') {
+                    ackResp = await this.externalApiClient.acknowledge(trimmedSubId, {
+                        leaseId: activeLeaseId,
+                        workerId: this.workerId,
+                        requestId: ackRequestId
+                    });
+                } else {
+                    throw new Error('externalApiClient does not support acknowledgeSubmission');
+                }
+
+                if (!ackResp || ackResp.success === false) {
+                    throw new Error('External ACK rejected by Track A');
+                }
+
+                await this.repository.createOrUpdateImportRecord({
+                    submissionId: trimmedSubId,
+                    externalStatus: SURVEY_EXTERNAL_STATUS.ACKNOWLEDGED,
+                    acknowledgedAt: new Date().toISOString()
+                });
+
+                executedActions.push('ACKNOWLEDGE_EXTERNAL');
+
+                await this.repository.recordWorkflowStep({
+                    submissionId: trimmedSubId,
+                    internalSurveyId,
+                    step: 'ACK_COMPLETED',
+                    details: { ackRequestId, leaseId: activeLeaseId }
+                });
+
+                await this.repository.recordAuditEvent({
+                    actorId,
+                    actorUserId: actorId,
+                    action: 'SURVEY_RECOVERY_ACKNOWLEDGED',
+                    submissionId: trimmedSubId,
+                    internalSurveyId,
+                    result: 'SUCCESS',
+                    requestId,
+                    dryRun: false
+                });
+            }
+
+            // Gated Delete
+            const deleteRequestId = ledger.deleteRequestId || `req_del_${trimmedSubId}_rec_${Date.now()}`;
+            await this.repository.createOrUpdateImportRecord({
+                submissionId: trimmedSubId,
+                deleteRequestId
+            });
+
+            let delResp;
+            if (typeof this.externalApiClient.deleteImportedSubmission === 'function') {
+                delResp = await this.externalApiClient.deleteImportedSubmission(trimmedSubId, {
+                    leaseId: activeLeaseId,
+                    workerId: this.workerId,
+                    requestId: deleteRequestId
+                });
+            } else if (typeof this.externalApiClient.deleteCiphertext === 'function') {
+                delResp = await this.externalApiClient.deleteCiphertext(trimmedSubId, {
+                    leaseId: activeLeaseId,
+                    workerId: this.workerId,
+                    requestId: deleteRequestId
+                });
+            } else {
+                throw new Error('externalApiClient does not support deleteImportedSubmission');
+            }
+
+            if (!delResp || delResp.success === false) {
+                throw new Error('External Delete rejected by Track A');
+            }
+
+            await this.repository.createOrUpdateImportRecord({
+                submissionId: trimmedSubId,
+                externalStatus: SURVEY_EXTERNAL_STATUS.DELETED,
+                internalStatus: SURVEY_INTERNAL_STATUS.COMPLETED,
+                externalDeletedAt: new Date().toISOString()
+            });
+
+            executedActions.push('DELETE_EXTERNAL');
+
+            await this.repository.recordWorkflowStep({
+                submissionId: trimmedSubId,
+                internalSurveyId,
+                step: 'EXTERNAL_DELETE_COMPLETED',
+                details: { deleteRequestId }
+            });
+
+            await this.repository.recordWorkflowStep({
+                submissionId: trimmedSubId,
+                internalSurveyId,
+                step: 'RECOVERY_COMPLETED',
+                details: { executedActions }
+            });
+
+            await this.repository.recordAuditEvent({
+                actorId,
+                actorUserId: actorId,
+                action: 'SURVEY_RECOVERY_EXTERNAL_DELETED',
+                submissionId: trimmedSubId,
+                internalSurveyId,
+                result: 'SUCCESS',
+                requestId,
+                dryRun: false
+            });
+
+            await this.repository.recordAuditEvent({
+                actorId,
+                actorUserId: actorId,
+                action: 'SURVEY_RECOVERY_COMPLETED',
+                submissionId: trimmedSubId,
+                internalSurveyId,
+                result: 'SUCCESS',
+                requestId,
+                dryRun: false
+            });
+
+            return {
+                success: true,
+                dryRun: false,
+                submissionId: trimmedSubId,
+                internalSurveyId,
+                currentExternalStatus: SURVEY_EXTERNAL_STATUS.DELETED,
+                currentProcessingStatus: sub?.processingStatus || null,
+                attachmentState,
+                executedActions,
+                safeToExecute: true
+            };
+
+        } catch (execErr) {
+            await this.repository.recordAuditEvent({
+                actorId,
+                actorUserId: actorId,
+                action: 'SURVEY_RECOVERY_FAILED',
+                submissionId: trimmedSubId,
+                result: 'FAILED',
+                errorCode: execErr.code || execErr.message || 'RECOVERY_EXECUTION_FAILED',
+                requestId,
+                dryRun: isDryRun,
+                timestamp: new Date().toISOString()
+            });
+            throw execErr;
+        } finally {
+            this._recoveryLocks.delete(trimmedSubId);
+        }
     }
 }
