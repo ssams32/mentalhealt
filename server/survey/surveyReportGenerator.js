@@ -112,12 +112,18 @@ export function resolveCanonicalAge(payload) {
     const identityDemo = payload?.identity?.demographics;
 
     if (contactDemo && contactDemo.age !== undefined && contactDemo.age !== null) {
+        if (typeof contactDemo.age === 'number') {
+            return contactDemo.age;
+        }
         const val = String(contactDemo.age).trim();
         if (val !== '') {
             return val;
         }
     }
     if (identityDemo && identityDemo.age !== undefined && identityDemo.age !== null) {
+        if (typeof identityDemo.age === 'number') {
+            return identityDemo.age;
+        }
         const val = String(identityDemo.age).trim();
         if (val !== '') {
             return val;
@@ -127,14 +133,28 @@ export function resolveCanonicalAge(payload) {
 }
 
 export function formatPdfDemographicsAge(ageRaw) {
-    if (!ageRaw || typeof ageRaw !== 'string') return '-';
-    const trimmed = ageRaw.trim();
-    if (!trimmed) return '-';
+    if (ageRaw === undefined || ageRaw === null) return '-';
 
-    if (ALLOWED_AGE_SET.has(trimmed)) {
-        if (trimmed === '70대이상') return '70대 이상';
-        if (trimmed === '80대이상') return '80대 이상';
-        return trimmed;
+    // 1. Integer actual age (safe range 0 ~ 120)
+    if (typeof ageRaw === 'number') {
+        if (Number.isInteger(ageRaw) && ageRaw >= 0 && ageRaw <= 120) {
+            return `${ageRaw}세`;
+        }
+        return '-';
+    }
+
+    // 2. Legacy official age-band string
+    if (typeof ageRaw === 'string') {
+        const trimmed = ageRaw.trim();
+        if (!trimmed) return '-';
+
+        if (ALLOWED_AGE_SET.has(trimmed)) {
+            if (trimmed === '70대이상') return '70대 이상';
+            if (trimmed === '80대이상') return '80대 이상';
+            return trimmed;
+        }
+
+        return '-';
     }
 
     return '-';

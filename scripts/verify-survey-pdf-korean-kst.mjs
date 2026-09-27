@@ -237,7 +237,10 @@ async function run() {
         resolveCanonicalAge,
         ALLOWED_TRACK_A_AGE_BANDS
     } = await import('../server/survey/surveyReportGenerator.js');
-    const { SurveyPayloadValidator } = await import('../server/survey/surveyPayloadValidator.js');
+    const {
+        SurveyPayloadValidator,
+        normalizeCanonicalAge
+    } = await import('../server/survey/surveyPayloadValidator.js');
 
     await testCase('3.6 Gender normalization: Canonical codes and Korean labels mapped correctly', async () => {
         // Canonical Track A English codes
@@ -269,7 +272,20 @@ async function run() {
         assert.strictEqual(formatPdfGender('invalid'), '-');
     });
 
-    await testCase('3.7 Track A demographics age formatting and allowlist', async () => {
+    await testCase('3.7 Track A demographics age formatting and allowlist (numeric & legacy bands)', async () => {
+        // Numeric integer age (0 ~ 120)
+        assert.strictEqual(formatPdfDemographicsAge(31), '31세');
+        assert.strictEqual(formatPdfDemographicsAge(0), '0세');
+        assert.strictEqual(formatPdfDemographicsAge(120), '120세');
+
+        // Invalid numeric ages -> '-'
+        assert.strictEqual(formatPdfDemographicsAge(-1), '-');
+        assert.strictEqual(formatPdfDemographicsAge(121), '-');
+        assert.strictEqual(formatPdfDemographicsAge(31.5), '-');
+        assert.strictEqual(formatPdfDemographicsAge(NaN), '-');
+        assert.strictEqual(formatPdfDemographicsAge(Infinity), '-');
+
+        // Legacy official age bands
         assert.strictEqual(formatPdfDemographicsAge('10대'), '10대');
         assert.strictEqual(formatPdfDemographicsAge('20대'), '20대');
         assert.strictEqual(formatPdfDemographicsAge('30대'), '30대');
@@ -281,15 +297,35 @@ async function run() {
         assert.strictEqual(formatPdfDemographicsAge('80대 이상'), '80대 이상');
         assert.strictEqual(formatPdfDemographicsAge('80대이상'), '80대 이상');
 
-        // Missing, null, empty, unsupported, numeric age, or birthDate -> '-'
+        // Missing, null, empty, unsupported, arbitrary strings, or birthDate -> '-'
         assert.strictEqual(formatPdfDemographicsAge(null), '-');
         assert.strictEqual(formatPdfDemographicsAge(''), '-');
         assert.strictEqual(formatPdfDemographicsAge(undefined), '-');
         assert.strictEqual(formatPdfDemographicsAge('invalid-age'), '-');
         assert.strictEqual(formatPdfDemographicsAge('31'), '-');
-        assert.strictEqual(formatPdfDemographicsAge(31), '-');
+        assert.strictEqual(formatPdfDemographicsAge('31세'), '-');
         assert.strictEqual(formatPdfDemographicsAge('만 31세'), '-');
         assert.strictEqual(formatPdfDemographicsAge('1990-05-15'), '-');
+
+        // Validator normalizeCanonicalAge verification
+        if (typeof normalizeCanonicalAge === 'function') {
+            assert.strictEqual(normalizeCanonicalAge(31), 31);
+            assert.strictEqual(normalizeCanonicalAge(0), 0);
+            assert.strictEqual(normalizeCanonicalAge(120), 120);
+            assert.strictEqual(normalizeCanonicalAge(-1), null);
+            assert.strictEqual(normalizeCanonicalAge(121), null);
+            assert.strictEqual(normalizeCanonicalAge(31.5), null);
+            assert.strictEqual(normalizeCanonicalAge(NaN), null);
+            assert.strictEqual(normalizeCanonicalAge(Infinity), null);
+            assert.strictEqual(normalizeCanonicalAge('30대'), '30대');
+            assert.strictEqual(normalizeCanonicalAge('70대 이상'), '70대 이상');
+            assert.strictEqual(normalizeCanonicalAge('70대이상'), '70대 이상');
+            assert.strictEqual(normalizeCanonicalAge('31세'), null);
+            assert.strictEqual(normalizeCanonicalAge('31'), null);
+            assert.strictEqual(normalizeCanonicalAge('arbitrary'), null);
+            assert.strictEqual(normalizeCanonicalAge(null), null);
+            assert.strictEqual(normalizeCanonicalAge(undefined), null);
+        }
     });
 
     await testCase('3.8 Canonical priority resolution: contact vs identity fallback', async () => {
@@ -301,6 +337,14 @@ async function run() {
         assert.strictEqual(resolveCanonicalGender({}), null);
 
         // Age priority: contact.demographics.age > identity.demographics.age
+        assert.strictEqual(resolveCanonicalAge({
+            contact: { demographics: { age: 31 } },
+            identity: { demographics: { age: '40대' } }
+        }), 31);
+        assert.strictEqual(resolveCanonicalAge({
+            contact: { demographics: { age: 0 } },
+            identity: { demographics: { age: '40대' } }
+        }), 0);
         assert.strictEqual(resolveCanonicalAge({
             contact: { demographics: { age: '30대' } },
             identity: { demographics: { age: '40대' } }
@@ -410,121 +454,186 @@ async function run() {
     });
 
     // -------------------------------------------------------------
-    // SECTION 6: Synthetic Contract Tests A through J
+    // SECTION 6: Synthetic Contract Tests A through K
     // -------------------------------------------------------------
-    console.log('\n--- 6. Synthetic Contract Tests A through J ---');
+    console.log('\n--- 6. Synthetic Contract Tests A through K ---');
 
-    await testCase('6.1 Test A: Canonical FEMALE and 30대 -> 성별: 여성, 연령: 30대', async () => {
+    await testCase('6.1 Test A: age=31 -> 연령: 31세', async () => {
         const payload = {
             submittedAt: '2026-09-26T10:00:00.000Z',
             contact: {
                 clientName: '테스트A',
                 phone: '010-1111-2222',
                 gender: 'FEMALE',
-                demographics: { age: '30대' }
+                demographics: { age: 31 }
             },
             consentEvidence: { personalInfoConsent: true, sensitiveInfoConsent: true }
         };
         const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-A', payload });
         const text = extractTextFromPdf(res.buffer);
         assert.ok(text.includes('성별: 여성'), 'Must display 성별: 여성');
-        assert.ok(text.includes('연령: 30대'), 'Must display 연령: 30대');
+        assert.ok(text.includes('연령: 31세'), 'Must display 연령: 31세');
     });
 
-    await testCase('6.2 Test B: Canonical MALE and 20대 -> 성별: 남성, 연령: 20대', async () => {
+    await testCase('6.2 Test B: age=0 -> 연령: 0세', async () => {
         const payload = {
             submittedAt: '2026-09-26T10:00:00.000Z',
             contact: {
                 clientName: '테스트B',
                 phone: '010-1111-2222',
                 gender: 'MALE',
-                demographics: { age: '20대' }
+                demographics: { age: 0 }
             },
             consentEvidence: { personalInfoConsent: true, sensitiveInfoConsent: true }
         };
         const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-B', payload });
         const text = extractTextFromPdf(res.buffer);
         assert.ok(text.includes('성별: 남성'), 'Must display 성별: 남성');
-        assert.ok(text.includes('연령: 20대'), 'Must display 연령: 20대');
+        assert.ok(text.includes('연령: 0세'), 'Must display 연령: 0세');
     });
 
-    await testCase('6.3 Test C: OTHER -> 성별: 기타', async () => {
+    await testCase('6.3 Test C: age=120 -> 연령: 120세', async () => {
         const payload = {
-            contact: { gender: 'OTHER' }
+            contact: {
+                clientName: '테스트C',
+                demographics: { age: 120 }
+            }
         };
         const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-C', payload });
         const text = extractTextFromPdf(res.buffer);
-        assert.ok(text.includes('성별: 기타'), 'Must display 성별: 기타');
+        assert.ok(text.includes('연령: 120세'), 'Must display 연령: 120세');
     });
 
-    await testCase('6.4 Test D: PREFER_NOT_TO_SAY -> 성별: 응답하지 않음', async () => {
+    await testCase('6.4 Test D: age=-1 -> 연령: -', async () => {
         const payload = {
-            contact: { gender: 'PREFER_NOT_TO_SAY' }
+            contact: {
+                clientName: '테스트D',
+                demographics: { age: -1 }
+            }
         };
         const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-D', payload });
         const text = extractTextFromPdf(res.buffer);
-        assert.ok(text.includes('성별: 응답하지 않음'), 'Must display 성별: 응답하지 않음');
+        assert.ok(text.includes('연령: -'), 'Negative age must display 연령: -');
     });
 
-    await testCase('6.5 Test E: Missing gender -> 성별: - (Never convert to 기타)', async () => {
+    await testCase('6.5 Test E: age=121 -> 연령: -', async () => {
         const payload = {
-            contact: { clientName: '테스트E', phone: '010-0000-0000' }
+            contact: {
+                clientName: '테스트E',
+                demographics: { age: 121 }
+            }
         };
         const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-E', payload });
         const text = extractTextFromPdf(res.buffer);
-        assert.ok(text.includes('성별: -'), 'Must display 성별: -');
-        assert.ok(!text.includes('성별: 기타'), 'Must not display 성별: 기타');
+        assert.ok(text.includes('연령: -'), 'Age > 120 must display 연령: -');
     });
 
-    await testCase('6.6 Test F: Missing age -> 연령: -', async () => {
+    await testCase('6.6 Test F: age=31.5 -> 연령: -', async () => {
         const payload = {
-            contact: { clientName: '테스트F', demographics: {} }
+            contact: {
+                clientName: '테스트F',
+                demographics: { age: 31.5 }
+            }
         };
         const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-F', payload });
         const text = extractTextFromPdf(res.buffer);
-        assert.ok(text.includes('연령: -'), 'Must display 연령: -');
-        assert.ok(!text.includes('나이'), 'Must not display 나이 label');
+        assert.ok(text.includes('연령: -'), 'Decimal age must display 연령: -');
     });
 
-    await testCase('6.7 Test G: Legacy identity fallback -> 성별: 여성, 연령: 40대', async () => {
+    await testCase('6.7 Test G: legacy age=30대 -> 연령: 30대', async () => {
         const payload = {
-            contact: { clientName: '테스트G' },
-            identity: {
-                gender: 'FEMALE',
-                demographics: { age: '40대' }
+            contact: {
+                clientName: '테스트G',
+                demographics: { age: '30대' }
             }
         };
         const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-G', payload });
         const text = extractTextFromPdf(res.buffer);
-        assert.ok(text.includes('성별: 여성'), 'Must display 성별: 여성 from identity fallback');
-        assert.ok(text.includes('연령: 40대'), 'Must display 연령: 40대 from identity fallback');
+        assert.ok(text.includes('연령: 30대'), 'Legacy 30대 must display 연령: 30대');
     });
 
-    await testCase('6.8 Test H: Contact priority over identity -> 성별: 남성', async () => {
+    await testCase('6.8 Test H: legacy age=70대 이상 -> 연령: 70대 이상', async () => {
         const payload = {
-            contact: { clientName: '테스트H', gender: 'MALE' },
-            identity: { gender: 'FEMALE' }
+            contact: {
+                clientName: '테스트H',
+                demographics: { age: '70대 이상' }
+            }
         };
         const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-H', payload });
         const text = extractTextFromPdf(res.buffer);
-        assert.ok(text.includes('성별: 남성'), 'Must display 성별: 남성 (contact priority)');
-        assert.ok(!text.includes('성별: 여성'), 'Must not be overridden by identity');
+        assert.ok(text.includes('연령: 70대 이상'), 'Legacy 70대 이상 must display 연령: 70대 이상');
     });
 
-    await testCase('6.9 Test I: Unsupported values fail-safe -> 성별: -, 연령: -', async () => {
+    await testCase('6.9 Test I: missing age -> 연령: -', async () => {
         const payload = {
             contact: {
-                gender: 'UNKNOWN',
-                demographics: { age: 'invalid-age' }
+                clientName: '테스트I',
+                demographics: {}
             }
         };
         const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-I', payload });
         const text = extractTextFromPdf(res.buffer);
-        assert.ok(text.includes('성별: -'), 'Unsupported gender must display -');
-        assert.ok(text.includes('연령: -'), 'Unsupported age must display -');
+        assert.ok(text.includes('연령: -'), 'Missing age must display 연령: -');
+        assert.ok(!text.includes('나이'), 'Must not display 나이 label');
     });
 
-    await testCase('6.10 Test J: Legacy payload with no new fields accepted and rendered', async () => {
+    await testCase('6.10 Test J: contact age priority (contact age=31, identity age=40대) -> 연령: 31세', async () => {
+        const payload = {
+            contact: {
+                clientName: '테스트J',
+                demographics: { age: 31 }
+            },
+            identity: {
+                demographics: { age: '40대' }
+            }
+        };
+        const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-J', payload });
+        const text = extractTextFromPdf(res.buffer);
+        assert.ok(text.includes('연령: 31세'), 'Contact numeric age must take priority over identity fallback');
+        assert.ok(!text.includes('연령: 40대'), 'Identity age must not override contact age');
+    });
+
+    await testCase('6.11 Test K: identity legacy fallback (contact age missing, identity age=40대) -> 연령: 40대', async () => {
+        const payload = {
+            contact: {
+                clientName: '테스트K',
+                demographics: {}
+            },
+            identity: {
+                demographics: { age: '40대' }
+            }
+        };
+        const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-K', payload });
+        const text = extractTextFromPdf(res.buffer);
+        assert.ok(text.includes('연령: 40대'), 'Identity fallback age must display when contact age missing');
+    });
+
+    await testCase('6.12 Gender contract preserved (OTHER, PREFER_NOT_TO_SAY, Missing, Priority)', async () => {
+        // OTHER
+        const resOther = await gen.generateScreeningReportPdf({ refNo: 'REF-G-OTHER', payload: { contact: { gender: 'OTHER' } } });
+        assert.ok(extractTextFromPdf(resOther.buffer).includes('성별: 기타'), 'OTHER -> 기타');
+
+        // PREFER_NOT_TO_SAY
+        const resPnts = await gen.generateScreeningReportPdf({ refNo: 'REF-G-PNTS', payload: { contact: { gender: 'PREFER_NOT_TO_SAY' } } });
+        assert.ok(extractTextFromPdf(resPnts.buffer).includes('성별: 응답하지 않음'), 'PREFER_NOT_TO_SAY -> 응답하지 않음');
+
+        // Missing gender -> 성별: - (never 기타)
+        const resMiss = await gen.generateScreeningReportPdf({ refNo: 'REF-G-MISS', payload: { contact: { clientName: '무응답' } } });
+        const textMiss = extractTextFromPdf(resMiss.buffer);
+        assert.ok(textMiss.includes('성별: -'), 'Missing gender -> 성별: -');
+        assert.ok(!textMiss.includes('성별: 기타'), 'Missing gender never 기타');
+
+        // Contact gender priority over identity
+        const resPrio = await gen.generateScreeningReportPdf({
+            refNo: 'REF-G-PRIO',
+            payload: { contact: { gender: 'MALE' }, identity: { gender: 'FEMALE' } }
+        });
+        const textPrio = extractTextFromPdf(resPrio.buffer);
+        assert.ok(textPrio.includes('성별: 남성'), 'Contact gender MALE takes priority');
+        assert.ok(!textPrio.includes('성별: 여성'), 'Identity gender FEMALE overridden');
+    });
+
+    await testCase('6.13 Test Legacy payload with no new fields accepted and rendered', async () => {
         const validator = new SurveyPayloadValidator({ sbqrApproved: true });
         const legacyPayload = {
             submissionId: 'sub-legacy-001',
@@ -549,7 +658,7 @@ async function run() {
         const valResult = validator.validate(legacyPayload);
         assert.strictEqual(valResult.valid, true, 'Legacy payload must validate successfully');
 
-        const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-J', payload: legacyPayload });
+        const res = await gen.generateScreeningReportPdf({ refNo: 'REF-TEST-LEGACY', payload: legacyPayload });
         assert.ok(res.buffer.length > 50000, 'PDF generated');
         const text = extractTextFromPdf(res.buffer);
         assert.ok(text.includes('레거시테스터'), 'Client name rendered');

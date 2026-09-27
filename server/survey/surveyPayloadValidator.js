@@ -219,6 +219,39 @@ class UnknownFieldCollector {
     }
 }
 
+export function normalizeCanonicalAge(ageRaw) {
+    if (ageRaw === undefined || ageRaw === null) return null;
+
+    // 1. Integer actual age in safe range 0..120
+    if (typeof ageRaw === 'number') {
+        if (Number.isInteger(ageRaw) && ageRaw >= 0 && ageRaw <= 120) {
+            return ageRaw;
+        }
+        return null;
+    }
+
+    // 2. Legacy official age-band string
+    if (typeof ageRaw === 'string') {
+        const trimmed = ageRaw.trim();
+        if (!trimmed) return null;
+
+        const legacyBands = new Set([
+            '10대 미만', '10대', '20대', '30대', '40대', '50대', '60대',
+            '70대 이상', '70대이상', '70대', '80대 이상', '80대이상'
+        ]);
+
+        if (legacyBands.has(trimmed)) {
+            if (trimmed === '70대이상') return '70대 이상';
+            if (trimmed === '80대이상') return '80대 이상';
+            return trimmed;
+        }
+
+        return null;
+    }
+
+    return null;
+}
+
 export class SurveyPayloadValidator {
     /**
      * @param {Object} [options]
@@ -481,6 +514,16 @@ export class SurveyPayloadValidator {
                     payload.contact.counselingRequestText = payload.contact.note;
                 }
                 delete payload.contact.note;
+            }
+            if (payload.contact.demographics && typeof payload.contact.demographics === 'object') {
+                if (payload.contact.demographics.age !== undefined && payload.contact.demographics.age !== null) {
+                    const normalizedAge = normalizeCanonicalAge(payload.contact.demographics.age);
+                    if (normalizedAge !== null) {
+                        payload.contact.demographics.age = normalizedAge;
+                    } else {
+                        payload.contact.demographics.age = null;
+                    }
+                }
             }
         }
 
