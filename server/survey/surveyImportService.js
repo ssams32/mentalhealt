@@ -13,7 +13,9 @@ import {
     SURVEY_WORKFLOW_STEPS,
     TRACK_A_FAILURE_CATEGORIES,
     NOTIFICATION_TYPES,
-    DEFAULT_LEASE_SECONDS
+    DEFAULT_LEASE_SECONDS,
+    SURVEY_PROCESSING_STATUS,
+    SURVEY_ASSIGNMENT_STATUS
 } from './surveyConstants.js';
 import { SurveyOperationError } from './surveyErrors.js';
 
@@ -582,7 +584,7 @@ export class SurveyImportService {
                                 action: 'SURVEY_REFERRAL_CREATION_FAILED',
                                 submissionId: subId,
                                 result: 'FAILED',
-                                errorCode: referralErr.message || 'REFERRAL_CREATION_FAILED',
+                                errorCode: reportErr.message || 'REFERRAL_CREATION_FAILED',
                                 batchId
                             });
                             // Do NOT ACK or delete if referral creation or report generation fails!
