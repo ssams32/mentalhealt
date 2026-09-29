@@ -7,8 +7,10 @@ import { verifyStateChangingOrigin } from './csrfProtection.js';
  * Express router handling login, logout, and session verification.
  */
 
-export function createAuthRouter(authService, requireAuthMiddleware) {
+export function createAuthRouter(authService, requireAuthMiddleware, options = {}) {
     const router = Router();
+    // [P0-D2] 최초 관리자 bootstrap 콜백 (server.js에서 주입). Users가 비어있을 때만 동작.
+    const { ensureInitialAdmin } = options;
 
     const COOKIE_NAME = 'mind_session';
     const TTL_HOURS = parseInt(process.env.AUTH_SESSION_TTL_HOURS || '12', 10);
@@ -60,6 +62,28 @@ export function createAuthRouter(authService, requireAuthMiddleware) {
                 try {
                     await authService.logout(oldToken);
                 } catch (ignore) {}
+            }
+
+            // [P0-D2] 최초 관리자 bootstrap: Users가 비어있으면 여기서만 생성.
+            // ADMIN_INIT_PASSWORD 미설정 시 fail-closed (503, 값 노출 없음).
+            if (typeof ensureInitialAdmin === 'function') {
+                const boot = await ensureInitialAdmin();
+                if (boot && boot.blocked) {
+                    if (boot.reason === 'PERSIST_FAILED') {
+                        return res.status(503).json({
+                            error: {
+                                code: 'ADMIN_INIT_FAILED',
+                                message: '초기 관리자 생성에 실패했습니다. 관리자에게 문의하세요.'
+                            }
+                        });
+                    }
+                    return res.status(503).json({
+                        error: {
+                            code: 'ADMIN_INIT_NOT_CONFIGURED',
+                            message: '초기 관리자 비밀번호가 설정되지 않았습니다. 관리자에게 문의하세요.'
+                        }
+                    });
+                }
             }
 
             const { token, user } = await authService.login(username, password);

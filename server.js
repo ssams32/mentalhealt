@@ -373,8 +373,47 @@ const saveData = (filename, data) => {
 // ==========================================
 const sessionRepository = new SessionRepository(getData, persistData);
 const authService = new AuthService(sessionRepository, () => getData('Users', []));
-const { requireAuth, optionalAuth } = createAuthMiddleware(authService);
-const authRouter = createAuthRouter(authService, requireAuth);
+const { requireAuth, optionalAuth, requireAdmin } = createAuthMiddleware(authService);
+const authRouter = createAuthRouter(authService, requireAuth, {
+    // [P0-D2] 최초 관리자 bootstrap — Users.json이 비어있을 때만 login 경유로 생성.
+    // 초기 비밀번호는 ADMIN_INIT_PASSWORD 환경변수만 사용 ('1234' 하드코딩 fallback 금지).
+    // 미설정 시 fail-closed: 503 반환, 서버는 정상 기동.
+    ensureInitialAdmin: async () => {
+        const users = getData('Users', []);
+        if (users.length > 0) return { created: false };
+        const initPassword = process.env.ADMIN_INIT_PASSWORD;
+        if (!initPassword) {
+            console.error('[Bootstrap] ADMIN_INIT_PASSWORD 미설정 — 초기 관리자 생성 불가 (fail-closed)');
+            return { blocked: true };
+        }
+        const adminUser = {
+            id: "admin",
+            username: "admin",
+            name: "시스템관리자",
+            password: initPassword,
+            role: "admin",
+            status: "active",
+            team: "증진팀",
+            createdDate: new Date().toISOString().split('T')[0],
+            lastLogin: ""
+        };
+        try {
+            await persistData('Users', [adminUser]);
+        } catch (e) {
+            console.error('[Bootstrap] 초기 관리자 저장 실패:', e && e.message);
+            // fail-closed: persistData는 디스크 쓰기 전에 memoryCache를 갱신하므로,
+            // 저장 실패 시 phantom 관리자를 캐시에서도 제거한다. 제거하지 않으면
+            // 재시도 로그인이 미저장 관리자를 기준으로 진행하게 된다.
+            // 참조 동등성(=== adminUser)으로 우리가 만든 phantom일 때만 제거한다.
+            if (getData('Users', [])[0] === adminUser) {
+                memoryCache['Users'] = [];
+            }
+            return { blocked: true, reason: 'PERSIST_FAILED' };
+        }
+        console.log('[Bootstrap] 초기 관리자 계정 생성됨 (Users 비어있음)');
+        return { created: true };
+    }
+});
 
 app.use('/api/auth', authRouter);
 
@@ -868,46 +907,41 @@ const normalizeSavedAnalysisList = (raw) => {
 // API ENDPOINTS
 // ==========================================
 
-app.get('/api/users', (req, res) => {
+// [P0-D2] 최초 관리자 bootstrap은 POST /api/auth/login 내부로 이관됨.
+// 이 라우트는 순수 조회만 수행한다.
+app.get('/api/users', requireAuth, (req, res) => {
     const users = getData('Users', []);
-    if (users.length === 0) {
-        const initPassword = process.env.ADMIN_INIT_PASSWORD || '1234';
-        const adminUser = {
-            id: "admin",
-            username: "admin",
-            name: "시스템관리자",
-            password: initPassword,
-            role: "admin",
-            status: "active",
-            team: "증진팀",
-            createdDate: new Date().toISOString().split('T')[0],
-            lastLogin: ""
-        };
-        saveData('Users', [adminUser]);
-        const { password, ...safeAdmin } = adminUser;
-        return res.json([safeAdmin]);
-    }
     // [Track A1 Security] Strip password before returning user list to clients
     const safeUsers = users.map(({ password, ...u }) => u);
     res.json(safeUsers);
 });
 
-app.post('/api/users', (req, res) => {
-    const newUser = req.body;
+const ALLOWED_USER_ROLES = ['admin', 'staff', 'user', 'manager'];
+
+app.post('/api/users', requireAdmin, (req, res) => {
+    const newUser = req.body || {};
     const users = getData('Users', []);
+    if (!newUser.id || !newUser.password) {
+        return res.status(400).json({ success: false, error: "id and password are required" });
+    }
+    if (newUser.role && !ALLOWED_USER_ROLES.includes(newUser.role)) {
+        return res.status(400).json({ success: false, error: "Invalid role" });
+    }
     if (users.find(u => u.id === newUser.id)) {
         return res.status(400).json({ success: false, error: "Duplicate ID" });
     }
-    users.push(newUser);
+    users.push({
+        ...newUser,
+        role: newUser.role || 'user',
+        status: newUser.status || 'active',
+        createdDate: newUser.createdDate || new Date().toISOString().split('T')[0]
+    });
     saveData('Users', users);
     res.json({ success: true });
 });
 
-app.put('/api/users', requireAuth, async (req, res) => {
+app.put('/api/users', requireAdmin, async (req, res) => {
     try {
-        if (!req.auth || req.auth.role !== 'admin') {
-            return res.status(403).json({ success: false, error: "관리자만 사용자 권한을 변경할 수 있습니다." });
-        }
         const updatedUser = req.body;
         const users = getData('Users', []);
         const index = users.findIndex(u => u.id === updatedUser.id);
@@ -1184,7 +1218,7 @@ app.delete('/api/users/:id', requireAuth, (req, res) => {
 });
 
 // REFERRALS
-app.get('/api/referrals', (req, res) => {
+app.get('/api/referrals', requireAuth, (req, res) => {
     try {
         let referrals = getData('Referrals', []);
         const { team, closureStatus, registrationStatus, view, source, includeOnlineSurveys } = req.query;
@@ -1304,7 +1338,7 @@ app.get('/api/referrals', (req, res) => {
 });
 
 // Direct URL/ID access preserves full record access regardless of list exclusion
-app.get('/api/referrals/:id', (req, res) => {
+app.get('/api/referrals/:id', requireAuth, (req, res) => {
     try {
         const { id } = req.params;
         const referrals = getData('Referrals', []);
@@ -1395,6 +1429,38 @@ export function scheduleNextRetentionPurge(surveyRepo, auditLogFn) {
 scheduleNextRetentionPurge(surveyRepository, surveyAuditLogger);
 
 // Attachment streaming endpoint (supports inline PDF preview, strictly guarded and audited)
+// [P0-D6] 첨부파일 경로 검증 헬퍼 — GET /attachments와 DELETE /api/deleteFile이 공유.
+// traversal 문자 검사 → basename+sanitize → path.resolve prefix 검증 → symlink(realpath) 검증.
+// 반환: { ok:true, safeFolder, safeFile, resolvedPath } 또는 { ok:false, reason }
+function validateAttachmentPath(folder, file) {
+    if (!folder || !file ||
+        folder.includes('..') || file.includes('..') ||
+        folder.includes('/') || folder.includes('\\') ||
+        file.includes('/') || file.includes('\\')) {
+        return { ok: false, reason: 'PATH_TRAVERSAL' };
+    }
+    const safeFolder = path.basename(folder).replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
+    const safeFile = path.basename(file);
+    if (!safeFolder || !safeFile) {
+        return { ok: false, reason: 'EMPTY' };
+    }
+    const base = path.resolve(ATTACHMENTS_DIR);
+    const resolvedPath = path.resolve(base, safeFolder, safeFile);
+    if (!resolvedPath.startsWith(base + path.sep)) {
+        return { ok: false, reason: 'PREFIX' };
+    }
+    // symlink 방어: 실제 경로를 해소해 다시 prefix 검증 (파일이 없을 때는 skip — 존재 검사는 호출자 몫)
+    try {
+        const real = fs.realpathSync(resolvedPath);
+        let realBase;
+        try { realBase = fs.realpathSync(base); } catch { realBase = base; }
+        if (real !== realBase && !real.startsWith(realBase + path.sep)) {
+            return { ok: false, reason: 'SYMLINK_ESCAPE' };
+        }
+    } catch (e) { /* ENOENT 등 — 호출자가 존재 여부를 판단 */ }
+    return { ok: true, safeFolder, safeFile, resolvedPath };
+}
+
 app.get('/attachments/:folder/:file', requireAuth, async (req, res) => {
     try {
         if (!req.auth || req.auth.status !== 'active') {
@@ -1402,33 +1468,20 @@ app.get('/attachments/:folder/:file', requireAuth, async (req, res) => {
         }
 
         const { folder, file } = req.params;
-        // 1. Path traversal security checks
-        if (!folder || !file || folder.includes('..') || file.includes('..') || folder.includes('/') || folder.includes('\\') || file.includes('/') || file.includes('\\')) {
+        // 1. Path traversal security checks (공유 헬퍼 — DELETE /api/deleteFile과 동일 정책)
+        const pathCheck = validateAttachmentPath(folder, file);
+        if (!pathCheck.ok) {
             if (typeof surveyAuditLogger === 'function') {
                 surveyAuditLogger({
                     actorUserId: req.auth?.id || 'unknown',
                     action: 'ATTACHMENT_ACCESS_DENIED',
                     result: 'DENIED',
-                    reasonCode: 'PATH_TRAVERSAL_ATTEMPT'
+                    reasonCode: pathCheck.reason === 'PATH_TRAVERSAL' ? 'PATH_TRAVERSAL_ATTEMPT' : 'PATH_TRAVERSAL_DETECTED'
                 });
             }
             return res.status(403).json({ error: { code: 'FORBIDDEN', message: '잘못된 경로입니다.' } });
         }
-
-        const safeFolder = path.basename(folder).replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
-        const safeFile = path.basename(file);
-        const resolvedPath = path.resolve(ATTACHMENTS_DIR, safeFolder, safeFile);
-        if (!resolvedPath.startsWith(path.resolve(ATTACHMENTS_DIR))) {
-            if (typeof surveyAuditLogger === 'function') {
-                surveyAuditLogger({
-                    actorUserId: req.auth?.id || 'unknown',
-                    action: 'ATTACHMENT_ACCESS_DENIED',
-                    result: 'DENIED',
-                    reasonCode: 'PATH_TRAVERSAL_DETECTED'
-                });
-            }
-            return res.status(403).json({ error: { code: 'FORBIDDEN', message: '허용되지 않은 파일 경로입니다.' } });
-        }
+        const { safeFolder, safeFile, resolvedPath } = pathCheck;
 
         // 2. Object-Level Authorization: Check before reading disk
         const currentUserId = String(req.auth?.id || req.auth?.userId || '');
@@ -1535,7 +1588,7 @@ app.get('/attachments/:folder/:file', requireAuth, async (req, res) => {
     }
 });
 
-app.post('/api/referrals', optionalAuth, async (req, res) => {
+app.post('/api/referrals', requireAuth, async (req, res) => {
     try {
         if (!req.body || typeof req.body !== 'object') {
             return res.status(400).json({ success: false, error: "요청 본문이 올바르지 않습니다." });
@@ -1901,8 +1954,8 @@ const handleReferralUpdate = async (req, res) => {
     }
 };
 
-app.put('/api/referrals', handleReferralUpdate);
-app.put('/api/referrals/:id', handleReferralUpdate);
+app.put('/api/referrals', requireAuth, handleReferralUpdate);
+app.put('/api/referrals/:id', requireAuth, handleReferralUpdate);
 
 const handleReferralDelete = async (req, res) => {
     try {
@@ -1949,15 +2002,15 @@ const handleReferralDelete = async (req, res) => {
     }
 };
 
-app.delete('/api/referrals/:refNo', handleReferralDelete);
-app.delete('/api/referrals', handleReferralDelete);
+app.delete('/api/referrals/:refNo', requireAuth, handleReferralDelete);
+app.delete('/api/referrals', requireAuth, handleReferralDelete);
 
 // SUICIDE ATTEMPTERS
-app.get('/api/suicideattempters', (req, res) => {
+app.get('/api/suicideattempters', requireAuth, (req, res) => {
     res.json(getData('SuicideAttempters', []));
 });
 
-app.post('/api/suicideattempters', (req, res) => {
+app.post('/api/suicideattempters', requireAuth, (req, res) => {
     const sa = req.body;
     const records = getData('SuicideAttempters', []);
     records.push(sa);
@@ -2154,7 +2207,7 @@ function calculateInterventionActualForMemberMonth(member, month) {
 }
 
 // ISP ACHIEVEMENT YEARLY ANALYTICS
-app.get('/api/analysis/isp-achievement-yearly', (req, res) => {
+app.get('/api/analysis/isp-achievement-yearly', requireAuth, (req, res) => {
     const startTotal = performance.now();
     const { year, detailLevel = 'summary' } = req.query;
 
@@ -2402,7 +2455,7 @@ app.get('/api/analysis/isp-achievement-yearly', (req, res) => {
 });
 
 // CASE ANALYSIS STATE
-app.get('/api/analysis/current', (req, res) => {
+app.get('/api/analysis/current', requireAuth, (req, res) => {
     try {
         let data = getData('GlobalCaseAnalysis', null);
         if (!data) return res.json({ success: true, data: null });
@@ -2455,7 +2508,7 @@ app.get('/api/analysis/current', (req, res) => {
     }
 });
 
-app.post('/api/analysis/current', (req, res) => {
+app.post('/api/analysis/current', requireAuth, (req, res) => {
     saveData('GlobalCaseAnalysis', req.body.data);
     clearIspAchievementCache();
     res.json({ success: true });
@@ -2484,7 +2537,7 @@ function isWebsiteReferralItem(item) {
 }
 
 // PENDING REFERRALS (Scraper Sync - Website Referrals Only)
-app.get('/api/pending-referrals', (req, res) => {
+app.get('/api/pending-referrals', requireAuth, (req, res) => {
     const referrals = getData('Referrals', []);
     let allPending = getData('PendingReferrals', []);
     const normalizePhone = (num) => num ? String(num).replace(/[^0-9]/g, '') : '';
@@ -2522,7 +2575,7 @@ app.get('/api/pending-referrals', (req, res) => {
 });
 
 // 스크레이퍼 상태 진단 API
-app.get('/api/pending-referrals/status', (req, res) => {
+app.get('/api/pending-referrals/status', requireAuth, (req, res) => {
     const list = getData('PendingReferrals', []);
     const filePath = path.join(DATA_DIR, 'PendingReferrals.json');
     const stat = fs.existsSync(filePath) ? fs.statSync(filePath) : null;
@@ -2544,30 +2597,16 @@ app.get('/api/pending-referrals/status', (req, res) => {
     });
 });
 
-app.post('/api/pending-referrals', (req, res) => {
+app.post('/api/pending-referrals', requireAuth, (req, res) => {
     const list = getData('PendingReferrals', []);
     list.push(req.body);
     saveData('PendingReferrals', list);
     res.json({ success: true });
 });
 
-app.post('/_diag', (req, res) => {
-    try {
-        const payload = req.body || {};
-        const outDir = path.join(__dirname, 'diag_reports');
-        if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-        const outPath = path.join(outDir, 'last_payload.json');
-        const record = { receivedAt: new Date().toISOString(), payload };
-        fs.writeFileSync(outPath, JSON.stringify(record, null, 2), 'utf8');
-        console.log('[_diag] received payload:', Object.keys(payload));
-        res.json({ success: true });
-    } catch (e) {
-        console.error('[_diag] error handling payload', e);
-        res.status(500).json({ success: false });
-    }
-});
+// [P0] POST /_diag 제거됨 — 무인증 디스크 쓰기 디버그 잔재 (REMOVE)
 
-app.get('/api/health/storage', (req, res) => {
+app.get('/api/health/storage', requireAdmin, (req, res) => {
     try {
         const files = ['Referrals', 'BudgetPlans', 'BudgetTransactions', 'SuicideAttempters', 'Users', 'Trash'];
         const stats = files.map(filename => {
@@ -2602,7 +2641,7 @@ app.get('/api/health/storage', (req, res) => {
     }
 });
 
-app.post('/api/users/import', (req, res) => {
+app.post('/api/users/import', requireAdmin, (req, res) => {
     try {
         const parsedData = req.body;
         if (!Array.isArray(parsedData)) {
@@ -2615,16 +2654,19 @@ app.post('/api/users/import', (req, res) => {
 
         parsedData.forEach((newUser) => {
             if (!newUser.id) return;
+            // [P0] role 화이트리스트 검증 — import 경로로 관리자 권한 상승 방지
+            let role = newUser.role;
+            if (role && !ALLOWED_USER_ROLES.includes(role)) return; // 유효하지 않은 role은 해당 레코드 skip
             const index = users.findIndex(u => u.id === newUser.id);
             if (index !== -1) {
-                users[index] = { ...users[index], ...newUser };
+                users[index] = { ...users[index], ...newUser, ...(role ? { role } : {}) };
                 updatedCount++;
             } else {
                 users.push({
                     ...newUser,
                     createdDate: newUser.createdDate || new Date().toISOString().split('T')[0],
                     status: newUser.status || 'active',
-                    role: newUser.role || 'user',
+                    role: role || 'user',
                     team: newUser.team || '증진팀'
                 });
                 createdCount++;
@@ -2643,15 +2685,11 @@ app.post('/api/users/import', (req, res) => {
     }
 });
 
-app.post('/api/users/reset-password', (req, res) => {
-    const { adminId, targetId, newPassword } = req.body;
+// [P0-D5] body.adminId를 신뢰하지 않음. requireAdmin이 세션의 req.auth만 검증한다.
+// FE가 adminId를 계속 보내도 무시된다 (회귀 없음).
+app.post('/api/users/reset-password', requireAdmin, (req, res) => {
+    const { targetId, newPassword } = req.body || {};
     const users = getData('Users', []);
-
-    // Check if requester is admin
-    const admin = users.find(u => u.id === adminId);
-    if (!admin || admin.role !== 'admin') {
-        return res.status(403).json({ success: false, error: "Only admins can reset passwords" });
-    }
 
     const userIndex = users.findIndex(u => u.id === targetId);
     if (userIndex === -1) {
@@ -2663,32 +2701,33 @@ app.post('/api/users/reset-password', (req, res) => {
     res.json({ success: true, message: "Password reset successful" });
 });
 
-app.post('/api/users/change-password', (req, res) => {
-    const { userId, oldPassword, newPassword } = req.body;
-    console.log(`[Password Change Request] User: ${userId}, NewPwd: ${newPassword}`);
+// [P0-D4] 세션 바인딩: 본인 또는 관리자만 변경 가능. 비밀번호 평문 로그 제거됨.
+app.post('/api/users/change-password', requireAuth, (req, res) => {
+    const { userId, oldPassword, newPassword } = req.body || {};
+
+    const requester = req.auth || {};
+    const isSelf = String(userId) === String(requester.id);
+    const isAdmin = requester.role === 'admin';
+    if (!isSelf && !isAdmin) {
+        return res.status(403).json({ success: false, error: "본인 또는 관리자만 비밀번호를 변경할 수 있습니다." });
+    }
 
     // Force reload data to ensure freshness
     const users = getData('Users', []);
     const userIndex = users.findIndex(u => u.id === userId);
 
     if (userIndex === -1) {
-        console.error(`[Password Change] User not found: ${userId}`);
-        console.log('Available IDs:', users.map(u => u.id));
         return res.status(404).json({ success: false, error: "User not found" });
     }
 
     const currentUser = users[userIndex];
-    console.log(`[Password Change] Found User: ${currentUser.name} (${currentUser.id}), Stored Pwd: ${currentUser.password}`);
 
     if (String(currentUser.password) !== String(oldPassword)) {
-        console.error(`[Password Change] Password Mismatch. Provided: ${oldPassword}, Stored: ${currentUser.password}`);
         return res.status(400).json({ success: false, error: "Current password does not match" });
     }
 
     users[userIndex].password = newPassword;
     const saveSuccess = saveData('Users', users);
-
-    console.log(`[Password Change] Save Result: ${saveSuccess}`);
 
     if (saveSuccess) {
         res.json({ success: true, message: "Password changed successful" });
@@ -2697,7 +2736,7 @@ app.post('/api/users/change-password', (req, res) => {
     }
 });
 
-app.post('/api/referrals/bulk-delete', (req, res) => {
+app.post('/api/referrals/bulk-delete', requireAuth, (req, res) => {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
         return res.json({ success: true, message: "No IDs provided", deletedCount: 0 });
@@ -2731,7 +2770,7 @@ app.post('/api/referrals/bulk-delete', (req, res) => {
     });
 });
 
-app.put('/api/suicideattempters', (req, res) => {
+app.put('/api/suicideattempters', requireAuth, (req, res) => {
     const updatedSA = req.body;
     const records = getData('SuicideAttempters', []);
     const index = records.findIndex(r => r.uid === updatedSA.uid);
@@ -2743,7 +2782,7 @@ app.put('/api/suicideattempters', (req, res) => {
     res.status(404).json({ success: false, error: "Record not found" });
 });
 
-app.delete('/api/suicideattempters/:uid', (req, res) => {
+app.delete('/api/suicideattempters/:uid', requireAuth, (req, res) => {
     const { uid } = req.params;
     console.log(`[DELETE] Request for SuicideAttempter: ${uid}`);
 
@@ -2772,7 +2811,7 @@ app.delete('/api/suicideattempters/:uid', (req, res) => {
     }
 });
 
-app.post('/api/suicideattempters/bulk-delete', (req, res) => {
+app.post('/api/suicideattempters/bulk-delete', requireAuth, (req, res) => {
     const { uids } = req.body;
     console.log(`[BULK-DELETE] Request for UIDs: ${JSON.stringify(uids)}`);
 
@@ -2814,11 +2853,11 @@ app.post('/api/suicideattempters/bulk-delete', (req, res) => {
     });
 });
 
-app.get('/api/unregistered', (req, res) => {
+app.get('/api/unregistered', requireAuth, (req, res) => {
     res.json(getData('UnregisteredCandidates', []));
 });
 
-app.post('/api/unregistered', (req, res) => {
+app.post('/api/unregistered', requireAuth, (req, res) => {
     const candidate = req.body;
     if (!candidate || (!candidate.clientId && !candidate.refNo)) {
         return res.status(400).json({ success: false, error: "Invalid candidate data" });
@@ -2838,7 +2877,7 @@ app.post('/api/unregistered', (req, res) => {
     res.json({ success: true, message: "Unregistered candidate processed successfully" });
 });
 
-app.put('/api/unregistered', (req, res) => {
+app.put('/api/unregistered', requireAuth, (req, res) => {
     const candidate = req.body;
     const candidates = getData('UnregisteredCandidates', []);
     const index = candidate.clientId
@@ -2852,7 +2891,7 @@ app.put('/api/unregistered', (req, res) => {
     res.status(404).json({ success: false, error: "Candidate not found" });
 });
 
-app.delete('/api/unregistered/:id', (req, res) => {
+app.delete('/api/unregistered/:id', requireAuth, (req, res) => {
     const { id } = req.params;
     let candidates = getData('UnregisteredCandidates', []);
     candidates = candidates.filter(c => c.refNo !== id && c.clientId !== id);
@@ -2860,11 +2899,11 @@ app.delete('/api/unregistered/:id', (req, res) => {
     res.json({ success: true });
 });
 
-app.get('/api/trash', (req, res) => {
+app.get('/api/trash', requireAuth, (req, res) => {
     res.json(getData('Trash', []));
 });
 
-app.post('/api/trash/restore', async (req, res) => {
+app.post('/api/trash/restore', requireAuth, async (req, res) => {
     try {
         const { id } = req.body;
         if (!id) {
@@ -2897,7 +2936,7 @@ app.post('/api/trash/restore', async (req, res) => {
     }
 });
 
-app.delete('/api/trash/:id', async (req, res) => {
+app.delete('/api/trash/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
         let trash = getData('Trash', []);
@@ -2910,17 +2949,17 @@ app.delete('/api/trash/:id', async (req, res) => {
     }
 });
 
-app.get('/api/pcassets', (req, res) => {
+app.get('/api/pcassets', requireAuth, (req, res) => {
     res.json(getData('PC_Assets', []));
 });
 
-app.post('/api/pcassets', (req, res) => {
+app.post('/api/pcassets', requireAuth, (req, res) => {
     const assets = req.body;
     saveData('PC_Assets', assets);
     res.json({ success: true });
 });
 
-app.get('/api/officialdocs', (req, res) => {
+app.get('/api/officialdocs', requireAuth, (req, res) => {
     res.json(getData('Documents', []));
 });
 
@@ -2928,38 +2967,38 @@ app.post('/api/officialdocs/sync', (req, res) => {
     res.json({ success: false, error: "Gmail Sync not available on NAS server without OAuth2 setup." });
 });
 
-app.get('/api/budget/plans', (req, res) => {
+app.get('/api/budget/plans', requireAuth, (req, res) => {
     res.json(getData('BudgetPlans', {}));
 });
 
-app.post('/api/budget/plans', (req, res) => {
+app.post('/api/budget/plans', requireAuth, (req, res) => {
     saveData('BudgetPlans', req.body);
     res.json({ success: true });
 });
 
-app.get('/api/budget/transactions', (req, res) => {
+app.get('/api/budget/transactions', requireAuth, (req, res) => {
     res.json(getData('BudgetTransactions', []));
 });
 
-app.post('/api/budget/transactions', (req, res) => {
+app.post('/api/budget/transactions', requireAuth, (req, res) => {
     saveData('BudgetTransactions', req.body);
     res.json({ success: true });
 });
 
-app.get('/api/budget/metadata', (req, res) => {
+app.get('/api/budget/metadata', requireAuth, (req, res) => {
     res.json(getData('BudgetMetadata', {}));
 });
 
-app.post('/api/budget/metadata', (req, res) => {
+app.post('/api/budget/metadata', requireAuth, (req, res) => {
     saveData('BudgetMetadata', req.body);
     res.json({ success: true });
 });
 
-app.get('/api/budget/hierarchy', (req, res) => {
+app.get('/api/budget/hierarchy', requireAuth, (req, res) => {
     res.json(getData('BudgetHierarchy', []));
 });
 
-app.post('/api/budget/hierarchy', (req, res) => {
+app.post('/api/budget/hierarchy', requireAuth, (req, res) => {
     try {
         console.log('📥 [POST] /api/budget/hierarchy - Request body type:', typeof req.body);
         if (!req.body) {
@@ -2976,7 +3015,7 @@ app.post('/api/budget/hierarchy', (req, res) => {
     }
 });
 
-app.delete('/api/pending-referrals/:id', (req, res) => {
+app.delete('/api/pending-referrals/:id', requireAuth, (req, res) => {
     const { id } = req.params;
     let list = getData('PendingReferrals', []);
     list = list.filter(item => item.id !== id);
@@ -2991,11 +3030,11 @@ app.delete('/api/pending-referrals/:id', (req, res) => {
     res.json({ success: true });
 });
 
-app.get('/api/logs', (req, res) => {
+app.get('/api/logs', requireAuth, (req, res) => {
     res.json(getData('Logs', []));
 });
 
-app.post('/api/logs', (req, res) => {
+app.post('/api/logs', requireAuth, (req, res) => {
     const log = req.body;
     if (!log || !log.logId) {
         return res.status(400).json({ success: false, error: 'Invalid log data' });
@@ -3006,12 +3045,12 @@ app.post('/api/logs', (req, res) => {
     res.json({ success: true });
 });
 
-app.get('/api/analysis-results', (req, res) => {
+app.get('/api/analysis-results', requireAuth, (req, res) => {
     const list = normalizeSavedAnalysisList(getData(CASE_ANALYSIS_FILE, []));
     res.json(list);
 });
 
-app.post('/api/analysis-results', (req, res) => {
+app.post('/api/analysis-results', requireAuth, (req, res) => {
     const { name, data } = req.body || {};
     if (!name || !data) {
         return res.status(400).json({ success: false, error: 'name and data are required' });
@@ -3046,7 +3085,7 @@ app.post('/api/analysis-results', (req, res) => {
     res.json({ success: true, item });
 });
 
-app.get('/api/analysis-results/:id', (req, res) => {
+app.get('/api/analysis-results/:id', requireAuth, (req, res) => {
     const { id } = req.params;
     const list = normalizeSavedAnalysisList(getData(CASE_ANALYSIS_FILE, []));
     const found = list.find(item => item?.id === id);
@@ -3056,7 +3095,7 @@ app.get('/api/analysis-results/:id', (req, res) => {
     res.json({ success: true, name: found.name, data: found.data });
 });
 
-app.delete('/api/analysis-results/:id', (req, res) => {
+app.delete('/api/analysis-results/:id', requireAuth, (req, res) => {
     const { id } = req.params;
     const source = normalizeSavedAnalysisList(getData(CASE_ANALYSIS_FILE, []));
     const next = source.filter(item => item?.id !== id);
@@ -3073,7 +3112,7 @@ app.delete('/api/analysis-results/:id', (req, res) => {
     res.json({ success: true });
 });
 
-app.put('/api/logs', (req, res) => {
+app.put('/api/logs', requireAuth, (req, res) => {
     const updatedLog = req.body;
     if (!updatedLog || !updatedLog.logId) {
         return res.status(400).json({ success: false, error: 'Invalid log data' });
@@ -3091,7 +3130,7 @@ app.put('/api/logs', (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/activity', async (req, res) => {
+app.post('/api/activity', requireAuth, async (req, res) => {
     try {
         const { user, action, details } = req.body;
         const activityLogs = getData('ActivityLogs', []);
@@ -3117,7 +3156,7 @@ app.post('/api/activity', async (req, res) => {
 // Body: { base64: string, filename: string, mimeType: string,
 //         referralId?: string, referralName?: string, folderType?: string }
 // ───────────────────────────────────────────────────────────────────────────
-app.post('/api/upload', async (req, res) => {
+app.post('/api/upload', requireAuth, async (req, res) => {
     const { base64, filename, mimeType, referralId, referralName, folderType } = req.body;
     const requestId = `UPLOAD_${Date.now()}`;
 
@@ -3128,6 +3167,25 @@ app.post('/api/upload', async (req, res) => {
             success: false, status: 'error',
             code: 'ATTACH_400', message: 'base64와 filename은 필수입니다.'
         });
+    }
+
+    // [P0-D7] 객체 검증: referralId가 지정된 경우 실존 레코드와 매칭되어야 한다.
+    // 신규 작성 중인 레코드의 임시 폴더 키('new-sa', 'C-<timestamp>')는 FE 정상 흐름이므로 허용.
+    // (folderType allowlist는 ReferralEditor가 clientId/'C-<ts>'를 folderType으로 보내므로 적용하지 않음)
+    if (referralId) {
+        const rid = String(referralId);
+        const referrals = getData('Referrals', []);
+        const attempters = getData('SuicideAttempters', []);
+        const existsInReferrals = referrals.some(r => r && (String(r.referralId) === rid || String(r.refNo) === rid || String(r.clientId) === rid));
+        const existsInAttempters = attempters.some(a => a && (String(a.uid) === rid || String(a.id) === rid));
+        const isTempKey = /^(new-sa|C-\d+)$/.test(rid);
+        if (!existsInReferrals && !existsInAttempters && !isTempKey) {
+            console.warn(`⚠️ [${requestId}] ATTACH_400: 존재하지 않는 referralId ${rid}`);
+            return res.status(400).json({
+                success: false, status: 'error',
+                code: 'ATTACH_400', message: '유효하지 않은 의뢰/대상자 ID입니다.'
+            });
+        }
     }
 
     // 2. 파일 크기 검증 (50MB)
@@ -3196,17 +3254,86 @@ app.post('/api/upload', async (req, res) => {
 });
 // ───────────────────────────────────────────────────────────────────────────
 
-app.delete('/api/deleteFile/:folder/:fileId', async (req, res) => {
-    const { folder, fileId } = req.params;
-    const filePath = path.join(ATTACHMENTS_DIR, folder, fileId);
-
+// [P0-B2/D6] OBJECT_SCOPED: requireAuth + 공유 경로 검증 + GET /attachments와 동일한 객체 소유권
+app.delete('/api/deleteFile/:folder/:fileId', requireAuth, async (req, res) => {
     try {
-        if (fs.existsSync(filePath)) {
-            await fs.promises.unlink(filePath);
-            console.log(`🗑️ File deleted from NAS: ${filePath}`);
+        if (!req.auth || req.auth.status !== 'active') {
+            return res.status(403).json({ error: { code: 'ACCOUNT_INACTIVE', message: '비활성화된 계정은 첨부파일을 삭제할 수 없습니다.' } });
+        }
+
+        const { folder, fileId } = req.params;
+        const pathCheck = validateAttachmentPath(folder, fileId);
+        if (!pathCheck.ok) {
+            if (typeof surveyAuditLogger === 'function') {
+                surveyAuditLogger({
+                    actorUserId: req.auth?.id || 'unknown',
+                    action: 'ATTACHMENT_DELETE_DENIED',
+                    result: 'DENIED',
+                    reasonCode: pathCheck.reason
+                });
+            }
+            return res.status(403).json({ error: { code: 'FORBIDDEN', message: '잘못된 경로입니다.' } });
+        }
+        const { safeFolder, safeFile, resolvedPath } = pathCheck;
+
+        // 객체 소유권: GET /attachments와 동일한 판정 (admin 우회 → 의뢰 담당자 → 설문 담당자 → 거부)
+        const currentUserId = String(req.auth?.id || req.auth?.userId || '');
+        const userRole = (req.auth?.role || req.auth?.userRole || 'user').toLowerCase();
+        const isAdmin = userRole === 'admin';
+
+        let isAuthorized = false;
+        if (isAdmin) {
+            isAuthorized = true;
+        } else {
+            const referrals = getData('Referrals', []);
+            const connectedReferral = referrals.find(r =>
+                r && (
+                    r.referralId === safeFolder ||
+                    r.refNo === safeFolder ||
+                    r.sourceSubmissionId === safeFolder ||
+                    r.sourceSurveyId === safeFolder
+                )
+            );
+            if (connectedReferral) {
+                const refCheck = canAccessReferralAttachment({ authUser: req.auth, referral: connectedReferral });
+                if (refCheck.allowed) isAuthorized = true;
+            } else {
+                const submissions = surveyRepository.getSurveySubmissions();
+                const connectedSurvey = submissions.find(s =>
+                    s && (
+                        s.submissionId === safeFolder ||
+                        s.internalSurveyId === safeFolder ||
+                        s.attachmentId === safeFile ||
+                        (s.attachment && s.attachment.id === safeFile)
+                    )
+                );
+                if (connectedSurvey) {
+                    const hasSurveyPerm = hasOnlineSurveyAccess(req.auth);
+                    isAuthorized = hasSurveyPerm && String(connectedSurvey.assignedUserId) === currentUserId;
+                }
+            }
+        }
+
+        if (!isAuthorized) {
+            if (typeof surveyAuditLogger === 'function') {
+                surveyAuditLogger({
+                    actorUserId: currentUserId || 'unknown',
+                    action: 'ATTACHMENT_DELETE_DENIED',
+                    attachmentId: safeFile,
+                    folder: safeFolder,
+                    result: 'DENIED',
+                    reasonCode: 'OBJECT_AUTHORIZATION_FAILED'
+                });
+            }
+            return res.status(403).json({ error: { code: 'FORBIDDEN', message: '해당 첨부파일을 삭제할 권한이 없습니다.' } });
+        }
+
+        if (fs.existsSync(resolvedPath)) {
+            await fs.promises.unlink(resolvedPath);
+            console.log(`🗑️ File deleted from NAS: ${resolvedPath}`);
             res.json({ success: true });
         } else {
-            console.warn(`⚠️ File not found for deletion: ${filePath}`);
+            console.warn(`⚠️ File not found for deletion: ${resolvedPath}`);
             res.json({ success: true }); // Still return success to stay in sync
         }
     } catch (e) {
@@ -3215,7 +3342,7 @@ app.delete('/api/deleteFile/:folder/:fileId', async (req, res) => {
     }
 });
 
-app.get('/api/analysis/isp-achievement', (req, res) => {
+app.get('/api/analysis/isp-achievement', requireAuth, (req, res) => {
     const { month } = req.query; // YYYY-MM
     if (!month) return res.status(400).json({ success: false, error: "Month is required (YYYY-MM)" });
 
@@ -3286,7 +3413,7 @@ app.get('/api/analysis/isp-achievement', (req, res) => {
     res.json({ success: true, data: result });
 });
 
-app.post('/api/saveNotes', async (req, res) => {
+app.post('/api/saveNotes', requireAuth, async (req, res) => {
     try {
         const idempotencyKey = req.headers['idempotency-key'];
         if (idempotencyKey) {
@@ -3486,14 +3613,19 @@ app.get('/api/unregistered', (req, res) => {
 // 🚀 EXTERNAL REFERRAL SCRAPER (imhc.co.kr)
 // ==========================================
 
+// [P0-D3] 외부 로그인 자격증명은 환경변수에서만 읽는다.
+// 코드·기본값·로그에 평문 자격증명을 남기지 않는다.
+function getExternalCredentials() {
+    const login_id = process.env.EXTERNAL_LOGIN_ID;
+    const login_pw = process.env.EXTERNAL_LOGIN_PW;
+    if (!login_id || !login_pw) return null;
+    return { login_id, login_pw };
+}
+
 const EXTERNAL_CONFIG = {
     loginUrl: 'https://www.imhc.co.kr/sa/login/login_pro.php',
     listUrl: 'https://www.imhc.co.kr/sa/community/reqask_list.php',
     viewUrl: 'https://www.imhc.co.kr/sa/community/reqask_view.php',
-    credentials: {
-        login_id: 'Admin',
-        login_pw: 'dlcjstl!@#$'
-    },
     pollInterval: 30 * 60 * 1000 // 30 mins
 };
 
@@ -3558,10 +3690,22 @@ async function fetchExternalReferrals(options = {}) {
     const meta = getWebsiteSyncMetadata();
     meta.lastAttemptedSyncAt = new Date().toISOString();
 
+    // [P0-D3] 외부 자격증명 미설정 시 fail-closed — 스크레이퍼만 중단, 서버 기동은 유지.
+    // 비밀 기본값을 사용하지 않으며, 값을 로그·오류 메시지에 포함하지 않는다.
+    const credentials = getExternalCredentials();
+    if (!credentials) {
+        console.error('❌ [Scraper] 외부 자격증명 미설정 (EXTERNAL_LOGIN_ID / EXTERNAL_LOGIN_PW) — sync 건너뜀');
+        meta.lastSyncStatus = 'config_error';
+        meta.lastSyncError = '외부 자격증명이 설정되지 않았습니다 (EXTERNAL_LOGIN_ID / EXTERNAL_LOGIN_PW)';
+        saveWebsiteSyncMetadata(meta);
+        isWebsiteSyncing = false;
+        return { success: false, error: meta.lastSyncError };
+    }
+
     try {
         // 1. Login to get session cookie via HTTPS
         const loginFormData = new URLSearchParams();
-        Object.entries(EXTERNAL_CONFIG.credentials).forEach(([k, v]) => loginFormData.append(k, v));
+        Object.entries(credentials).forEach(([k, v]) => loginFormData.append(k, v));
 
         const loginRes = await fetch(EXTERNAL_CONFIG.loginUrl, {
             method: 'POST',
@@ -3980,11 +4124,11 @@ function getWebsiteReferralsSummary() {
 // ----------------------------------------------------
 // 🌐 Website Referral Summary & Sync Endpoints
 // ----------------------------------------------------
-app.get('/api/website-referrals/summary', (req, res) => {
+app.get('/api/website-referrals/summary', requireAuth, (req, res) => {
     res.json(getWebsiteReferralsSummary());
 });
 
-app.post('/api/website-referrals/sync', async (req, res) => {
+app.post('/api/website-referrals/sync', requireAuth, async (req, res) => {
     try {
         await fetchExternalReferrals({ force: true });
         res.json(getWebsiteReferralsSummary());
@@ -3999,7 +4143,7 @@ app.post('/api/website-referrals/sync', async (req, res) => {
 });
 
 // Backwards-compatible alias for pending-referrals/sync
-app.post('/api/pending-referrals/sync', async (req, res) => {
+app.post('/api/pending-referrals/sync', requireAuth, async (req, res) => {
     try {
         await fetchExternalReferrals({ force: true });
         res.json(getWebsiteReferralsSummary());
@@ -4008,7 +4152,7 @@ app.post('/api/pending-referrals/sync', async (req, res) => {
     }
 });
 
-app.post('/api/website-referrals/mark-seen', async (req, res) => {
+app.post('/api/website-referrals/mark-seen', requireAuth, async (req, res) => {
     try {
         const { ids } = req.body || {};
         const meta = getWebsiteSyncMetadata();
