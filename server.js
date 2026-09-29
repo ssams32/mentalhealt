@@ -3516,11 +3516,20 @@ async function saveWebsiteSyncMetadata(meta) {
     await persistData('WebsiteSyncMetadata', meta);
 }
 
-// Asia/Seoul September 2026 date validator (boundary: 2026-09-01 00:00:00 KST)
-function isSeptember2026InSeoul(dateStr) {
+// Website referral collection period: 2026-09-01 00:00:00 KST and later (no end date).
+// [Track B hotfix] 기존 isSeptember2026InSeoul()은 2026-10-01 00:00 KST부터 신규 홈페이지
+// 의뢰를 cleanup에서 자동 삭제하는 시한폭탄이었음. 2026-09 이전(6/7/8월 테스트 데이터)은 계속 제외.
+function isAllowedWebsiteReferralPeriod(dateStr) {
     if (!dateStr || typeof dateStr !== 'string') return false;
     const trimmed = dateStr.trim();
-    if (/^2026-09(-\d{2})?/.test(trimmed)) return true;
+    // Fast path: exactly YYYY-MM or YYYY-MM-DD (no time part) -> lexicographic compare.
+    // Anything with a time component falls through to the timezone-aware Date path below,
+    // so KST date boundaries (e.g. 2026-08-31T15:00:00Z == 2026-09-01 00:00 KST) stay correct.
+    const m = /^(\d{4})-(\d{2})(-\d{2})?$/.exec(trimmed);
+    if (m) {
+        const ym = m[1] + '-' + m[2];
+        return ym >= '2026-09';
+    }
     try {
         const d = new Date(trimmed);
         if (isNaN(d.getTime())) return false;
@@ -3530,8 +3539,8 @@ function isSeptember2026InSeoul(dateStr) {
             month: '2-digit',
             day: '2-digit'
         });
-        const parts = seoulFormatter.format(d);
-        return parts.startsWith('2026-09');
+        const parts = seoulFormatter.format(d); // YYYY-MM-DD
+        return parts >= '2026-09-01';
     } catch {
         return false;
     }
@@ -3582,7 +3591,7 @@ async function fetchExternalReferrals(options = {}) {
         const scrapedIds = new Set(scrapedIdsArray);
 
         // Auto-cleanup:
-        // 1. Enforce September 2026-only for website referrals: remove past months (June/July/August)
+        // 1. Keep 2026-09 and later; remove older months (June/July/August test data)
         // 2. Remove already registered clients from existingPending
         const normalizePhone = (num) => num ? String(num).replace(/[^0-9]/g, '') : '';
         const beforeCleanupCount = existingPending.length;
@@ -3591,11 +3600,12 @@ async function fetchExternalReferrals(options = {}) {
             const isWeb = !!extId || !!p.isWebsiteReferral;
             const receivedAt = p.externalReceivedAt || p.registrationDate || p.createdAt || '';
 
-            // [Constraint] Only 2026-09 website referrals are allowed in PendingReferrals
-            if (isWeb && !isSeptember2026InSeoul(receivedAt)) {
-                console.log(`🧹 [Scraper Cleanup] Purging non-September website referral: ${p.name} (${receivedAt})`);
-                if (p.externalIdx) scrapedIds.add(p.externalIdx);
-                if (p.id) scrapedIds.add(p.id);
+            // [Constraint] Website referrals from 2026-09-01 KST onward are kept in PendingReferrals
+            if (isWeb && !isAllowedWebsiteReferralPeriod(receivedAt)) {
+                console.log(`🧹 [Scraper Cleanup] Purging pre-September-2026 website referral: ${p.name} (${receivedAt})`);
+                // [Track B hotfix] 최종관리자 확정 기준: 날짜 조건으로 제외된 의뢰의 externalIdx를
+                // ScrapedExternalIds에 추가하지 않는다 (9월 이전 테스트 데이터 포함).
+                // -> 이 분기의 scrapedIds.add 호출을 제거함. 재수집 영구 차단 방지.
                 return false;
             }
 
@@ -3786,10 +3796,11 @@ async function fetchExternalReferrals(options = {}) {
                     continue;
                 }
 
-                // [Constraint] Only collect September 2026 referrals
-                if (!isSeptember2026InSeoul(regDate)) {
+                // [Constraint] Only collect referrals from 2026-09-01 KST onward
+                if (!isAllowedWebsiteReferralPeriod(regDate)) {
                     console.log(`⏩ [Scraper] Skipping ${item.name} (${currentExtId}) - registration date prior to September 2026 (${regDate})`);
-                    scrapedIds.add(currentExtId);
+                    // [Track B hotfix] 최종관리자 확정 기준: 날짜 조건 skip 시 scrapedIds에 추가하지
+                    // 않는다 (재수집 영구 차단 방지). 스팸 격리·등록済み·중복 방지의 scrapedIds.add는 유지.
                     continue;
                 }
 
@@ -3866,7 +3877,7 @@ function getWebsiteReferralsSummary() {
 
         const key = extId || p.id;
         const receivedAt = p.externalReceivedAt || p.registrationDate || p.createdAt || '';
-        if (!isSeptember2026InSeoul(receivedAt)) return;
+        if (!isAllowedWebsiteReferralPeriod(receivedAt)) return;
 
         const isSeen = !!(meta.seenExternalIds && meta.seenExternalIds[key]) || !!p.websiteReferralSeenAt;
 
@@ -3906,7 +3917,7 @@ function getWebsiteReferralsSummary() {
 
         const key = extId || r.refNo || r.referralId;
         const receivedAt = r.externalReceivedAt || r.registrationDate || r.requestDate || r.createdAt || '';
-        if (!isSeptember2026InSeoul(receivedAt)) return;
+        if (!isAllowedWebsiteReferralPeriod(receivedAt)) return;
 
         const status = r.closureStatus === '종결' ? 'completed' : 'processing';
         const isSeen = true; // Registered items have been reviewed
@@ -4020,7 +4031,7 @@ app.post('/api/website-referrals/mark-seen', async (req, res) => {
                 if (item.id) meta.seenExternalIds[item.id] = now;
             });
             pendingReferrals.forEach(p => {
-                if (isWebsiteReferralItem(p) && isSeptember2026InSeoul(p.externalReceivedAt || p.registrationDate || p.createdAt || '')) {
+                if (isWebsiteReferralItem(p) && isAllowedWebsiteReferralPeriod(p.externalReceivedAt || p.registrationDate || p.createdAt || '')) {
                     p.websiteReferralSeenAt = now;
                 }
             });
