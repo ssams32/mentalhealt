@@ -90,5 +90,19 @@ export function createAuthMiddleware(authService) {
         next();
     };
 
-    return { requireAuth, optionalAuth };
+    /**
+     * Admin-only middleware.
+     * Requires authentication first, then role === 'admin'.
+     * 401 UNAUTHENTICATED when not logged in, 403 when not admin.
+     */
+    function requireAdmin(req, res, next) {
+        requireAuth(req, res, () => {
+            if (!req.auth || req.auth.role !== 'admin') {
+                return res.status(403).json({ success: false, error: "관리자 권한이 필요합니다." });
+            }
+            next();
+        });
+    }
+
+    return { requireAuth, optionalAuth, requireAdmin };
 }
