@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { User, Referral, SuicideAttempterReferral, Log, Team, Page, Note, Attachment, AnyLog } from './types';
 import { initialUsers, initialReferrals, initialSuicideAttempterReferrals, ALL_TEAMS, TEAM_CODES, PAGES_CONFIG, ICHEON_REGIONS, MAIN_TEAMS } from './constants';
-import { apiClient } from './services/apiClient';
+import { apiClient, registerSessionExpiredHandler, notifySessionExpired, resetSessionExpiredGuard } from './services/apiClient';
 import { safeLocalStorage, safeSessionStorage } from './utils/safeLocalStorage';
 import LoginScreen from './components/auth/LoginScreen';
 import Sidebar from './components/layout/Sidebar';
@@ -135,6 +135,81 @@ function App() {
     // Load data from Google Sheets on mount
     const [isOfflineFallback, setIsOfflineFallback] = useState(false);
 
+    // 보호 데이터 로딩 (인증 확인된 경우에만 실행)
+    const loadProtectedData = useCallback(() => {
+        // 1. Critical Data: Users
+        console.log("Stage 1: Loading users...");
+        apiClient.getUsers().then(loadedUsers => {
+            if (loadedUsers && Array.isArray(loadedUsers) && loadedUsers.length > 0) {
+                console.log(`Loaded ${loadedUsers.length} users.`);
+                setUsers(loadedUsers);
+            } else {
+                console.warn("No users found on server or invalid response, using local fallback.");
+                const saved = safeLocalStorage.getItem('users');
+                setUsers(saved ? JSON.parse(saved) : initialUsers);
+                setIsOfflineFallback(true);
+            }
+        }).catch(e => {
+            console.warn('Users fetch failed', e);
+            const saved = safeLocalStorage.getItem('users');
+            setUsers(saved ? JSON.parse(saved) : initialUsers);
+        });
+
+        // 2. High Priority: Referrals (화면 즉시 표시를 위해 최우선 비동기 로드)
+        console.log("Stage 2: Fetching referrals with top priority...");
+        apiClient.getReferrals().then(loadedReferrals => {
+            if (Array.isArray(loadedReferrals)) {
+                const referralsToSet = loadedReferrals.length > 0 ? loadedReferrals : initialReferrals;
+                setReferrals(referralsToSet);
+                safeLocalStorage.setItem('referrals', JSON.stringify(referralsToSet));
+                setIsOfflineFallback(false);
+                console.log(`[App] Server referrals (${referralsToSet.length} items) successfully synced.`);
+            } else if (loadedReferrals === null) {
+                setIsOfflineFallback(true);
+            }
+        }).catch(e => {
+            console.error("Referrals fetch failed", e);
+            setIsOfflineFallback(true);
+        }).finally(() => {
+            setIsReferralsLoading(false);
+        });
+
+        // 3. Background Data: Logs, SAs, Unregistered (독립적 병렬 로드 - 서로 블로킹 없음)
+        apiClient.getLogs().then(loadedLogs => {
+            if (Array.isArray(loadedLogs)) {
+                setLogs(loadedLogs);
+                safeLocalStorage.setItem('logs', JSON.stringify(loadedLogs));
+            }
+        }).catch(e => console.error("Logs fetch failed", e));
+
+        apiClient.getSuicideAttempters().then(loadedSAs => {
+            if (Array.isArray(loadedSAs)) {
+                const parseUid = (uid: string) => {
+                    if (!uid) return { year: 0, num: 0 };
+                    const parts = uid.split('-');
+                    if (parts.length < 2) return { year: 0, num: 0 };
+                    let year = parseInt(parts[0]);
+                    if (year < 100) year += 2000;
+                    const num = parseInt(parts[1]);
+                    return { year, num };
+                };
+                const sortedSAs = [...loadedSAs].sort((a, b) => {
+                    const valA = parseUid(a.uid || "");
+                    const valB = parseUid(b.uid || "");
+                    if (valB.year !== valA.year) return valB.year - valA.year;
+                    return valB.num - valA.num;
+                });
+                setSuicideAttempterReferrals(sortedSAs.length > 0 ? sortedSAs : initialSuicideAttempterReferrals);
+            }
+        }).catch(e => console.error("SAs fetch failed", e));
+
+        apiClient.getUnregistered().then(loadedUnregistered => {
+            if (Array.isArray(loadedUnregistered)) setUnregisteredCandidates(loadedUnregistered);
+        }).catch(e => console.error("Unregistered fetch failed", e));
+
+        console.log("Stage 3: Background data pipelines initialized.");
+    }, []);
+
     useEffect(() => {
         console.log("Frontend Version: 2.2.5 (Performance Optimized)");
 
@@ -153,24 +228,13 @@ function App() {
         const loadData = async () => {
             try {
                 if (apiClient.isAvailable()) {
-                    // 1. Critical Data: Users (Required for Login)
-                    console.log("Stage 1: Loading users...");
-                    const loadedUsers = await apiClient.getUsers();
-                    if (loadedUsers && Array.isArray(loadedUsers) && loadedUsers.length > 0) {
-                        console.log(`Loaded ${loadedUsers.length} users.`);
-                        setUsers(loadedUsers);
-                    } else {
-                        console.warn("No users found on server or invalid response, using local fallback.");
-                        const saved = safeLocalStorage.getItem('users');
-                        setUsers(saved ? JSON.parse(saved) : initialUsers);
-                        setIsOfflineFallback(true);
-                    }
-
-                    // [Track A1] Verify and restore active session via HttpOnly cookie
+                    // [FIX 3 (c)] 먼저 getMe로 세션을 확인하고, 성공한 경우에만 보호 데이터 로딩 진행
+                    let verifiedUser: User | null = null;
                     try {
                         const meRes = await apiClient.getMe();
                         if (meRes && meRes.success && meRes.user) {
                             console.log('[Auth] Active session verified for user:', meRes.user.name);
+                            verifiedUser = meRes.user;
                             setCurrentUser(meRes.user);
                             safeSessionStorage.setItem('currentUser', JSON.stringify(meRes.user));
                         } else {
@@ -183,61 +247,15 @@ function App() {
                         setCurrentUser(null);
                     }
 
-                    setIsLoadingData(false); // Unblock UI!
-
-                    // 2. High Priority: Referrals (화면 즉시 표시를 위해 최우선 비동기 로드)
-                    console.log("Stage 2: Fetching referrals with top priority...");
-                    apiClient.getReferrals().then(loadedReferrals => {
-                        if (Array.isArray(loadedReferrals)) {
-                            const referralsToSet = loadedReferrals.length > 0 ? loadedReferrals : initialReferrals;
-                            setReferrals(referralsToSet);
-                            safeLocalStorage.setItem('referrals', JSON.stringify(referralsToSet));
-                            setIsOfflineFallback(false);
-                            console.log(`[App] Server referrals (${referralsToSet.length} items) successfully synced.`);
-                        } else if (loadedReferrals === null) {
-                            setIsOfflineFallback(true);
-                        }
-                    }).catch(e => {
-                        console.error("Referrals fetch failed", e);
-                        setIsOfflineFallback(true);
-                    }).finally(() => {
+                    // 세션이 없으면 보호 API를 하나도 호출하지 않고 로그인 화면에 머문다
+                    if (!verifiedUser) {
+                        setIsLoadingData(false);
                         setIsReferralsLoading(false);
-                    });
+                        return;
+                    }
 
-                    // 3. Background Data: Logs, SAs, Unregistered (독립적 병렬 로드 - 서로 블로킹 없음)
-                    apiClient.getLogs().then(loadedLogs => {
-                        if (Array.isArray(loadedLogs)) {
-                            setLogs(loadedLogs);
-                            safeLocalStorage.setItem('logs', JSON.stringify(loadedLogs));
-                        }
-                    }).catch(e => console.error("Logs fetch failed", e));
-
-                    apiClient.getSuicideAttempters().then(loadedSAs => {
-                        if (Array.isArray(loadedSAs)) {
-                            const parseUid = (uid: string) => {
-                                if (!uid) return { year: 0, num: 0 };
-                                const parts = uid.split('-');
-                                if (parts.length < 2) return { year: 0, num: 0 };
-                                let year = parseInt(parts[0]);
-                                if (year < 100) year += 2000;
-                                const num = parseInt(parts[1]);
-                                return { year, num };
-                            };
-                            const sortedSAs = [...loadedSAs].sort((a, b) => {
-                                const valA = parseUid(a.uid || "");
-                                const valB = parseUid(b.uid || "");
-                                if (valB.year !== valA.year) return valB.year - valA.year;
-                                return valB.num - valA.num;
-                            });
-                            setSuicideAttempterReferrals(sortedSAs.length > 0 ? sortedSAs : initialSuicideAttempterReferrals);
-                        }
-                    }).catch(e => console.error("SAs fetch failed", e));
-
-                    apiClient.getUnregistered().then(loadedUnregistered => {
-                        if (Array.isArray(loadedUnregistered)) setUnregisteredCandidates(loadedUnregistered);
-                    }).catch(e => console.error("Unregistered fetch failed", e));
-
-                    console.log("Stage 3: Background data pipelines initialized.");
+                    setIsLoadingData(false); // Unblock UI!
+                    loadProtectedData();
                 } else {
                     // Fallback to localStorage
                     const saved = safeLocalStorage.getItem('users');
@@ -280,10 +298,12 @@ function App() {
         return () => {
             clearTimeout(escapeHatch);
         };
-    }, []); // Run exactly once on mount!
+    }, [loadProtectedData]); // Run once on mount
 
     // Periodic fetch for website referrals (notifications) with syncRequest integration
     useEffect(() => {
+        if (!currentUser) return;
+
         const fetchPending = async () => {
             try {
                 const rawData = await apiClient.getPendingReferrals();
@@ -340,16 +360,18 @@ function App() {
 
         fetchPending();
 
-        // Polling every 1 minute — 의존성 배열 [] 고정: 마운트 1회만 시작
+        // Polling every 1 minute
         const interval = setInterval(fetchPending, 60_000);
 
         return () => {
             clearInterval(interval);
         };
-    }, []); // [Fix] [] 고정: referrals 변경마다 interval 재시작하는 연쇄 트리거 차단
+    }, [currentUser]);
 
     // Periodic fetch for voice call stats (voicePendingCount)
     useEffect(() => {
+        if (!currentUser) return;
+
         const fetchVoiceStats = async () => {
             try {
                 const s = await apiClient.getVoiceCallStats();
@@ -363,7 +385,7 @@ function App() {
         fetchVoiceStats();
         const vInterval = setInterval(fetchVoiceStats, 30000);
         return () => clearInterval(vInterval);
-    }, []);
+    }, [currentUser]);
 
     // Canonical fetch for the online survey sidebar badge count (red menu badge).
     // Also passed to SurveyManagementPage as refreshSidebarBadge so a manual
@@ -371,6 +393,10 @@ function App() {
     const fetchSurveyStats = useCallback(async () => {
         try {
             const res = await fetch('/api/surveys/status', { credentials: 'include' });
+            if (res.status === 401) {
+                notifySessionExpired();
+                return;
+            }
             if (res.ok) {
                 const data = await res.json();
                 if (data && typeof data.badgeCount === 'number') {
@@ -386,6 +412,8 @@ function App() {
 
     // Periodic fetch for online survey badge count (red menu badge)
     useEffect(() => {
+        if (!currentUser) return;
+
         fetchSurveyStats();
         const sInterval = setInterval(fetchSurveyStats, 30000);
         return () => clearInterval(sInterval);
@@ -417,63 +445,92 @@ function App() {
         setToastMessage('');
     }, []);
 
+    // [FIX 3 (a)] 세션 만료 핸들러 등록: 마운트 시 콜백 등록 (로컬 정리만, 서버 logout 미호출)
+    useEffect(() => {
+        registerSessionExpiredHandler(() => {
+            safeSessionStorage.removeItem('currentUser');
+            try {
+                if (typeof window !== 'undefined' && window.sessionStorage) {
+                    window.sessionStorage.removeItem('currentUser');
+                }
+            } catch (ignore) {}
+            setCurrentUser(null);
+            setActivePage('referrals');
+            showToast('세션이 만료되어 로그아웃되었습니다.');
+        });
+    }, [showToast]);
 
     const handleLogin = async (user: User) => {
+        resetSessionExpiredGuard();
         safeSessionStorage.setItem('currentUser', JSON.stringify(user));
         setCurrentUser(user);
         setSelectedTeam('all'); // 로그인 시 전체팀 의뢰가 기본으로 한눈에 보이도록 설정
         const newLog: Log = { logId: `log_${Date.now()}`, userId: user.id, loginTime: new Date().toLocaleString('ko-KR'), logoutTime: null };
         setLogs(prevLogs => [newLog, ...prevLogs]);
 
-        // Save to Sheets
+        // Save to Sheets & Load protected data
         if (apiClient.isAvailable()) {
-            await apiClient.createLog(newLog);
+            loadProtectedData();
+            await apiClient.createLog(newLog).catch(e => console.warn('Create log failed', e));
         }
     };
 
-    // 공통 로그아웃 로직
+    // 공통 로그아웃 로직 (무조건 로컬 완료)
     const performLogout = useCallback(async () => {
-        const updatedLogs = logs.map(log =>
-            'userId' in log && log.userId === currentUser?.id && !log.logoutTime
-                ? { ...log, logoutTime: new Date().toLocaleString('ko-KR') } as Log
-                : log
-        );
-
-        setLogs(updatedLogs);
-
-        // Update in Sheets
-        if (apiClient.isAvailable()) {
-            const logToUpdate = updatedLogs.find(log =>
-                log.userId === currentUser?.id && log.logoutTime
-            );
-            if (logToUpdate) {
-                await apiClient.updateLog(logToUpdate as Log);
-            }
-        }
-
-        // [Track A1] Revoke server session cookie
         try {
-            await apiClient.logout();
-        } catch (logoutErr) {
-            console.warn('[Auth] Server logout error:', logoutErr);
-        }
+            const updatedLogs = logs.map(log =>
+                'userId' in log && log.userId === currentUser?.id && !log.logoutTime
+                    ? { ...log, logoutTime: new Date().toLocaleString('ko-KR') } as Log
+                    : log
+            );
 
-        safeSessionStorage.removeItem('currentUser');
-        setCurrentUser(null);
-        setActivePage('referrals');
-        showToast('로그아웃 되었습니다.');
+            setLogs(updatedLogs);
+
+            // Update in Sheets (best-effort)
+            if (apiClient.isAvailable()) {
+                try {
+                    const logToUpdate = updatedLogs.find(log =>
+                        log.userId === currentUser?.id && log.logoutTime
+                    );
+                    if (logToUpdate) {
+                        await apiClient.updateLog(logToUpdate as Log);
+                    }
+                } catch (logErr) {
+                    console.warn('[Auth] Update logout log error (best-effort):', logErr);
+                }
+            }
+
+            // [Track A1] Revoke server session cookie
+            try {
+                await apiClient.logout();
+            } catch (logoutErr) {
+                console.warn('[Auth] Server logout error:', logoutErr);
+            }
+        } catch (err) {
+            console.warn('[Auth] Error during performLogout steps:', err);
+        } finally {
+            safeSessionStorage.removeItem('currentUser');
+            try {
+                if (typeof window !== 'undefined' && window.sessionStorage) {
+                    window.sessionStorage.removeItem('currentUser');
+                }
+            } catch (ignore) {}
+            setCurrentUser(null);
+            setActivePage('referrals');
+            showToast('로그아웃 되었습니다.');
+        }
     }, [currentUser, logs, showToast]);
 
     // 수동 로그아웃 핸들러
     const handleLogout = useCallback(() => {
         if (window.confirm('정말로 로그아웃 하시겠습니까?')) {
-            performLogout();
+            performLogout().catch(err => console.error('[Auth] Logout failed silently:', err));
         }
     }, [performLogout]);
 
     // 자동 로그아웃 핸들러
     const handleAutoLogout = useCallback(() => {
-        performLogout();
+        performLogout().catch(err => console.error('[Auth] Auto logout failed silently:', err));
     }, [performLogout]);
 
     const sortedTeamTabs = useMemo(() => {
