@@ -1068,9 +1068,15 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             if (!proceed) return;
         }
 
+        const cleanCode = campaign.code && typeof campaign.code === 'string' ? campaign.code.trim() : '';
+        if (!cleanCode) {
+            if (showToast) showToast('유효하지 않은 캠페인 코드입니다.', 'error');
+            return;
+        }
+
         const url = buildCampaignDistributionUrl(campaign.code);
         if (!url) {
-            if (showToast) showToast('유효하지 않은 캠페인 코드입니다.', 'error');
+            if (showToast) showToast('캠페인 링크를 만들 수 없습니다. 설문 배포 주소(Track A)가 설정되지 않았습니다.', 'error');
             return;
         }
 
@@ -1679,6 +1685,14 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         }
     };
 
+    // Helper: Assessment ID display formatter (UNKNOWN -> 미확인)
+    const formatAssessmentDisplay = (assessmentId?: string | null): string => {
+        if (!assessmentId) return '미확인';
+        const trimmed = String(assessmentId).trim();
+        if (!trimmed || trimmed.toUpperCase() === 'UNKNOWN') return '미확인';
+        return trimmed.toUpperCase();
+    };
+
     return (
         <div className="flex-1 flex flex-col h-full bg-slate-100 overflow-hidden text-slate-800">
             {/* 1. Header Bar */}
@@ -1697,7 +1711,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                             )}
                         </h1>
                         <p className="text-xs text-slate-500 font-medium mt-0.5">
-                            온라인 선별검사(SCREENING_ONLY) 및 상담신청(CONSULTATION_REQUEST) 내역을 관리합니다.
+                            온라인 선별검사 및 상담 신청 내역을 관리합니다.
                         </p>
                     </div>
                 </div>
@@ -2159,9 +2173,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     {/* Master-Detail Container */}
                     <div className="flex-1 flex gap-4 overflow-hidden min-h-0">
                         {/* LEFT: Applicant List (Master) */}
-                        <div className={`w-full lg:w-[440px] xl:w-[480px] flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden shrink-0 ${isMobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
+                        <div className={`w-full lg:w-[480px] xl:w-[540px] 2xl:w-[560px] flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden shrink-0 ${isMobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
                             {/* Selection & Quick Select Header */}
-                            <div className="p-3 border-b border-slate-100 bg-slate-50/70 space-y-2">
+                            <div className="p-3 border-b border-slate-100 bg-slate-50/70 space-y-2 shrink-0">
                                 <div className="flex items-center justify-between gap-2 flex-wrap">
                                     <div className="flex items-center gap-2">
                                         <div className="min-w-[44px] min-h-[44px] flex items-center justify-center -ml-2 shrink-0">
@@ -2241,7 +2255,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
                                 {/* Admin Bulk Action Toolbar */}
                                 {currentUser.role === 'admin' && selectedSubmissionIds.size > 0 && (
-                                    <div className="p-2.5 bg-white border border-slate-200 rounded-xl space-y-2 shadow-xs" role="region" aria-label="일괄 배정 작업 영역">
+                                    <div className="p-2.5 bg-white border border-slate-200 rounded-xl space-y-2 shadow-xs shrink-0" role="region" aria-label="일괄 배정 작업 영역">
                                         <div className="flex items-center gap-2">
                                             <div className="relative flex-1">
                                                 <select
@@ -2313,7 +2327,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                 )}
                             </div>
 
-                            <div className="flex-1 overflow-y-auto p-3 space-y-2.5 custom-scrollbar">
+                            <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2.5 custom-scrollbar">
                                 {loading && imports.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center h-64 text-slate-400 gap-2">
                                         <RefreshCw className="w-6 h-6 animate-spin text-teal-600" />
@@ -2339,14 +2353,14 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     setIsMobileDetailOpen(true);
                                                     setIsLargeDetailModalOpen(true);
                                                 }}
-                                                className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-left relative ${
+                                                className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-left relative min-h-[132px] space-y-2 ${
                                                     isSelected
                                                         ? 'bg-teal-50/60 border-teal-400 shadow-md ring-2 ring-teal-500/20'
                                                         : (isChecked ? 'bg-indigo-50/40 border-indigo-200' : 'bg-white border-slate-200/80 hover:border-slate-300 hover:bg-slate-50/50')
                                                 }`}
                                             >
                                                 {/* Header Line */}
-                                                <div className="flex items-center justify-between gap-2 mb-1.5">
+                                                <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
                                                     <div className="flex items-center gap-1.5">
                                                         {/* Individual Checkbox (min 44px touch target) */}
                                                         <div
@@ -2420,13 +2434,13 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
                                                 {/* Assessment & Report line */}
                                                 <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-                                                    <div className="flex items-center gap-1.5 truncate max-w-[240px]">
+                                                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                                         <scaleInfo.icon className={`w-3.5 h-3.5 shrink-0 ${scaleInfo.color}`} />
                                                         <span className="font-bold text-slate-700 truncate">
-                                                            {item.contactOnly ? '접촉 전용' : item.assessmentId.toUpperCase()}
+                                                            {item.contactOnly ? '접촉 전용' : formatAssessmentDisplay(item.assessmentId)}
                                                         </span>
                                                         {!item.contactOnly && item.totalScore !== null && (
-                                                            <span className="font-extrabold text-slate-900">
+                                                            <span className="font-extrabold text-slate-900 shrink-0">
                                                                 ({item.totalScore}점)
                                                             </span>
                                                         )}
@@ -2574,7 +2588,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                         </div>
 
                         {/* RIGHT: Selected Applicant Detail (Detail Panel) */}
-                        <div className={`flex-1 flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden ${!isMobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
+                        <div className={`flex-1 min-w-0 flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden ${!isMobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
                             {loadingDetail ? (
                                 <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-2.5">
                                     <RefreshCw className="w-8 h-8 animate-spin text-teal-600" />
@@ -2714,7 +2728,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                             <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
                                                 <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
                                                     <UserCheck className="w-4 h-4 text-teal-600" />
-                                                    SECTION A. 상담 신청자 기본 정보
+                                                    상담 신청자 기본 정보
                                                 </h3>
                                                 <span className="text-[11px] text-slate-400">
                                                     접수일시: {formatKstDateTime(currentSelectedItem.submittedAt || currentSelectedItem.importedAt, 'detail')}
@@ -2810,10 +2824,10 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                             <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
                                                 <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
                                                     <Brain className="w-4 h-4 text-indigo-600" />
-                                                    SECTION B. 선별검사 도메인별 결과 요약
+                                                    선별검사 도메인별 결과 요약
                                                 </h3>
                                                 <span className="text-[11px] text-slate-400">
-                                                    척도: {currentSelectedItem.assessmentId.toUpperCase()}
+                                                    척도: {formatAssessmentDisplay(currentSelectedItem.assessmentId)}
                                                 </span>
                                             </div>
 
@@ -3044,7 +3058,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
                                                         <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
                                                             <FileText className="w-4 h-4 text-emerald-600" />
-                                                            SECTION C. 공문 서식 리포트 (A4 PDF)
+                                                            공문 서식 리포트 (A4 PDF)
                                                         </h3>
                                                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
                                                             currentSelectedItem.hasReport
@@ -3104,7 +3118,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
                                                         <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
                                                             <ExternalLink className="w-4 h-4 text-teal-600" />
-                                                            SECTION D. 사내 의뢰대장 연계
+                                                            사내 의뢰대장 연계
                                                         </h3>
                                                         <span className="text-[10px] font-bold px-2 py-0.5 bg-teal-100 text-teal-800 rounded-md">
                                                             {currentSelectedItem.refNo ? '의뢰 등록 완료' : (currentSelectedItem.assignedUserId ? '등록 대기' : '배정 대기')}
@@ -3166,7 +3180,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                             <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
                                                 <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
                                                     <UserCheck className="w-4 h-4 text-indigo-600" />
-                                                    SECTION E. 담당 직원 배정 정보
+                                                    담당 직원 배정 정보
                                                 </h3>
                                                 <div className="flex items-center gap-2">
                                                     <button
@@ -3209,7 +3223,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
                                             <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-4 pb-2 border-b border-slate-100 flex items-center gap-1.5">
                                                 <Clock className="w-4 h-4 text-slate-600" />
-                                                SECTION F. 업무 처리 이력
+                                                업무 처리 이력
                                             </h3>
 
                                             <div className="relative pl-6 space-y-4 before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
@@ -3483,7 +3497,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                 }`}
                             >
                                 <Brain className="w-4 h-4 text-indigo-600" />
-                                선별 검사결과 ({currentSelectedItem.assessmentId.toUpperCase()})
+                                선별 검사결과 ({formatAssessmentDisplay(currentSelectedItem.assessmentId)})
                             </button>
                             <button
                                 type="button"

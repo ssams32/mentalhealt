@@ -886,7 +886,8 @@ class ApiClient {
 /**
  * [Campaign Link Helper]
  * Track A 설문 기본 URL과 캠페인 코드를 결합하여 배포 링크를 안전하게 생성합니다.
- * 내부 URL을 하드코딩하지 않고, 환경 변수 또는 현재 브라우저 origin을 기반으로 동적 생성합니다.
+ * 환경 변수(VITE_TRACK_A_BASE_URL 등) 또는 전달된 기본 URL을 기반으로 생성하며,
+ * 배포 주소가 미설정된 경우 빈 문자열을 반환합니다 (fail-closed).
  */
 export function buildCampaignDistributionUrl(campaignCode: string, customBaseUrl?: string): string {
     if (!campaignCode || typeof campaignCode !== 'string') return '';
@@ -898,7 +899,9 @@ export function buildCampaignDistributionUrl(campaignCode: string, customBaseUrl
         (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_TRACK_A_BASE_URL) ||
         (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SURVEY_BASE_URL) ||
         (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SURVEY_URL) ||
-        (typeof window !== 'undefined' && window.location?.origin ? `${window.location.origin}/survey` : 'https://survey.center.local/survey');
+        '';
+
+    if (!baseUrl) return '';
 
     baseUrl = baseUrl.replace(/\/+$/, '');
     const separator = baseUrl.includes('?') ? '&' : '?';
