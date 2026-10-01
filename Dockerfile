@@ -12,6 +12,8 @@ RUN npm install
 COPY . .
 # .agents 와 skills 폴더 및 로컬 데이터 폴더 삭제 (데이터 오염 방지)
 RUN rm -rf .agents skills app/data
+ARG VITE_TRACK_A_BASE_URL
+ENV VITE_TRACK_A_BASE_URL=${VITE_TRACK_A_BASE_URL}
 RUN npm run build:local
 
 FROM node:20-alpine AS runner
