@@ -44,6 +44,7 @@ export class SurveyReferralService {
         this.reportGenerator = deps.reportGenerator || new SurveyReportGenerator();
         this.getUsers = deps.getUsers || (() => []);
         this.sourceEnvironment = deps.sourceEnvironment || 'mock';
+        this.mutateReferrals = deps.mutateReferrals || null;
     }
 
     _calculateAge(birthDateStr) {
@@ -391,8 +392,18 @@ export class SurveyReferralService {
             ]
         };
 
-        referrals[refIndex] = updatedReferral;
-        await this.persistData('Referrals', referrals);
+        if (typeof this.mutateReferrals === 'function') {
+            await this.mutateReferrals({
+                opType: 'ASSIGNEE',
+                targetId: referral.referralId,
+                actorUserId: actorId || 'system'
+            }, async (refs) => {
+                refs[refIndex] = updatedReferral;
+            });
+        } else {
+            referrals[refIndex] = updatedReferral;
+            await this.persistData('Referrals', referrals);
+        }
         return updatedReferral;
     }
 
@@ -443,8 +454,18 @@ export class SurveyReferralService {
             ]
         };
 
-        referrals[refIndex] = updatedReferral;
-        await this.persistData('Referrals', referrals);
+        if (typeof this.mutateReferrals === 'function') {
+            await this.mutateReferrals({
+                opType: 'STATUS',
+                targetId: referral.referralId,
+                actorUserId: actorId || 'system'
+            }, async (refs) => {
+                refs[refIndex] = updatedReferral;
+            });
+        } else {
+            referrals[refIndex] = updatedReferral;
+            await this.persistData('Referrals', referrals);
+        }
         return updatedReferral;
     }
 }

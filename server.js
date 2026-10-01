@@ -17,6 +17,7 @@ import { createAuthMiddleware } from './server/auth/authMiddleware.js';
 import { createAuthRouter } from './server/auth/authRouter.js';
 import { createCorsOptions } from './server/config/corsPolicy.js';
 import { getEffectiveVoiceCapabilities, hasOnlineSurveyAccess } from './server/permissions/voiceCapabilities.js';
+import { createReferralMutationEngine, restoreCacheInPlace } from './server/referralMutationEngine.js';
 import { requireVoiceCapability, requireRole } from './server/permissions/permissionMiddleware.js';
 
 // --- Track A7 & Voice Management: Authenticated Audio Streaming & Call Management ---
@@ -372,6 +373,105 @@ const saveData = (filename, data) => {
 };
 
 // ==========================================
+// 🛡️ REFERRALS INTEGRITY GUARD & CONCURRENCY CONTROL (F1, F5, F6)
+// Scope: Strictly single Node.js process. Does not coordinate across multiple instances.
+// ==========================================
+
+const MAX_NOTE_CONTENT_LENGTH = 100000; // 100,000 characters
+const MAX_NOTES_COUNT = 1000;           // 1,000 notes per record
+
+const validateNotes = (notes) => {
+    if (notes === undefined || notes === null) return { valid: true };
+    if (!Array.isArray(notes)) {
+        return { valid: false, error: 'notes는 배열이어야 합니다.' };
+    }
+    if (notes.length > MAX_NOTES_COUNT) {
+        return { valid: false, error: `notes 개수가 최대 허용치(${MAX_NOTES_COUNT}개)를 초과했습니다.` };
+    }
+    for (let i = 0; i < notes.length; i++) {
+        const item = notes[i];
+        if (item && typeof item === 'object') {
+            if (typeof item.content === 'string' && item.content.length > MAX_NOTE_CONTENT_LENGTH) {
+                return { valid: false, error: `note 내용 길이가 최대 허용치(${MAX_NOTE_CONTENT_LENGTH}자)를 초과했습니다.` };
+            }
+        }
+    }
+    return { valid: true };
+};
+
+const referralAuditLogger = async (entry = {}) => {
+    try {
+        const auditEntry = {
+            id: `audit_referral_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+            category: 'referrals',
+            actorType: 'user',
+            actorUserId: String(entry.actorUserId || 'system'),
+            targetId: String(entry.targetId || '-'), // Stable ID or count:N ONLY, Zero PII
+            action: String(entry.action || 'REFERRAL_EVENT'),
+            timestamp: new Date().toISOString(),
+            result: entry.result || 'SUCCESS',
+            reasonCode: entry.reasonCode || null
+        };
+        const currentLogs = getData('AuditEntries', []);
+        currentLogs.push(auditEntry);
+        if (currentLogs.length > 5000) currentLogs.shift();
+        await persistData('AuditEntries', currentLogs);
+    } catch (ignore) {}
+};
+
+// Allowlist for PUT /api/referrals (F3): Only approved mutable fields are merged
+const REFERRAL_ALLOWLIST = new Set([
+    // Demographics & Request details
+    'name', 'phone', 'gender', 'age', 'birthDate', 'address', 'team', 'subTeam',
+    'assignee', 'assignedStaffId', 'assignedUserId', 'requestDate', 'referralPath',
+    'requestAgency', 'requestorName', 'requesterName', 'agency', 'agencyPhone',
+    'requesterPhone', 'requesterFax', 'requesterEmail',
+    // Clinical & Action Status
+    'diagnosisProtectionRequest', 'writtenRequest', 'phoneRequest', 'diagnosisName',
+    'interventionContent', 'actionResult', 'closureStatus', 'registrationStatus',
+    'policeIntervention', 'criLevel', 'region', 'reply', 'replyStatus',
+    'isUnregistered', 'isWebsiteReferral', 'referralStatus',
+    // Guardian & Consent
+    'medicalInsurance', 'disabilityStatus', 'guardianPresence', 'guardianName',
+    'guardianRelation', 'guardianPhone', 'guardianNotes', 'consentToReferral',
+    'consentNotes', 'problem', 'reason',
+    // Attachments & Notes
+    'attachments', 'officialDoc', 'notes', 'latestNote', 'latestNoteDate',
+    // Website Integration Metadata
+    'isSeen', 'websiteReferralSeenAt', 'externalReceivedAt',
+    'firstScrapedAt', 'lastSyncedAt'
+]);
+
+// Immutable identifier contract for PUT /api/referrals/:id (MAJOR-3).
+// These four identifiers can never be changed via PUT. Any payload value that is
+// semantically different from the stored value is rejected with an explicit 400
+// (uniform contract for all four). Same-value input is accepted as a no-op.
+const IMMUTABLE_IDENTIFIERS = [
+    { key: 'referralId', code: 'REFERRAL_ID_CHANGE_NOT_ALLOWED' },
+    { key: 'refNo', code: 'REFNO_CHANGE_NOT_ALLOWED' },
+    { key: 'sourceSubmissionId', code: 'SOURCE_SUBMISSION_ID_CHANGE_NOT_ALLOWED' },
+    { key: 'externalReferralId', code: 'EXTERNAL_REFERRAL_ID_CHANGE_NOT_ALLOWED' }
+];
+
+// Semantic identifier equality: null/undefined/'' all mean "absent".
+// Object/array payloads are never valid identifier values.
+const isSameIdentifierValue = (incoming, current) => {
+    if (incoming === current) return true;
+    if ((incoming !== null && typeof incoming === 'object') ||
+        (current !== null && typeof current === 'object')) return false;
+    const norm = (v) => (v === undefined || v === null) ? '' : String(v);
+    return norm(incoming) === norm(current);
+};
+
+/**
+ * Referrals mutation entry point (production).
+ * The engine implementation lives in ./server/referralMutationEngine.js (extracted
+ * verbatim so test harnesses can drive it directly without the HTTP server).
+ * Behavior is identical: same mutex, snapshot, verification, rollback, persist.
+ */
+const { mutateReferrals } = createReferralMutationEngine({ getData, persistData, referralAuditLogger });
+
+// ==========================================
 // 🔐 TRACK A1/A2: AUTHENTICATION & SESSIONS
 // ==========================================
 const sessionRepository = new SessionRepository(getData, persistData);
@@ -721,7 +821,8 @@ const surveyReferralService = new SurveyReferralService({
     attachmentsDir: ATTACHMENTS_DIR,
     reportGenerator: surveyReportGenerator,
     getUsers: () => getData('Users', []),
-    sourceEnvironment: surveyTrackAMode
+    sourceEnvironment: surveyTrackAMode,
+    mutateReferrals
 });
 
 const surveyImportService = new SurveyImportService({
@@ -811,7 +912,6 @@ if (surveyTrackAMode === 'mock' && process.env.NODE_ENV !== 'production') {
 }
 
 
-
 // --- UTILITIES ---
 const normalizeMemberRegistrationNo = (raw) => {
     if (raw == null) return '';
@@ -877,7 +977,15 @@ const cleanupTrash = () => {
             return new Date(item.deletedAt).getTime() > thirtyDaysAgo;
         });
         if (filtered.length < trash.length) {
+            const purgedCount = trash.length - filtered.length;
             saveData('Trash', filtered);
+            referralAuditLogger({
+                actorUserId: 'system',
+                targetId: `count:${purgedCount}`,
+                action: 'TRASH_PURGE',
+                result: 'SUCCESS',
+                reasonCode: 'RETENTION_EXPIRED'
+            });
         }
     } catch (e) {
         console.error('Trash cleanup error:', e);
@@ -1727,69 +1835,131 @@ app.post('/api/referrals', requireAuth, async (req, res) => {
             }
         }
 
-        // Server-Side Atomic Numbering
-        const teamCode = TEAM_CODES[req.body.team] || 'ET';
-        const now = new Date();
-        const yearYY = now.getFullYear().toString().slice(-2);
-        const prefix = `${teamCode}-${yearYY}-`;
-
-        const existingSeqs = referrals
-            .filter(r => r && r.refNo && String(r.refNo).startsWith(prefix))
-            .map(r => {
-                const parts = String(r.refNo).split('-');
-                return parts.length >= 3 ? parseInt(parts[2], 10) : NaN;
-            })
-            .filter(n => !isNaN(n));
-
-        const maxSeq = existingSeqs.length > 0 ? Math.max(...existingSeqs) : 0;
-        const assignedRefNo = `${prefix}${String(maxSeq + 1).padStart(3, '0')}`;
-
-        // Ensure immutable referralId
-        const referralId = req.body.referralId || crypto.randomUUID();
-        const clientId = req.body.clientId || `C${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-        const isoNow = now.toISOString();
-
-        // Server-side forced attachment linking: Do not trust client attachments solely
-        let referralAttachments = Array.isArray(req.body.attachments) ? [...req.body.attachments] : [];
-        if (linkedSubmission && linkedSubmission.attachment) {
-            const surveyAtt = linkedSubmission.attachment;
-            const alreadyExists = referralAttachments.some(a =>
-                a && ((surveyAtt.id && a.id === surveyAtt.id) ||
-                      (surveyAtt.url && a.url === surveyAtt.url) ||
-                      (surveyAtt.fileHash && a.fileHash === surveyAtt.fileHash))
-            );
-            if (!alreadyExists) {
-                referralAttachments.push({
-                    ...surveyAtt,
-                    linkedReferralId: referralId,
-                    linkedSurveyId: linkedSubmission.internalSurveyId || linkedSubmission.submissionId
-                });
+        if (req.body.notes) {
+            const vNotes = validateNotes(req.body.notes);
+            if (!vNotes.valid) {
+                return res.status(400).json({ success: false, code: 'INVALID_NOTES_LENGTH', error: vNotes.error });
             }
         }
 
-        const newReferral = {
-            ...req.body,
-            referralId,
-            refNo: assignedRefNo,
-            clientId,
-            version: 1,
-            registrationStatus: req.body.registrationStatus || (req.body.isUnregistered ? '미등록' : '확인중'),
-            createdAt: linkedSubmission ? isoNow : (req.body.createdAt || isoNow),
-            updatedAt: isoNow,
-            attachments: referralAttachments,
-            assignedStaffId: req.body.assignedStaffId || (linkedSubmission ? String(linkedSubmission.assignedUserId) : (req.body.assignedUserId || req.body.assigneeId || null)),
-            linkedSurveyId: linkedSubmission ? (linkedSubmission.internalSurveyId || linkedSubmission.submissionId) : req.body.linkedSurveyId,
-            sourceSubmissionId: linkedSubmission ? linkedSubmission.submissionId : req.body.sourceSubmissionId
-        };
-
-        referrals.push(newReferral);
+        // BLOCKER-1 fix: the authoritative duplicate checks, refNo allocation (max + 1),
+        // record construction and push all run inside the Referrals RMW critical section
+        // against the live in-lock ledger state. No value computed before the mutex is
+        // reused inside it. The checks above remain only as an early-exit fast path.
+        let newReferral;
         try {
-            await persistData('Referrals', referrals);
-        } catch (saveErr) {
-            const rollbackIdx = referrals.findIndex(r => r && r.referralId === referralId);
-            if (rollbackIdx !== -1) referrals.splice(rollbackIdx, 1);
-            throw saveErr;
+            newReferral = await mutateReferrals({
+                opType: 'CREATE',
+                actorUserId: req.auth?.id || req.auth?.userId || 'system'
+            }, async (refs) => {
+                // Authoritative duplicate referralId check (latest in-lock state)
+                if (req.body.referralId) {
+                    const dup = refs.find(r => r && r.referralId === req.body.referralId);
+                    if (dup) {
+                        const dupErr = new Error('이미 존재하는 의뢰 ID(referralId)입니다.');
+                        dupErr.code = 'DUPLICATE_REFERRAL_ID';
+                        dupErr.existingReferralId = dup.referralId;
+                        dupErr.existingRefNo = dup.refNo;
+                        throw dupErr;
+                    }
+                }
+
+                // Authoritative duplicate check for survey-linked registrations
+                if (req.body.sourceSubmissionId || req.body.sourceSurveyId) {
+                    const subId = req.body.sourceSubmissionId;
+                    const srvId = req.body.sourceSurveyId;
+                    const dupSurvey = refs.find(r =>
+                        r && ((subId && (r.sourceSubmissionId === subId || r.externalIdx === subId)) || (srvId && r.sourceSurveyId === srvId))
+                    );
+                    if (dupSurvey) {
+                        const dupErr = new Error('이미 등록된 온라인 설문 의뢰 건입니다.');
+                        dupErr.code = 'REFERRAL_ALREADY_EXISTS';
+                        dupErr.existingRecord = dupSurvey;
+                        throw dupErr;
+                    }
+                }
+
+                // Server-Side Atomic Numbering (inside the critical section)
+                const teamCode = TEAM_CODES[req.body.team] || 'ET';
+                const now = new Date();
+                const yearYY = now.getFullYear().toString().slice(-2);
+                const prefix = `${teamCode}-${yearYY}-`;
+
+                const existingSeqs = refs
+                    .filter(r => r && r.refNo && String(r.refNo).startsWith(prefix))
+                    .map(r => {
+                        const parts = String(r.refNo).split('-');
+                        return parts.length >= 3 ? parseInt(parts[2], 10) : NaN;
+                    })
+                    .filter(n => !isNaN(n));
+
+                const maxSeq = existingSeqs.length > 0 ? Math.max(...existingSeqs) : 0;
+                const assignedRefNo = `${prefix}${String(maxSeq + 1).padStart(3, '0')}`;
+
+                // Ensure immutable referralId
+                const referralId = req.body.referralId || crypto.randomUUID();
+                const clientId = req.body.clientId || `C${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+                const isoNow = now.toISOString();
+
+                // Server-side forced attachment linking: Do not trust client attachments solely
+                let referralAttachments = Array.isArray(req.body.attachments) ? [...req.body.attachments] : [];
+                if (linkedSubmission && linkedSubmission.attachment) {
+                    const surveyAtt = linkedSubmission.attachment;
+                    const alreadyExists = referralAttachments.some(a =>
+                        a && ((surveyAtt.id && a.id === surveyAtt.id) ||
+                              (surveyAtt.url && a.url === surveyAtt.url) ||
+                              (surveyAtt.fileHash && a.fileHash === surveyAtt.fileHash))
+                    );
+                    if (!alreadyExists) {
+                        referralAttachments.push({
+                            ...surveyAtt,
+                            linkedReferralId: referralId,
+                            linkedSurveyId: linkedSubmission.internalSurveyId || linkedSubmission.submissionId
+                        });
+                    }
+                }
+
+                const created = {
+                    ...req.body,
+                    referralId,
+                    refNo: assignedRefNo,
+                    clientId,
+                    version: 1,
+                    registrationStatus: req.body.registrationStatus || (req.body.isUnregistered ? '미등록' : '확인중'),
+                    createdAt: linkedSubmission ? isoNow : (req.body.createdAt || isoNow),
+                    updatedAt: isoNow,
+                    attachments: referralAttachments,
+                    assignedStaffId: req.body.assignedStaffId || (linkedSubmission ? String(linkedSubmission.assignedUserId) : (req.body.assignedUserId || req.body.assigneeId || null)),
+                    linkedSurveyId: linkedSubmission ? (linkedSubmission.internalSurveyId || linkedSubmission.submissionId) : req.body.linkedSurveyId,
+                    sourceSubmissionId: linkedSubmission ? linkedSubmission.submissionId : req.body.sourceSubmissionId
+                };
+
+                refs.push(created);
+                return created;
+            });
+        } catch (err) {
+            if (err && err.code === 'DUPLICATE_REFERRAL_ID') {
+                return res.status(409).json({
+                    success: false,
+                    code: 'DUPLICATE_REFERRAL_ID',
+                    error: '이미 존재하는 의뢰 ID(referralId)입니다.',
+                    data: { referralId: err.existingReferralId, refNo: err.existingRefNo }
+                });
+            }
+            if (err && err.code === 'REFERRAL_ALREADY_EXISTS') {
+                return res.status(409).json({
+                    success: false,
+                    code: 'REFERRAL_ALREADY_EXISTS',
+                    error: '이미 등록된 온라인 설문 의뢰 건입니다.',
+                    data: err.existingRecord
+                });
+            }
+            throw err;
         }
+
+        const referralId = newReferral.referralId;
+        const assignedRefNo = newReferral.refNo;
+        const isoNow = newReferral.updatedAt;
 
         // Update Survey Record Link & Emit Audit Event
         if (linkedSubmission) {
@@ -1873,59 +2043,107 @@ const handleReferralUpdate = async (req, res) => {
         }
 
         const referral = req.body;
-        const targetId = req.params.id || referral.referralId || referral.refNo || referral.clientId;
+        if (!referral || typeof referral !== 'object') {
+            return res.status(400).json({ success: false, error: "요청 본문이 올바르지 않습니다." });
+        }
 
+        const targetId = req.params.id || referral.referralId || referral.refNo || referral.clientId;
         if (!targetId) {
             return res.status(400).json({ success: false, error: "Missing identifier (referralId or refNo)" });
         }
 
+        if (req.params.id && referral.referralId && req.params.id !== referral.referralId) {
+            return res.status(400).json({
+                success: false,
+                code: 'REFERRAL_ID_CHANGE_NOT_ALLOWED',
+                error: "URL의 식별자와 본문의 referralId가 일치하지 않습니다."
+            });
+        }
+
         const referrals = getData('Referrals', []);
 
-        // 1. Try referralId first
+        // F3 Identification: If referralId is present (body or param matching referralId), match ONLY by referralId.
+        const isReferralIdTarget = referral.referralId || (req.params.id && referrals.some(r => r && r.referralId === req.params.id));
         let index = -1;
-        if (referral.referralId) {
-            index = referrals.findIndex(r => r.referralId === referral.referralId);
-        }
-        // 2. Try targetId matching referralId
-        if (index === -1) {
-            index = referrals.findIndex(r => r.referralId === targetId);
-        }
-        // 3. Fallback: match by refNo, but check for collision ambiguity
-        if (index === -1) {
-            const matchingByRefNo = referrals
-                .map((r, i) => ({ r, i }))
-                .filter(item => item.r.refNo === targetId);
 
-            if (matchingByRefNo.length > 1 && !referral.referralId && !referral.clientId) {
-                return res.status(409).json({
-                    success: false,
-                    code: 'AMBIGUOUS_RECORD',
-                    error: `동일 의뢰번호(${targetId})를 가진 레코드가 ${matchingByRefNo.length}건 존재합니다. referralId 또는 clientId를 지정해야 합니다.`
-                });
-            } else if (matchingByRefNo.length === 1) {
-                index = matchingByRefNo[0].i;
-            } else if (matchingByRefNo.length > 1 && referral.clientId) {
-                index = referrals.findIndex(r => r.clientId === referral.clientId);
+        if (isReferralIdTarget) {
+            const targetRefId = req.params.id || referral.referralId;
+            index = referrals.findIndex(r => r && r.referralId === targetRefId);
+            if (index === -1) {
+                return res.status(404).json({ success: false, error: "Referral not found by referralId" });
             }
-        }
-        // 4. Fallback: match by clientId
-        if (index === -1) {
-            index = referrals.findIndex(r => r.clientId === targetId);
-        }
+        } else {
+            // Fallback: refNo -> clientId
+            const fallbackRefNo = referral.refNo || req.params.id;
+            if (fallbackRefNo) {
+                const matches = referrals
+                    .map((r, i) => ({ r, i }))
+                    .filter(item => item.r && item.r.refNo === fallbackRefNo);
+                if (matches.length > 1) {
+                    return res.status(409).json({
+                        success: false,
+                        code: 'AMBIGUOUS_RECORD',
+                        error: `동일 의뢰번호(${fallbackRefNo})를 가진 레코드가 ${matches.length}건 존재합니다. referralId를 지정해야 합니다.`
+                    });
+                } else if (matches.length === 1) {
+                    index = matches[0].i;
+                }
+            }
 
-        if (index === -1) {
-            return res.status(404).json({ success: false, error: "Referral not found" });
+            if (index === -1) {
+                const fallbackClientId = referral.clientId || req.params.id;
+                if (fallbackClientId) {
+                    const matches = referrals
+                        .map((r, i) => ({ r, i }))
+                        .filter(item => item.r && item.r.clientId === fallbackClientId);
+                    if (matches.length > 1) {
+                        return res.status(409).json({
+                            success: false,
+                            code: 'AMBIGUOUS_RECORD',
+                            error: `동일 clientId(${fallbackClientId})를 가진 레코드가 ${matches.length}건 존재합니다. referralId를 지정해야 합니다.`
+                        });
+                    } else if (matches.length === 1) {
+                        index = matches[0].i;
+                    }
+                }
+            }
+
+            if (index === -1) {
+                return res.status(404).json({ success: false, error: "Referral not found" });
+            }
         }
 
         const currentRecord = referrals[index];
+
+        // F3 Immutability Guard: identifiers must not change (uniform explicit 400 contract)
+        for (const { key, code } of IMMUTABLE_IDENTIFIERS) {
+            if (Object.prototype.hasOwnProperty.call(referral, key) &&
+                !isSameIdentifierValue(referral[key], currentRecord[key])) {
+                return res.status(400).json({
+                    success: false,
+                    code,
+                    error: `${key}는 변경할 수 없습니다.`
+                });
+            }
+        }
+
+        // F6: Notes length validation before save
+        if (referral.notes) {
+            const vNotes = validateNotes(referral.notes);
+            if (!vNotes.valid) {
+                return res.status(400).json({
+                    success: false,
+                    code: 'INVALID_NOTES_LENGTH',
+                    error: vNotes.error
+                });
+            }
+        }
 
         // Optimistic Concurrency Control check
         if (referral.version !== undefined && currentRecord.version !== undefined) {
             const reqVer = Number(referral.version);
             const curVer = Number(currentRecord.version);
             if (reqVer !== curVer) {
-                // 직전 자동저장 직후 연속 수동저장 등 단일 세션 1버전 차이의 경우:
-                // 저장을 강제 거부하지 않고 최신 상태와 안전하게 병합 저장 허용
                 const isConsecutiveSave = (curVer - reqVer === 1);
                 if (isConsecutiveSave) {
                     console.warn(`[OCC] Consecutive save detected for ${currentRecord.refNo || targetId} (reqVer: ${reqVer}, curVer: ${curVer}). Auto-resolving with merge.`);
@@ -1942,19 +2160,34 @@ const handleReferralUpdate = async (req, res) => {
         }
 
         const nextVersion = (currentRecord.version || 1) + 1;
-        const updatedReferral = {
-            ...currentRecord,
-            ...referral,
-            referralId: currentRecord.referralId || referral.referralId || crypto.randomUUID(),
-            refNo: referral.refNo || currentRecord.refNo,
-            clientId: currentRecord.clientId || referral.clientId,
-            version: nextVersion,
-            createdAt: currentRecord.createdAt || referral.createdAt || new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-        };
 
-        referrals[index] = updatedReferral;
-        await persistData('Referrals', referrals);
+        // F3: Merge ONLY allowed fields from allowlist
+        const updatedReferral = { ...currentRecord };
+        for (const [key, val] of Object.entries(referral)) {
+            if (REFERRAL_ALLOWLIST.has(key)) {
+                updatedReferral[key] = val;
+            }
+        }
+
+        // Immutable identity and system fields
+        updatedReferral.referralId = currentRecord.referralId;
+        updatedReferral.refNo = currentRecord.refNo;
+        updatedReferral.clientId = currentRecord.clientId;
+        updatedReferral.createdAt = currentRecord.createdAt;
+        updatedReferral.sourceSubmissionId = currentRecord.sourceSubmissionId;
+        updatedReferral.sourceSurveyId = currentRecord.sourceSurveyId;
+        updatedReferral.externalIdx = currentRecord.externalIdx;
+        updatedReferral.externalReferralId = currentRecord.externalReferralId;
+        updatedReferral.version = nextVersion;
+        updatedReferral.updatedAt = new Date().toISOString();
+
+        await mutateReferrals({
+            opType: 'UPDATE',
+            targetId: currentRecord.referralId,
+            actorUserId: req.auth?.id || req.auth?.userId || 'system'
+        }, async (refs) => {
+            refs[index] = updatedReferral;
+        });
 
         const responsePayload = { success: true, data: updatedReferral };
         if (idempotencyKey) {
@@ -1969,6 +2202,9 @@ const handleReferralUpdate = async (req, res) => {
         res.json(responsePayload);
     } catch (err) {
         console.error('❌ PUT /api/referrals error:', err);
+        if (err.code === 'REFERRAL_DATA_INTEGRITY_VIOLATION') {
+            return res.status(500).json({ success: false, code: err.code, error: err.message });
+        }
         res.status(500).json({ success: false, error: `수정 실패: ${err.message}` });
     }
 };
@@ -1983,38 +2219,90 @@ const handleReferralDelete = async (req, res) => {
             return res.status(400).json({ success: false, error: "Missing referral identifier" });
         }
 
-        let referrals = getData('Referrals', []);
+        const referrals = getData('Referrals', []);
 
-        // Ambiguity check
-        const matches = referrals
-            .map((r, i) => ({ r, i }))
-            .filter(item => item.r.referralId === targetId || item.r.refNo === targetId || item.r.clientId === targetId);
+        // F7 Strict Identification: exact referralId first
+        let index = referrals.findIndex(r => r && r.referralId === targetId);
 
-        if (matches.length > 1) {
-            // Check if exact referralId matches
-            const exactIdMatch = matches.filter(m => m.r.referralId === targetId);
-            if (exactIdMatch.length !== 1) {
+        // Fallback only if no referralId matches
+        if (index === -1) {
+            const matches = referrals
+                .map((r, i) => ({ r, i }))
+                .filter(item => item.r && (item.r.refNo === targetId || item.r.clientId === targetId));
+
+            if (matches.length > 1) {
                 return res.status(409).json({
                     success: false,
                     code: 'AMBIGUOUS_RECORD',
                     error: `동일 식별자에 해당하는 레코드가 ${matches.length}건 존재합니다. 고유한 referralId로 삭제를 요청하세요.`
                 });
+            } else if (matches.length === 1) {
+                index = matches[0].i;
             }
         }
 
-        const index = referrals.findIndex(r => r.referralId === targetId || r.refNo === targetId || r.clientId === targetId);
-        if (index !== -1) {
-            const deletedItem = referrals[index];
-            const trash = getData('Trash', []);
-            trash.push({ ...deletedItem, _trashSource: 'Referrals', deletedAt: new Date().toISOString() });
-            referrals.splice(index, 1);
-
-            await persistData('Referrals', referrals);
-            await persistData('Trash', trash);
-            res.json({ success: true, deletedRefNo: deletedItem.refNo, referralId: deletedItem.referralId });
-        } else {
-            res.json({ success: true, alreadyDeleted: true });
+        if (index === -1) {
+            return res.json({ success: true, alreadyDeleted: true });
         }
+
+        const deletedItem = referrals[index];
+        const actorUserId = req.auth?.id || req.auth?.userId || 'unknown';
+
+        // F2 Two-phase atomicity:
+        // Phase 1: Persist to Trash first
+        const trash = getData('Trash', []);
+        const trashSnapshot = JSON.parse(JSON.stringify(trash));
+        const trashItem = { ...deletedItem, _trashSource: 'Referrals', deletedAt: new Date().toISOString() };
+        trash.push(trashItem);
+
+        try {
+            await persistData('Trash', trash);
+        } catch (trashErr) {
+            restoreCacheInPlace(trash, trashSnapshot);
+            console.error('❌ Failed to persist to Trash in DELETE /api/referrals:', trashErr);
+            return res.status(500).json({ success: false, error: `휴지통 보관 실패: ${trashErr.message}` });
+        }
+
+        // Phase 2: Once Trash persist succeeds, remove from Referrals via mutateReferrals
+        try {
+            await mutateReferrals({
+                opType: 'DELETE',
+                expectedRemovalIds: [deletedItem.referralId],
+                actorUserId
+            }, async (refs) => {
+                const idx = refs.findIndex(r => r && r.referralId === deletedItem.referralId);
+                if (idx !== -1) {
+                    refs.splice(idx, 1);
+                }
+            });
+        } catch (refErr) {
+            // Referrals persist failed: Rollback Trash (remove added item and re-persist), restore cache, 500
+            restoreCacheInPlace(trash, trashSnapshot);
+            try {
+                await persistData('Trash', trash);
+            } catch (trashRollbackErr) {
+                console.error('CRITICAL: Trash rollback failed after Referrals persist failure:', trashRollbackErr);
+            }
+            console.error('❌ Failed to persist Referrals deletion:', refErr);
+            if (refErr.code === 'REFERRAL_DATA_INTEGRITY_VIOLATION') {
+                return res.status(500).json({ success: false, code: refErr.code, error: refErr.message });
+            }
+            return res.status(500).json({ success: false, error: `대장 삭제 실패: ${refErr.message}` });
+        }
+
+        // Audit log (PII prohibited, stable referralId only)
+        await referralAuditLogger({
+            actorUserId,
+            targetId: deletedItem.referralId,
+            action: 'REFERRAL_DELETE',
+            result: 'SUCCESS'
+        });
+
+        res.json({
+            success: true,
+            deletedRefNo: deletedItem.refNo,
+            referralId: deletedItem.referralId
+        });
     } catch (err) {
         console.error('❌ DELETE /api/referrals error:', err);
         res.status(500).json({ success: false, error: `삭제 실패: ${err.message}` });
@@ -2755,38 +3043,100 @@ app.post('/api/users/change-password', requireAuth, (req, res) => {
     }
 });
 
-app.post('/api/referrals/bulk-delete', requireAuth, (req, res) => {
-    const { ids } = req.body;
-    if (!Array.isArray(ids) || ids.length === 0) {
-        return res.json({ success: true, message: "No IDs provided", deletedCount: 0 });
-    }
+app.post('/api/referrals/bulk-delete', requireAuth, async (req, res) => {
+    try {
+        const userRole = (req.auth?.role || req.auth?.userRole || 'user').toLowerCase();
+        if (userRole !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                code: 'FORBIDDEN',
+                error: "관리자만 일괄 삭제를 수행할 수 있습니다."
+            });
+        }
 
-    let referrals = getData('Referrals', []);
-    const trash = getData('Trash', []);
-    const initialCount = referrals.length;
+        const { ids } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.json({ success: true, message: "No IDs provided", deletedCount: 0 });
+        }
 
-    const itemsToDelete = referrals.filter(r => ids.includes(r.refNo) || ids.includes(r.clientId));
+        const referrals = getData('Referrals', []);
 
-    // Add to trash
-    itemsToDelete.forEach(item => {
-        trash.push({
-            ...item,
-            _trashSource: 'Referrals',
-            deletedAt: new Date().toISOString()
+        // F4 Match priority: referralId first, then refNo, then clientId
+        const itemsToDelete = referrals.filter(r =>
+            r && (ids.includes(r.referralId) || ids.includes(r.refNo) || ids.includes(r.clientId))
+        );
+
+        if (itemsToDelete.length === 0) {
+            return res.json({ success: true, deletedCount: 0, movedToTrash: true });
+        }
+
+        const expectedRemovalIds = itemsToDelete.map(r => r.referralId);
+        const actorUserId = req.auth?.id || req.auth?.userId || 'unknown';
+
+        // Phase 1: Add to Trash and persist Trash first
+        const trash = getData('Trash', []);
+        const trashSnapshot = JSON.parse(JSON.stringify(trash));
+        const nowIso = new Date().toISOString();
+
+        itemsToDelete.forEach(item => {
+            trash.push({
+                ...item,
+                _trashSource: 'Referrals',
+                deletedAt: nowIso
+            });
         });
-    });
 
-    // Remove from main list
-    referrals = referrals.filter(r => !ids.includes(r.refNo) && !ids.includes(r.clientId));
+        try {
+            await persistData('Trash', trash);
+        } catch (trashErr) {
+            restoreCacheInPlace(trash, trashSnapshot);
+            console.error('❌ Failed to persist to Trash in bulk-delete:', trashErr);
+            return res.status(500).json({ success: false, error: `휴지통 보관 실패: ${trashErr.message}` });
+        }
 
-    saveData('Referrals', referrals);
-    saveData('Trash', trash);
+        // Phase 2: Remove from Referrals via mutateReferrals
+        try {
+            await mutateReferrals({
+                opType: 'BULK_DELETE',
+                expectedRemovalIds,
+                actorUserId
+            }, async (refs) => {
+                const removalSet = new Set(expectedRemovalIds);
+                const filtered = refs.filter(r => !r || !removalSet.has(r.referralId));
+                restoreCacheInPlace(refs, filtered);
+            });
+        } catch (refErr) {
+            // Rollback Trash if Referrals persist fails
+            restoreCacheInPlace(trash, trashSnapshot);
+            try {
+                await persistData('Trash', trash);
+            } catch (trashRollbackErr) {
+                console.error('CRITICAL: Trash rollback failed in bulk-delete:', trashRollbackErr);
+            }
+            console.error('❌ Failed to persist Referrals in bulk-delete:', refErr);
+            if (refErr.code === 'REFERRAL_DATA_INTEGRITY_VIOLATION') {
+                return res.status(500).json({ success: false, code: refErr.code, error: refErr.message });
+            }
+            return res.status(500).json({ success: false, error: `일괄 삭제 실패: ${refErr.message}` });
+        }
 
-    res.json({
-        success: true,
-        deletedCount: initialCount - referrals.length,
-        movedToTrash: true
-    });
+        // F4 Audit log (PII prohibited, count only)
+        await referralAuditLogger({
+            actorUserId,
+            targetId: `count:${itemsToDelete.length}`,
+            action: 'REFERRAL_BULK_DELETE',
+            result: 'SUCCESS'
+        });
+
+        res.json({
+            success: true,
+            deletedCount: itemsToDelete.length,
+            movedToTrash: true
+        });
+    } catch (err) {
+        console.error('❌ bulk-delete error:', err);
+        res.status(500).json({ success: false, error: `일괄 삭제 실패: ${err.message}` });
+    }
 });
 
 app.put('/api/suicideattempters', requireAuth, (req, res) => {
@@ -2929,26 +3279,105 @@ app.post('/api/trash/restore', requireAuth, async (req, res) => {
             return res.status(400).json({ success: false, error: "Missing id" });
         }
         let trash = getData('Trash', []);
-        const item = trash.find(t => t.referralId === id || t.refNo === id || t.clientId === id || t.uid === id);
+        const item = trash.find(t => t && (t.referralId === id || t.refNo === id || t.clientId === id || t.uid === id));
         if (!item) {
             return res.status(404).json({ success: false, error: "Item not found in trash" });
         }
 
-        // Determine original collection
         const collection = item._trashSource || 'Referrals';
-        const data = getData(collection, []);
+        const actorUserId = req.auth?.id || req.auth?.userId || 'unknown';
 
-        // Remove from trash
-        trash = trash.filter(t => t !== item);
+        if (collection === 'Referrals') {
+            const restoredItem = { ...item };
+            delete restoredItem._trashSource;
+            delete restoredItem.deletedAt;
 
-        // Restore to original collection
-        delete item._trashSource;
-        delete item.deletedAt;
-        data.push(item);
+            // Phase 1: Restore to Referrals first via mutateReferrals
+            try {
+                await mutateReferrals({
+                    opType: 'RESTORE',
+                    expectedAdditionIds: [restoredItem.referralId],
+                    actorUserId
+                }, async (refs) => {
+                    refs.push(restoredItem);
+                });
+            } catch (refErr) {
+                console.error('❌ Failed to persist Referrals during restore:', refErr);
+                if (refErr.code === 'REFERRAL_DATA_INTEGRITY_VIOLATION') {
+                    return res.status(500).json({ success: false, code: refErr.code, error: refErr.message });
+                }
+                return res.status(500).json({ success: false, error: `의뢰대장 복원 실패: ${refErr.message}` });
+            }
 
-        await persistData('Trash', trash);
-        await persistData(collection, data);
-        res.json({ success: true, restored: item });
+            // Phase 2: Once Referrals succeed, remove from Trash
+            const trashSnapshot = JSON.parse(JSON.stringify(trash));
+            const trashIndex = trash.indexOf(item);
+            if (trashIndex !== -1) {
+                trash.splice(trashIndex, 1);
+            }
+
+            try {
+                await persistData('Trash', trash);
+            } catch (trashErr) {
+                // If Trash persist fails: Rollback Referrals addition
+                restoreCacheInPlace(trash, trashSnapshot);
+                try {
+                    await mutateReferrals({
+                        opType: 'DELETE',
+                        expectedRemovalIds: [restoredItem.referralId],
+                        actorUserId: 'system'
+                    }, async (refs) => {
+                        const idx = refs.findIndex(r => r && r.referralId === restoredItem.referralId);
+                        if (idx !== -1) refs.splice(idx, 1);
+                    });
+                } catch (rollbackErr) {
+                    console.error('CRITICAL: Failed to rollback Referrals after Trash persist failure in restore:', rollbackErr);
+                }
+                console.error('❌ Failed to persist Trash during restore:', trashErr);
+                return res.status(500).json({ success: false, error: `휴지통 정리 실패: ${trashErr.message}` });
+            }
+
+            // Audit log (PII prohibited)
+            await referralAuditLogger({
+                actorUserId,
+                targetId: restoredItem.referralId,
+                action: 'REFERRAL_RESTORE',
+                result: 'SUCCESS'
+            });
+
+            return res.json({ success: true, restored: restoredItem });
+        } else {
+            // Other collection fallback
+            const data = getData(collection, []);
+            const dataSnapshot = JSON.parse(JSON.stringify(data));
+            const trashSnapshot = JSON.parse(JSON.stringify(trash));
+
+            const restoredItem = { ...item };
+            delete restoredItem._trashSource;
+            delete restoredItem.deletedAt;
+            data.push(restoredItem);
+
+            try {
+                await persistData(collection, data);
+            } catch (dataErr) {
+                restoreCacheInPlace(data, dataSnapshot);
+                return res.status(500).json({ success: false, error: dataErr.message });
+            }
+
+            const trashIndex = trash.indexOf(item);
+            if (trashIndex !== -1) trash.splice(trashIndex, 1);
+
+            try {
+                await persistData('Trash', trash);
+            } catch (trashErr) {
+                restoreCacheInPlace(data, dataSnapshot);
+                restoreCacheInPlace(trash, trashSnapshot);
+                await persistData(collection, data).catch(ignore => {});
+                return res.status(500).json({ success: false, error: trashErr.message });
+            }
+
+            return res.json({ success: true, restored: restoredItem });
+        }
     } catch (err) {
         console.error('❌ /api/trash/restore error:', err);
         res.status(500).json({ success: false, error: err.message });
@@ -3452,14 +3881,25 @@ app.post('/api/saveNotes', requireAuth, async (req, res) => {
         }
 
         const { refNo, notes, referralId, version } = req.body;
+
+        // F6: Validate notes length and count BEFORE mutation
+        const vNotes = validateNotes(notes);
+        if (!vNotes.valid) {
+            return res.status(400).json({
+                success: false,
+                code: 'INVALID_NOTES_LENGTH',
+                error: vNotes.error
+            });
+        }
+
         const referrals = getData('Referrals', []);
 
         let index = -1;
         if (referralId) {
-            index = referrals.findIndex(r => r.referralId === referralId);
+            index = referrals.findIndex(r => r && r.referralId === referralId);
         }
         if (index === -1 && refNo) {
-            index = referrals.findIndex(r => r.refNo === refNo || r.clientId === refNo);
+            index = referrals.findIndex(r => r && (r.refNo === refNo || r.clientId === refNo));
         }
 
         if (index === -1) {
@@ -3505,21 +3945,25 @@ app.post('/api/saveNotes', requireAuth, async (req, res) => {
             if (!n.id) n.id = `note_${Date.now()}_${idx}`;
         });
 
-        target.notes = newNotes;
-        if (newNotes.length > 0) {
-            target.latestNote = newNotes[0].content || '';
-            target.latestNoteDate = newNotes[0].createdAt || newNotes[0].date || new Date().toLocaleString('ko-KR');
-        } else {
-            target.latestNote = '';
-            target.latestNoteDate = '';
-        }
+        // Prepare updated target
+        const updatedTarget = {
+            ...target,
+            notes: newNotes,
+            latestNote: newNotes.length > 0 ? (newNotes[0].content || '') : '',
+            latestNoteDate: newNotes.length > 0 ? (newNotes[0].createdAt || newNotes[0].date || new Date().toLocaleString('ko-KR')) : '',
+            version: (target.version || 1) + 1,
+            updatedAt: new Date().toISOString()
+        };
 
-        target.version = (target.version || 1) + 1;
-        target.updatedAt = new Date().toISOString();
+        await mutateReferrals({
+            opType: 'NOTES',
+            targetId: target.referralId,
+            actorUserId: req.auth?.id || req.auth?.userId || 'system'
+        }, async (refs) => {
+            refs[index] = updatedTarget;
+        });
 
-        await persistData('Referrals', referrals);
-
-        const responsePayload = { success: true, data: target };
+        const responsePayload = { success: true, data: updatedTarget };
         if (idempotencyKey) {
             cleanIdempotencyStore();
             idempotencyStore.set(idempotencyKey, {
@@ -3532,9 +3976,13 @@ app.post('/api/saveNotes', requireAuth, async (req, res) => {
         res.json(responsePayload);
     } catch (err) {
         console.error('❌ POST /api/saveNotes error:', err);
-        res.status(500).json({ success: false, error: `메모 저장 실패: ${err.message}` });
+        if (err.code === 'REFERRAL_DATA_INTEGRITY_VIOLATION') {
+            return res.status(500).json({ success: false, code: err.code, error: err.message });
+        }
+        res.status(500).json({ success: false, error: `저장 실패: ${err.message}` });
     }
 });
+
 
 app.get('/api/budget/transactions', (req, res) => {
     try {
@@ -4210,65 +4658,60 @@ app.post('/api/website-referrals/mark-seen', requireAuth, async (req, res) => {
     }
 });
 
-// [Auto-Migration] Ensure NAS Referrals.json has zero duplicate or missing refNos on startup
+// [Auto-Migration] Ensure NAS Referrals.json has required stable identifiers on startup
+// F3: Never silently renumber duplicate refNos. Instead, log console warning and audit log (count only).
 const sanitizeReferralsOnStartup = async () => {
     try {
         const referrals = getData('Referrals', []);
         if (!Array.isArray(referrals) || referrals.length === 0) return;
 
-        const refNoRegex = /^([A-Z]{2})-26-(\d{3,})$/;
-        const teamMaxSeq = { 'JJ': 0, 'HB': 0, 'JY': 0, 'AC': 0, 'NB': 0, 'ET': 0 };
-
-        referrals.forEach(r => {
-            if (r && r.refNo && typeof r.refNo === 'string') {
-                const match = r.refNo.match(refNoRegex);
-                if (match) {
-                    const code = match[1];
-                    const seq = parseInt(match[2], 10);
-                    if (seq < 900) {
-                        if (teamMaxSeq[code] !== undefined) {
-                            if (seq > teamMaxSeq[code]) teamMaxSeq[code] = seq;
-                        } else {
-                            if (seq > teamMaxSeq['ET']) teamMaxSeq['ET'] = seq;
-                        }
-                    }
-                }
-            }
-        });
-
         const seenRefNos = new Set();
         let fixCount = 0;
+        let dupRefCount = 0;
+        let missingRefCount = 0;
 
         referrals.forEach(r => {
             if (!r) return;
-            if (!r.referralId) r.referralId = crypto.randomUUID();
-            if (!r.clientId) r.clientId = `C${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-            if (!r.version) r.version = 1;
+            if (!r.referralId) {
+                r.referralId = crypto.randomUUID();
+                fixCount++;
+            }
+            if (!r.clientId) {
+                r.clientId = `C${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+                fixCount++;
+            }
+            if (!r.version) {
+                r.version = 1;
+                fixCount++;
+            }
 
             const currentRefNo = r.refNo;
-            const isMatch = currentRefNo && typeof currentRefNo === 'string' && refNoRegex.test(currentRefNo);
-            const isDup = currentRefNo && seenRefNos.has(currentRefNo);
-
-            if (!currentRefNo || !isMatch || isDup) {
-                const team = r.team;
-                const teamCode = TEAM_CODES[team] || 'ET';
-                teamMaxSeq[teamCode] = (teamMaxSeq[teamCode] || 0) + 1;
-                const newRefNo = `${teamCode}-26-${String(teamMaxSeq[teamCode]).padStart(3, '0')}`;
-
-                if (currentRefNo && !r.originalRefNo) r.originalRefNo = currentRefNo;
-                r.refNo = newRefNo;
-                r.updatedAt = new Date().toISOString();
-                seenRefNos.add(newRefNo);
-                fixCount++;
+            if (!currentRefNo) {
+                missingRefCount++;
+                console.warn(`⚠️ [STARTUP] Record ${r.referralId} has missing refNo. Retaining record without silent renumber.`);
+            } else if (seenRefNos.has(currentRefNo)) {
+                dupRefCount++;
+                console.warn(`⚠️ [STARTUP] Duplicate refNo detected: ${currentRefNo}. Retaining record without silent renumber.`);
             } else {
                 seenRefNos.add(currentRefNo);
             }
         });
 
+        if (dupRefCount > 0 || missingRefCount > 0) {
+            console.warn(`⚠️ [STARTUP] Found ${dupRefCount} duplicate refNos and ${missingRefCount} missing refNos. Retained without silent mutation.`);
+            referralAuditLogger({
+                actorUserId: 'system',
+                targetId: `count:${dupRefCount + missingRefCount}`,
+                action: 'STARTUP_REFNO_ANOMALY_DETECTED',
+                result: 'WARNING',
+                reasonCode: 'DUPLICATE_OR_MISSING_REFNO'
+            });
+        }
+
         if (fixCount > 0) {
-            console.log(`🧹 [STARTUP] Found ${fixCount} duplicate/missing refNos. Auto-healing Referrals.json...`);
+            console.log(`🧹 [STARTUP] Auto-generated ${fixCount} missing identifiers (referralId/clientId/version). Persisting...`);
             await persistData('Referrals', referrals);
-            console.log(`✅ [STARTUP] Auto-healing complete. Referrals.json is now 100% unique.`);
+            console.log(`✅ [STARTUP] Identifier migration complete.`);
         }
     } catch (e) {
         console.warn('⚠️ [STARTUP] Notice in sanitizeReferralsOnStartup:', e.message);
