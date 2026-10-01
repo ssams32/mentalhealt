@@ -365,27 +365,31 @@ function App() {
         return () => clearInterval(vInterval);
     }, []);
 
+    // Canonical fetch for the online survey sidebar badge count (red menu badge).
+    // Also passed to SurveyManagementPage as refreshSidebarBadge so a manual
+    // sync can refresh the badge through this exact same path.
+    const fetchSurveyStats = useCallback(async () => {
+        try {
+            const res = await fetch('/api/surveys/status', { credentials: 'include' });
+            if (res.ok) {
+                const data = await res.json();
+                if (data && typeof data.badgeCount === 'number') {
+                    setSurveyPendingCount(data.badgeCount);
+                } else if (data && typeof data.unassignedCount === 'number') {
+                    setSurveyPendingCount(data.unassignedCount);
+                }
+            }
+        } catch (e) {
+            // Ignore silent fetch failures
+        }
+    }, []);
+
     // Periodic fetch for online survey badge count (red menu badge)
     useEffect(() => {
-        const fetchSurveyStats = async () => {
-            try {
-                const res = await fetch('/api/surveys/status', { credentials: 'include' });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data && typeof data.badgeCount === 'number') {
-                        setSurveyPendingCount(data.badgeCount);
-                    } else if (data && typeof data.unassignedCount === 'number') {
-                        setSurveyPendingCount(data.unassignedCount);
-                    }
-                }
-            } catch (e) {
-                // Ignore silent fetch failures
-            }
-        };
         fetchSurveyStats();
         const sInterval = setInterval(fetchSurveyStats, 30000);
         return () => clearInterval(sInterval);
-    }, [currentUser]);
+    }, [currentUser, fetchSurveyStats]);
 
     // Notification effect when new website referrals arrive
     useEffect(() => {
@@ -954,6 +958,7 @@ function App() {
                         setActivePage('referrals');
                     }}
                     showToast={showToast}
+                    refreshSidebarBadge={fetchSurveyStats}
                 />;
             }
             case 'accounts':

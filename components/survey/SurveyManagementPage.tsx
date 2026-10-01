@@ -59,6 +59,8 @@ interface SurveyManagementPageProps {
     currentUser: User;
     onNavigateToReferrals?: (initialData?: any) => void;
     showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+    // Canonical sidebar badge refresh owned by App (re-fetches /api/surveys/status).
+    refreshSidebarBadge?: () => void | Promise<void>;
 }
 
 interface AssignableStaff {
@@ -76,7 +78,8 @@ type FilterTab = 'all' | 'consultation_requested' | 'screening_only' | 'addition
 export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     currentUser,
     onNavigateToReferrals,
-    showToast
+    showToast,
+    refreshSidebarBadge
 }) => {
     // --- State: Core Data ---
     const [imports, setImports] = useState<SurveyImportItem[]>([]);
@@ -90,6 +93,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     const [syncProgress, setSyncProgress] = useState<{
         isOpen: boolean;
         isSyncing: boolean;
+        isError?: boolean;
         imported: number;
         failed: number;
         reused: number;
@@ -303,11 +307,13 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     // --- Action: Manual Survey Import (Drain All Pending Safely) ---
     const handleImportClick = async () => {
         if (importing || syncProgress.isSyncing) return;
+        let importCompleted = false;
         try {
             setImporting(true);
             setSyncProgress({
                 isOpen: true,
                 isSyncing: true,
+                isError: false,
                 imported: 0,
                 failed: 0,
                 reused: 0,
@@ -323,22 +329,31 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                 const rsd = s.reused ?? s.duplicates ?? 0;
                 const tot = s.discovered ?? s.totalFetched ?? (imp + fld + rsd);
 
+                // 1) Preserve the server result in the summary state first.
+                //    Post-success refresh runs after this try/catch so a refresh
+                //    failure can never overwrite a completed import result.
                 setSyncProgress({
                     isOpen: true,
                     isSyncing: false,
+                    isError: false,
                     imported: imp,
                     failed: fld,
                     reused: rsd,
                     total: tot,
                     stopReason: s.stopReason || '동기화 완료',
-                    message: `동기화 완료: 신규 수신 ${imp}건, 재사용/중복 ${rsd}건, 오류/격리 ${fld}건 (총 ${tot}건 처리)`
+                    message: tot === 0
+                        ? '현재 대기 중인 신규 설문이 없습니다.'
+                        : `동기화 완료: 신규 수신 ${imp}건, 재사용/중복 ${rsd}건, 오류/격리 ${fld}건 (총 ${tot}건 처리)`
                 });
 
                 if (showToast) {
                     showToast(`설문 동기화 완료: 신규 ${imp}건, 재사용 ${rsd}건, 오류/격리 ${fld}건`, 'success');
                 }
-                await loadData(selectedSubmissionId);
-                if (refreshSidebarBadge) refreshSidebarBadge();
+                importCompleted = true;
+            } else {
+                // Resolved-but-unsuccessful response: surface the server's own
+                // message instead of leaving a false completion state behind.
+                throw new Error((res as any)?.message || '설문 동기화 요청이 서버에서 완료되지 않았습니다.');
             }
         } catch (err: any) {
             const isRunning = err.code === 'IMPORT_ALREADY_IN_PROGRESS' || err.code === 'IMPORT_ALREADY_RUNNING';
@@ -349,11 +364,30 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             setSyncProgress(prev => ({
                 ...prev,
                 isSyncing: false,
+                isError: true,
                 message: `오류 발생: ${msg}`
             }));
             if (showToast) showToast(msg, 'error');
         } finally {
             setImporting(false);
+        }
+
+        if (!importCompleted) return;
+
+        // 2~4) Post-success refresh only, each step isolated: a refresh failure
+        // must never overwrite the preserved import result, must never re-run
+        // the import, and must not update state after unmount (no setState here).
+        try {
+            await loadData(selectedSubmissionId);
+        } catch (refreshErr) {
+            console.warn('[SurveySync] 동기화 후 목록 새로고침에 실패했습니다. (동기화 결과는 유지됩니다)', refreshErr);
+        }
+        if (typeof refreshSidebarBadge === 'function') {
+            try {
+                await refreshSidebarBadge();
+            } catch (badgeErr) {
+                console.warn('[SurveySync] 사이드바 배지 새로고침에 실패했습니다. (동기화 결과는 유지됩니다)', badgeErr);
+            }
         }
     };
 
@@ -4293,12 +4327,12 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150 text-left">
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                             <div className="flex items-center gap-2.5">
-                                <div className={`p-2.5 rounded-2xl ${syncProgress.isSyncing ? 'bg-teal-100 text-teal-700 animate-pulse' : 'bg-emerald-100 text-emerald-700'}`}>
-                                    {syncProgress.isSyncing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+                                <div className={`p-2.5 rounded-2xl ${syncProgress.isSyncing ? 'bg-teal-100 text-teal-700 animate-pulse' : syncProgress.isError ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                    {syncProgress.isSyncing ? <RefreshCw className="w-5 h-5 animate-spin" /> : syncProgress.isError ? <X className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
                                 </div>
                                 <div>
                                     <h3 id="sync-progress-title" className="text-sm font-black text-slate-900">
-                                        {syncProgress.isSyncing ? '설문 안전 동기화 진행 중' : '설문 동기화 완료'}
+                                        {syncProgress.isSyncing ? '설문 안전 동기화 진행 중' : (syncProgress.isError ? '설문 동기화 오류' : '설문 동기화 완료')}
                                     </h3>
                                     <p className="text-[11px] text-slate-500 font-medium">Track A 암호문 수신 및 검사 결과 리포트 처리</p>
                                 </div>
