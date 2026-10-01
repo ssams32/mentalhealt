@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { User, SurveyImportItem, SurveyStatusSummary, Attachment } from '../../types';
 import { apiClient } from '../../services/apiClient';
 import FilePreviewModal from '../common/FilePreviewModal';
+import SurveyCharts from './SurveyCharts';
 import {
     ClipboardList,
     Download,
@@ -126,6 +127,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     const [mainTab, setMainTab] = useState<MainTab>('applicants');
     const [filterTab, setFilterTab] = useState<FilterTab>('all');
     const [searchQuery, setSearchQuery] = useState<string>('');
+    const [isChartsOpen, setIsChartsOpen] = useState<boolean>(true);
 
     // --- State: Date Range & Preset Filtering ---
     const [dateFrom, setDateFrom] = useState<string>('');
@@ -1593,6 +1595,32 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                             <span className="text-xs text-slate-400 font-medium">건</span>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            {/* 2-1. Statistics Charts (접이식 통계 차트) */}
+            <div className="px-6 py-2 shrink-0">
+                <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 transition-all">
+                    <div className="flex items-center justify-between">
+                        <button
+                            type="button"
+                            onClick={() => setIsChartsOpen(!isChartsOpen)}
+                            className="flex items-center gap-2 text-sm font-bold text-slate-700 hover:text-slate-900 transition-colors focus:outline-none"
+                        >
+                            <span className="text-base">📊</span>
+                            <span>통계 차트</span>
+                            {isChartsOpen ? (
+                                <ChevronDown className="w-4 h-4 text-slate-400" />
+                            ) : (
+                                <ChevronRight className="w-4 h-4 text-slate-400" />
+                            )}
+                        </button>
+                    </div>
+                    {isChartsOpen && (
+                        <div className="mt-4 pt-4 border-t border-slate-200/70">
+                            <SurveyCharts imports={imports} />
+                        </div>
+                    )}
                 </div>
             </div>
 
