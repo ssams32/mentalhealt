@@ -170,7 +170,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     const [mainTab, setMainTab] = useState<MainTab>('applicants');
     const [filterTab, setFilterTab] = useState<FilterTab>('all');
     const [searchQuery, setSearchQuery] = useState<string>('');
-    const [isChartsOpen, setIsChartsOpen] = useState<boolean>(true);
+    const [isChartsOpen, setIsChartsOpen] = useState<boolean>(false);
 
     // --- State: Date Range & Preset Filtering ---
     const [dateFrom, setDateFrom] = useState<string>('');
@@ -1921,6 +1921,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                         <button
                             type="button"
                             onClick={() => setIsChartsOpen(!isChartsOpen)}
+                            aria-expanded={isChartsOpen}
                             className="flex items-center gap-2 text-sm font-bold text-slate-700 hover:text-slate-900 transition-colors focus:outline-none"
                         >
                             <span className="text-base">📊</span>
@@ -1975,49 +1976,11 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                 /* TAB 1: Master-Detail Applicant Dashboard                                  */
                 /* ========================================================================= */
                 <div className="flex-1 overflow-hidden px-6 py-4 flex flex-col min-h-0">
-                    {/* Admin Staff Workload Summary Chips */}
-                    {currentUser.role === 'admin' && assignableStaff.length > 0 && (
-                        <div className="bg-white rounded-2xl border border-slate-200/90 p-2.5 mb-3 shadow-xs flex items-center gap-2 overflow-x-auto custom-scrollbar shrink-0" role="region" aria-label="담당자별 업무량 요약">
-                            <span className="text-[11px] font-black text-slate-500 whitespace-nowrap flex items-center gap-1 shrink-0">
-                                <Users className="w-3.5 h-3.5 text-indigo-600" />
-                                직원별 미처리:
-                            </span>
-                            <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
-                                {assignableStaff.map(staff => {
-                                    const isSelected = staffFilter === staff.id;
-                                    const count = staff.pendingAssignmentCount ?? 0;
-                                    return (
-                                        <button
-                                            key={staff.id}
-                                            type="button"
-                                            onClick={() => setStaffFilter(prev => prev === staff.id ? 'all' : staff.id)}
-                                            className={`px-2.5 py-1 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 whitespace-nowrap ${
-                                                isSelected
-                                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                                            }`}
-                                            title={`${staff.name} (${staff.team || '소속팀 없음'}): 미처리 ${count}건. 클릭하여 이 직원만 필터링`}
-                                        >
-                                            <span>{staff.name}</span>
-                                            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                                                isSelected
-                                                    ? 'bg-white text-indigo-700'
-                                                    : (count > 0 ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-600')
-                                            }`}>
-                                                {count}
-                                            </span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Filter Tabs & Date Range Bar */}
-                    <div className="bg-white rounded-2xl border border-slate-200/90 p-3 mb-3 shadow-xs space-y-3 shrink-0">
-                        {/* Row 1: Quick Status Filter Tabs */}
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                            <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar py-0.5" role="tablist" aria-label="상태 빠른 필터">
+                    {/* Filter Tabs, Staff Workload & Date Range Bar */}
+                    <div className="bg-white rounded-2xl border border-slate-200/90 px-3 py-2.5 mb-3 shadow-xs space-y-2 shrink-0">
+                        {/* Row 1: Quick Status Filter Tabs + Staff Workload Inline + Sort Dropdown */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar py-0.5 shrink-0" role="tablist" aria-label="상태 빠른 필터">
                                 {[
                                     { id: 'all', label: '전체' },
                                     { id: 'unassigned', label: '미배정' },
@@ -2031,7 +1994,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         key={tab.id}
                                         type="button"
                                         onClick={() => setQuickStatusFilter(tab.id)}
-                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                                        className={`h-8 px-3 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center justify-center ${
                                             quickStatusFilter === tab.id
                                                 ? 'bg-teal-600 text-white shadow-xs'
                                                 : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200/60'
@@ -2042,13 +2005,51 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                 ))}
                             </div>
 
+                            {/* Admin Staff Workload Summary Chips (Row 1 Inline) */}
+                            {currentUser.role === 'admin' && assignableStaff.length > 0 && (
+                                <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar border-l border-slate-200 pl-2 shrink-0" role="region" aria-label="담당자별 업무량 요약">
+                                    <span className="text-[11px] font-black text-slate-500 whitespace-nowrap flex items-center gap-1 shrink-0">
+                                        <Users className="w-3.5 h-3.5 text-indigo-600" />
+                                        직원별 미처리:
+                                    </span>
+                                    <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
+                                        {assignableStaff.map(staff => {
+                                            const isSelected = staffFilter === staff.id;
+                                            const count = staff.pendingAssignmentCount ?? 0;
+                                            return (
+                                                <button
+                                                    key={staff.id}
+                                                    type="button"
+                                                    onClick={() => setStaffFilter(prev => prev === staff.id ? 'all' : staff.id)}
+                                                    className={`h-8 px-2.5 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 whitespace-nowrap ${
+                                                        isSelected
+                                                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                                    }`}
+                                                    title={`${staff.name} (${staff.team || '소속팀 없음'}): 미처리 ${count}건. 클릭하여 이 직원만 필터링`}
+                                                >
+                                                    <span>{staff.name}</span>
+                                                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                                                        isSelected
+                                                            ? 'bg-white text-indigo-700'
+                                                            : (count > 0 ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-600')
+                                                    }`}>
+                                                        {count}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Sort Dropdown */}
-                            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-600">
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-600 ml-auto shrink-0">
                                 <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
                                 <select
                                     value={sortBy}
                                     onChange={e => setSortBy(e.target.value)}
-                                    className="px-2.5 py-1 text-xs font-bold border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none cursor-pointer"
+                                    className="h-8 px-2.5 text-xs font-bold border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none cursor-pointer"
                                     aria-label="목록 정렬 선택"
                                 >
                                     <option value="latest">최신 접수순</option>
@@ -2060,10 +2061,11 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                             </div>
                         </div>
 
-                        {/* Row 2: Date Range Inputs & Presets & Search */}
-                        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                        {/* Row 2+3 Combined: Date Range Inputs & Presets & Campaign & Search & Admin Campaign Management */}
+                        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                            {/* Date Range Inputs & Buttons */}
+                            <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+                                <span className="text-xs font-bold text-slate-600 flex items-center gap-1 shrink-0">
                                     <CalendarRange className="w-3.5 h-3.5 text-teal-600" />
                                     접수기간:
                                 </span>
@@ -2072,7 +2074,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         type="date"
                                         value={dateFrom}
                                         onChange={e => setDateFrom(e.target.value)}
-                                        className="px-2.5 py-1 text-xs font-medium border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:border-teal-500 focus:outline-none"
+                                        className="h-8 px-2.5 text-xs font-medium border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:border-teal-500 focus:outline-none"
                                         aria-label="접수 시작일"
                                     />
                                     <span className="text-slate-400 font-bold">~</span>
@@ -2080,73 +2082,51 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         type="date"
                                         value={dateTo}
                                         onChange={e => setDateTo(e.target.value)}
-                                        className="px-2.5 py-1 text-xs font-medium border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:border-teal-500 focus:outline-none"
+                                        className="h-8 px-2.5 text-xs font-medium border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:border-teal-500 focus:outline-none"
                                         aria-label="접수 종료일"
                                     />
                                 </div>
                                 <button
                                     type="button"
                                     onClick={handleApplyDateRange}
-                                    className="px-3 py-1 text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white rounded-xl shadow-xs transition"
+                                    className="h-8 px-3 text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white rounded-xl shadow-xs transition flex items-center justify-center shrink-0"
                                 >
                                     조회
                                 </button>
                                 <button
                                     type="button"
                                     onClick={handleResetDateRange}
-                                    className="px-2.5 py-1 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition"
+                                    className="h-8 px-2.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition flex items-center justify-center shrink-0"
                                 >
                                     기간 초기화
                                 </button>
-
-                                {/* Quick Presets */}
-                                <div className="flex items-center gap-1 pl-2 border-l border-slate-200 flex-wrap">
-                                    {[
-                                        { id: 'today', label: '오늘' },
-                                        { id: '7days', label: '최근 7일' },
-                                        { id: '30days', label: '최근 30일' },
-                                        { id: 'all', label: '전체 기간' }
-                                    ].map(p => (
-                                        <button
-                                            key={p.id}
-                                            type="button"
-                                            onClick={() => handleSelectPreset(p.id as any)}
-                                            className={`px-2.5 py-1 text-xs font-bold rounded-xl transition ${
-                                                activePreset === p.id
-                                                    ? 'bg-slate-800 text-white shadow-xs'
-                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                            }`}
-                                        >
-                                            {p.label}
-                                        </button>
-                                    ))}
-                                </div>
                             </div>
 
-                            {/* Search Input */}
-                            <div className="relative min-w-[240px] flex-1 sm:flex-initial">
-                                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <input
-                                    type="text"
-                                    placeholder="성명, 연락처, 접수번호 검색..."
-                                    value={searchQuery}
-                                    onChange={e => setSearchQuery(e.target.value)}
-                                    className="w-full pl-8 pr-7 py-1 text-xs font-medium border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:border-teal-500 focus:outline-none"
-                                />
-                                {searchQuery && (
+                            {/* Quick Presets */}
+                            <div className="flex items-center gap-1 pl-2 border-l border-slate-200 flex-wrap shrink-0">
+                                {[
+                                    { id: 'today', label: '오늘' },
+                                    { id: '7days', label: '최근 7일' },
+                                    { id: '30days', label: '최근 30일' },
+                                    { id: 'all', label: '전체 기간' }
+                                ].map(p => (
                                     <button
-                                        onClick={() => setSearchQuery('')}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                        key={p.id}
+                                        type="button"
+                                        onClick={() => handleSelectPreset(p.id as any)}
+                                        className={`h-8 px-2.5 text-xs font-bold rounded-xl transition flex items-center justify-center ${
+                                            activePreset === p.id
+                                                ? 'bg-slate-800 text-white shadow-xs'
+                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                        }`}
                                     >
-                                        <X className="w-3 h-3" />
+                                        {p.label}
                                     </button>
-                                )}
+                                ))}
                             </div>
-                        </div>
 
-                        {/* Row 3: Campaign Filter & Admin Campaign Management */}
-                        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-slate-100">
-                            <div className="flex flex-wrap items-center gap-2">
+                            {/* Campaign Filter */}
+                            <div className="flex items-center gap-1.5 pl-2 border-l border-slate-200 shrink-0">
                                 <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5 shrink-0">
                                     <Building2 className="w-3.5 h-3.5 text-indigo-600" />
                                     캠페인:
@@ -2154,7 +2134,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                 <select
                                     value={campaignFilter}
                                     onChange={e => setCampaignFilter(e.target.value)}
-                                    className="px-2.5 py-1 text-xs font-semibold border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none cursor-pointer max-w-[280px] sm:max-w-[360px]"
+                                    className="h-8 px-2.5 text-xs font-semibold border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none cursor-pointer max-w-[280px] sm:max-w-[360px] 2xl:max-w-[280px]"
                                     aria-label="캠페인 필터 선택"
                                 >
                                     <option value="all">전체 (미지정 포함)</option>
@@ -2169,13 +2149,34 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                     <button
                                         type="button"
                                         onClick={() => setCampaignFilter('all')}
-                                        className="px-2 py-0.5 text-[11px] font-bold text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+                                        className="h-8 px-2 text-[11px] font-bold text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition flex items-center justify-center shrink-0"
                                     >
                                         초기화
                                     </button>
                                 )}
                             </div>
 
+                            {/* Search Input */}
+                            <div className="relative min-w-[240px] max-w-[320px] 2xl:max-w-[240px] flex-1 sm:flex-initial ml-auto">
+                                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    type="text"
+                                    placeholder="성명, 연락처, 접수번호 검색..."
+                                    value={searchQuery}
+                                    onChange={e => setSearchQuery(e.target.value)}
+                                    className="h-8 w-full pl-8 pr-7 text-xs font-medium border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:border-teal-500 focus:outline-none"
+                                />
+                                {searchQuery && (
+                                    <button
+                                        onClick={() => setSearchQuery('')}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                    >
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Admin Campaign Management Button */}
                             {currentUser.role === 'admin' && (
                                 <button
                                     type="button"
@@ -2183,7 +2184,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         handleStartCreateCampaign();
                                         setIsCampaignModalOpen(true);
                                     }}
-                                    className="px-3 py-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition flex items-center gap-1.5 shadow-2xs shrink-0"
+                                    className="h-8 px-3 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition flex items-center gap-1.5 shadow-2xs shrink-0"
                                 >
                                     <Building2 className="w-3.5 h-3.5" />
                                     <span>캠페인 관리</span>
