@@ -255,8 +255,36 @@ export class SurveyImportService {
                 }
 
                 const envelopes = externalResponse?.submissions || [];
+                const rawEnvelopes = Array.isArray(envelopes) ? envelopes : [];
+                const rawCount = Number.isInteger(externalResponse?.httpMeta?.rawSubmissionsLength)
+                    ? externalResponse.httpMeta.rawSubmissionsLength
+                    : rawEnvelopes.length;
+                const parsedCount = rawEnvelopes.length;
+
+                let excludedNoSubmissionId = 0;
+                let excludedRepeatFailed = 0;
+                const unfailedItems = [];
+
+                for (const e of rawEnvelopes) {
+                    if (!e?.submissionId) {
+                        excludedNoSubmissionId++;
+                    } else if (failedSubmissionIdsInRun.has(e.submissionId)) {
+                        excludedRepeatFailed++;
+                    } else {
+                        unfailedItems.push(e);
+                    }
+                }
+                const filteredCount = unfailedItems.length;
+
+                console.log(`TRACK_A_PENDING_BATCH rawCount=${rawCount} parsedCount=${parsedCount} filteredCount=${filteredCount} excludedNoSubmissionId=${excludedNoSubmissionId} excludedRepeatFailed=${excludedRepeatFailed}`);
+
                 if (!Array.isArray(envelopes) || envelopes.length === 0) {
                     summary.stopReason = 'QUEUE_DRAINED';
+                    if (rawCount === 0) {
+                        console.log('QUEUE_DRAINED_CLASS=A rawCount=0');
+                    } else {
+                        console.log('QUEUE_DRAINED_CLASS=B rawCount>0 parsedCount=0');
+                    }
                     break;
                 }
 
@@ -265,12 +293,16 @@ export class SurveyImportService {
                 console.log(`📥 [E2E_STEP 02/14] pending 조회: 완료 (${envelopes.length}건 수신, 누적 발견: ${summary.discovered}건)`);
 
                 // Safety 3: Prevent infinite loop on repeated failures
-                const unfailedItems = envelopes.filter(e => e?.submissionId && !failedSubmissionIdsInRun.has(e.submissionId));
                 if (unfailedItems.length === 0) {
                     summary.stopReason = 'FAILED_ITEM_LOOP_PREVENTED';
+                    console.log('QUEUE_DRAINED_CLASS=C parsedCount>0 filteredCount=0');
                     console.warn('⚠️ [DRAIN_LOOP] Only repeated failed submissions returned. Breaking drain loop.');
                     break;
                 }
+
+                const batchImportedBefore = summary.imported;
+                const batchQuarantinedBefore = summary.quarantined;
+                const batchDuplicatesBefore = summary.duplicates;
 
                 // 2. Process each leased envelope atomically
                 for (const envelope of envelopes) {
@@ -740,6 +772,14 @@ export class SurveyImportService {
                     failedSubmissionIdsInRun.add(subId);
                 }
             }
+
+                const batchImported = summary.imported - batchImportedBefore;
+                const batchQuarantined = summary.quarantined - batchQuarantinedBefore;
+                const batchDuplicates = summary.duplicates - batchDuplicatesBefore;
+
+                if (batchImported === 0) {
+                    console.log(`POST_FILTER_NO_IMPORT filteredCount=${filteredCount} imported=0 quarantined=${batchQuarantined} duplicates=${batchDuplicates}`);
+                }
 
                 // If fewer envelopes were returned than requested, queue is drained
                 if (envelopes.length < currentBatchLimit) {

@@ -5,6 +5,7 @@
  * request-path sanitization, and credential-safe typed error mapping.
  */
 
+import crypto from 'crypto';
 import { TrackAIntegrationError } from './surveyErrors.js';
 import { TRACK_A_FAILURE_CATEGORIES } from './surveyConstants.js';
 
@@ -34,6 +35,7 @@ export class TrackAClient {
         this.timeoutMs = Number(config.timeoutMs) || 10000;
         this.defaultLeaseSeconds = Number(config.defaultLeaseSeconds) || 300;
         this.vercelBypassSecret = (config.vercelBypassSecret || process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '').trim();
+        this._authFingerprintLogged = false;
 
         // Security check: enforce HTTPS in production
         if (process.env.NODE_ENV === 'production' && !this.baseUrl.startsWith('https://')) {
@@ -52,7 +54,7 @@ export class TrackAClient {
         return encodeURIComponent(id);
     }
 
-    async _request(endpointPath, { method = 'GET', body = null, submissionId = null } = {}) {
+    async _request(endpointPath, { method = 'GET', body = null, submissionId = null, includeHttpMeta = false } = {}) {
         const url = `${this.baseUrl}${endpointPath}`;
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -108,6 +110,20 @@ export class TrackAClient {
                     submissionId,
                     details: { trackACode, statusCode: resp.status }
                 });
+            }
+
+            if (includeHttpMeta) {
+                const isObject = data && typeof data === 'object' && !Array.isArray(data);
+                const httpMeta = {
+                    httpStatus: resp.status,
+                    contentType,
+                    topLevelKeys: isObject ? Object.keys(data) : [],
+                    successField: typeof data?.success === 'boolean' ? data.success : undefined,
+                    countField: typeof data?.count === 'number' ? data.count : null,
+                    submissionsIsArray: Array.isArray(data?.submissions),
+                    rawSubmissionsLength: Array.isArray(data?.submissions) ? data.submissions.length : 0
+                };
+                return { data, httpMeta };
             }
 
             return data;
@@ -187,18 +203,32 @@ export class TrackAClient {
      * GET /api/v1/internal/submissions/pending?limit=<limit>&leaseSeconds=<leaseSeconds>
      */
     async leasePendingSubmissions({ limit = 50, leaseSeconds = this.defaultLeaseSeconds } = {}) {
+        if (!this._authFingerprintLogged && this.serviceSecret) {
+            const secretFp = crypto.createHash('sha256').update(this.serviceSecret).digest('hex').slice(0, 8);
+            console.log(`TRACK_A_AUTH_FINGERPRINT workerId=${this.workerId} secretFp=${secretFp}`);
+            this._authFingerprintLogged = true;
+        }
+
         const boundedLimit = Math.max(1, Math.min(100, Number(limit) || 50));
         const boundedLease = Math.max(30, Math.min(3600, Number(leaseSeconds) || this.defaultLeaseSeconds));
 
-        const data = await this._request(
-            `/api/v1/internal/submissions/pending?limit=${boundedLimit}&leaseSeconds=${boundedLease}`,
-            { method: 'GET' }
+        const endpointPath = `/api/v1/internal/submissions/pending?limit=${boundedLimit}&leaseSeconds=${boundedLease}`;
+        const { data, httpMeta } = await this._request(
+            endpointPath,
+            { method: 'GET', includeHttpMeta: true }
         );
+
+        const submissions = Array.isArray(data?.submissions) ? data.submissions : [];
+        const count = data?.count || (Array.isArray(data?.submissions) ? data.submissions.length : 0);
+        const keysStr = Array.isArray(httpMeta?.topLevelKeys) ? httpMeta.topLevelKeys.join(',') : '';
+
+        console.log(`TRACK_A_PENDING_HTTP status=${httpMeta.httpStatus} contentType=${httpMeta.contentType} keys=${keysStr} success=${httpMeta.successField} count=${httpMeta.countField !== null ? httpMeta.countField : 'null'} submissionsIsArray=${httpMeta.submissionsIsArray} rawCount=${httpMeta.rawSubmissionsLength} parsedCount=${submissions.length} endpoint=/api/v1/internal/submissions/pending workerId=${this.workerId} limit=${boundedLimit} leaseSeconds=${boundedLease}`);
 
         return {
             success: Boolean(data?.success),
-            count: data?.count || (Array.isArray(data?.submissions) ? data.submissions.length : 0),
-            submissions: Array.isArray(data?.submissions) ? data.submissions : []
+            count,
+            submissions,
+            httpMeta
         };
     }
 
