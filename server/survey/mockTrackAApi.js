@@ -173,7 +173,7 @@ export class MockTrackAApi {
                     consentedAt: nowIso,
                     transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'severity', 'responses', 'campaignCode']
                 },
-                retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+                retention: { policy: 'standard_counseling_1yr' }
             }
         });
 
@@ -216,7 +216,7 @@ export class MockTrackAApi {
                     consentedAt: nowIso,
                     transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'severity', 'responses']
                 },
-                retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+                retention: { policy: 'standard_counseling_1yr' }
             }
         });
 
@@ -259,7 +259,7 @@ export class MockTrackAApi {
                     consentedAt: nowIso,
                     transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'meanScore', 'severity', 'scaleScores', 'responses']
                 },
-                retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+                retention: { policy: 'standard_counseling_1yr' }
             }
         });
 
@@ -290,7 +290,7 @@ export class MockTrackAApi {
                     consentedAt: nowIso,
                     transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText']
                 },
-                retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+                retention: { policy: 'standard_counseling_1yr' }
             }
         });
 
@@ -322,9 +322,9 @@ export class MockTrackAApi {
                     personalInfoConsent: true,
                     sensitiveInfoConsent: true,
                     consentedAt: nowIso,
-                    transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'totalScore', 'severity']
+                    transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'severity']
                 },
-                retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+                retention: { policy: 'standard_counseling_1yr' }
             }
         });
 
@@ -367,7 +367,7 @@ export class MockTrackAApi {
                     consentedAt: nowIso,
                     transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'severity', 'responses']
                 },
-                retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+                retention: { policy: 'standard_counseling_1yr' }
             }
         });
 
@@ -411,7 +411,7 @@ export class MockTrackAApi {
                     consentedAt: nowIso,
                     transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'severity', 'responses']
                 },
-                retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+                retention: { policy: 'standard_counseling_1yr' }
             }
         });
 
@@ -454,7 +454,7 @@ export class MockTrackAApi {
                     consentedAt: nowIso,
                     transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'severity', 'responses']
                 },
-                retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+                retention: { policy: 'standard_counseling_1yr' }
             }
         });
 
@@ -497,7 +497,7 @@ export class MockTrackAApi {
                     consentedAt: nowIso,
                     transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'meanScore', 'severity', 'scaleScores', 'responses']
                 },
-                retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+                retention: { policy: 'standard_counseling_1yr' }
             }
         });
 
@@ -539,7 +539,7 @@ export class MockTrackAApi {
                     consentedAt: nowIso,
                     transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'severity', 'responses']
                 },
-                retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+                retention: { policy: 'standard_counseling_1yr' }
             }
         });
     }
@@ -691,7 +691,7 @@ export class MockTrackAApi {
                             'scoringPolicyId', 'scaleScores'
                         ]
                     },
-                    retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+                    retention: { policy: 'standard_counseling_1yr' }
                 }
             });
         }
@@ -735,7 +735,7 @@ export class MockTrackAApi {
                     consentedAt: nowIso,
                     transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'severity', 'responses']
                 },
-                retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+                retention: { policy: 'standard_counseling_1yr' }
             }
         });
     }
@@ -1047,7 +1047,7 @@ export class MockTrackAApi {
                     consentedAt: nowIso,
                     transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'severity', 'responses', 'campaignCode']
                 },
-                retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+                retention: { policy: 'standard_counseling_1yr' }
             }
         });
     }
@@ -1091,7 +1091,7 @@ export class MockTrackAApi {
                     consentedAt: nowIso,
                     transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'severity', 'responses']
                 },
-                retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+                retention: { policy: 'standard_counseling_1yr' }
             }
         });
     }

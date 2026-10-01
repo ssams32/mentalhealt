@@ -5,6 +5,27 @@ import {
     IspDetailLevel
 } from '../components/caseAnalysis/types';
 
+type SessionExpiredHandler = () => void;
+let sessionExpiredHandler: SessionExpiredHandler | null = null;
+let isSessionExpiredNotified = false;
+
+export function registerSessionExpiredHandler(handler: SessionExpiredHandler) {
+    sessionExpiredHandler = handler;
+}
+
+export function notifySessionExpired() {
+    if (!isSessionExpiredNotified) {
+        isSessionExpiredNotified = true;
+        if (sessionExpiredHandler) {
+            sessionExpiredHandler();
+        }
+    }
+}
+
+export function resetSessionExpiredGuard() {
+    isSessionExpiredNotified = false;
+}
+
 /**
  * [ApiClient]
  * GAS 레거시를 탈피하고 시놀로지 나스(Port 8888) REST API와 직접 통신하는 현대적인 통신 모듈입니다.
@@ -87,6 +108,13 @@ class ApiClient {
             }
 
             if (!response.ok) {
+                if (response.status === 401) {
+                    const isAuthBypassUrl = url === '/auth/login' || url === '/auth/logout' || url === '/auth/me';
+                    if (!isAuthBypassUrl) {
+                        notifySessionExpired();
+                    }
+                }
+
                 let errorBody: any = null;
                 try {
                     errorBody = await response.json();
