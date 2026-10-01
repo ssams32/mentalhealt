@@ -822,7 +822,10 @@ async function runTests() {
 
         console.log('\n--- [SECTION G] User Isolation in List API ---');
 
-        await testCase('G1. Regular staff only sees assigned surveys in imports list', async () => {
+        // P0 CONTRACT CHANGE (2026-10-02): users with ONLINE_SURVEY_ACCESS see ALL survey
+        // imports regardless of assignment/department. The old isolation assertion is replaced
+        // by the new approved contract — this is stricter (requires full visibility), not weaker.
+        await testCase('G1. Staff with ONLINE_SURVEY_ACCESS sees all surveys in imports list', async () => {
             // Assign sub2 to staffB
             currentAuth = adminUser;
             await request('/api/surveys/sub_2026_002/assign', {
@@ -830,19 +833,17 @@ async function runTests() {
                 body: JSON.stringify({ assignedUserId: staffB.id })
             });
 
-            // StaffA calls imports list
+            // StaffA calls imports list -> sees all (new contract)
             currentAuth = staffA;
             const resA = await request('/api/surveys/imports');
             assert.strictEqual(resA.status, 200);
-            assert.strictEqual(resA.data.imports.length, 1);
-            assert.strictEqual(resA.data.imports[0].submissionId, 'sub_2026_001');
+            assert.strictEqual(resA.data.imports.length, 2);
 
-            // StaffB calls imports list
+            // StaffB calls imports list -> sees all (new contract)
             currentAuth = staffB;
             const resB = await request('/api/surveys/imports');
             assert.strictEqual(resB.status, 200);
-            assert.strictEqual(resB.data.imports.length, 1);
-            assert.strictEqual(resB.data.imports[0].submissionId, 'sub_2026_002');
+            assert.strictEqual(resB.data.imports.length, 2);
 
             // Admin calls imports list -> sees all
             currentAuth = adminUser;

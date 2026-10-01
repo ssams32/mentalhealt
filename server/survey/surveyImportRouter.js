@@ -425,19 +425,11 @@ export function createSurveyImportRouter(deps = {}) {
             const campaignMap = new Map(campaigns.map(c => [c.code.toUpperCase(), c]));
 
             const currentUserId = String(req.auth?.id || req.auth?.userId || '');
-            const role = (req.auth?.role || req.auth?.userRole || 'user').toLowerCase();
-            const isAdmin = role === 'admin';
 
             // Base list from ledger
             let baseList = [...ledger];
 
-            // 1. User isolation: Regular staff can only access submissions assigned to themselves
-            if (!isAdmin) {
-                baseList = baseList.filter(item => {
-                    const sub = subMap.get(item.submissionId);
-                    return sub && String(sub.assignedUserId) === currentUserId;
-                });
-            }
+            // Visibility is governed by requireSurveyImportPermission (hasOnlineSurveyAccess) — no assignment-based isolation.
 
             // 2. Canonical Date Range Filter
             // DATE_FILTER_CANONICAL_FIELD: importedAt || receivedAt
@@ -1439,17 +1431,6 @@ export function createSurveyImportRouter(deps = {}) {
             const submission = surveyRepository.findSubmissionById(id);
 
             if (!submission) {
-                return res.status(404).json({
-                    error: { code: 'NOT_FOUND', message: '해당 설문 제출 건을 찾을 수 없습니다.' }
-                });
-            }
-
-            const role = (req.auth?.role || req.auth?.userRole || 'user').toLowerCase();
-            const isAdmin = role === 'admin';
-            const currentUserId = String(req.auth?.id || req.auth?.userId || '');
-
-            // Non-admin can only access records assigned to themselves
-            if (!isAdmin && (!submission.assignedUserId || String(submission.assignedUserId) !== currentUserId)) {
                 return res.status(404).json({
                     error: { code: 'NOT_FOUND', message: '해당 설문 제출 건을 찾을 수 없습니다.' }
                 });
