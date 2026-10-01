@@ -274,7 +274,11 @@ const TEAM_CODES = {
     '기획홍보팀': 'GH',
     '아동청소년팀': 'AD',
     '위기관리팀': 'WG',
-    '남부분소': 'NB'
+    '남부분소': 'NB',
+    '증진팀': 'JJ',
+    '회복팀': 'HB',
+    '자살예방센터': 'JY',
+    '아동청소년': 'AC'
 };
 
 // Helper: Create a backup of a file before overwriting
@@ -318,8 +322,6 @@ const persistData = async (filename, data) => {
         }
     }
 
-    memoryCache[filename] = data;
-
     if (!fileLocks[filename]) {
         fileLocks[filename] = Promise.resolve();
     }
@@ -340,6 +342,7 @@ const persistData = async (filename, data) => {
                 if (!written || written.length === 0) throw new Error("Empty file write detected");
                 JSON.parse(written); // verify JSON integrity
                 await fs.promises.rename(tempPath, filePath);
+                memoryCache[filename] = data;
                 return true;
             } catch (e) {
                 lastErr = e;
@@ -1252,9 +1255,6 @@ app.get('/api/referrals', requireAuth, (req, res) => {
         const canSelectAllTeams = role === 'admin' || (role === 'manager' && user?.permissions?.referrals?.read !== false);
 
         let effectiveTeam = team;
-        if (!canSelectAllTeams && userTeam) {
-            effectiveTeam = userTeam;
-        }
 
         if (effectiveTeam && effectiveTeam !== 'all') {
             referrals = referrals.filter(r => {
@@ -1616,6 +1616,19 @@ app.post('/api/referrals', requireAuth, async (req, res) => {
 
         const referrals = getData('Referrals', []);
 
+        // Reject duplicate client-provided referralId (Point D)
+        if (req.body.referralId) {
+            const duplicateReferralId = referrals.find(r => r && r.referralId === req.body.referralId);
+            if (duplicateReferralId) {
+                return res.status(409).json({
+                    success: false,
+                    code: 'DUPLICATE_REFERRAL_ID',
+                    error: '이미 존재하는 의뢰 ID(referralId)입니다.',
+                    data: { referralId: duplicateReferralId.referralId, refNo: duplicateReferralId.refNo }
+                });
+            }
+        }
+
         // Online Survey Link Validation & Guards
         let linkedSubmission = null;
         if (req.body.sourceSubmissionId || req.body.sourceSurveyId) {
@@ -1770,7 +1783,13 @@ app.post('/api/referrals', requireAuth, async (req, res) => {
         };
 
         referrals.push(newReferral);
-        await persistData('Referrals', referrals);
+        try {
+            await persistData('Referrals', referrals);
+        } catch (saveErr) {
+            const rollbackIdx = referrals.findIndex(r => r && r.referralId === referralId);
+            if (rollbackIdx !== -1) referrals.splice(rollbackIdx, 1);
+            throw saveErr;
+        }
 
         // Update Survey Record Link & Emit Audit Event
         if (linkedSubmission) {
