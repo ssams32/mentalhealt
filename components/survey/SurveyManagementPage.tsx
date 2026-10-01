@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { User, SurveyImportItem, SurveyStatusSummary, Attachment } from '../../types';
-import { apiClient } from '../../services/apiClient';
+import { apiClient, buildCampaignDistributionUrl, getCampaignLabelInfo } from '../../services/apiClient';
 import FilePreviewModal from '../common/FilePreviewModal';
 import SurveyCharts from './SurveyCharts';
 import {
@@ -52,14 +52,58 @@ import {
     UserMinus,
     Layers,
     Users,
-    Maximize2
+    Maximize2,
+    Copy,
+    Plus,
+    Edit2,
+    Building2
 } from 'lucide-react';
 import { formatKstDateTime, getKstPresetDateStrings } from '../../server/survey/kstUtils.js';
+
+declare module '../../types' {
+    interface SurveyImportItem {
+        refNo?: string | null;
+        referralId?: string | null;
+        referralStatus?: string | null;
+        closureStatus?: string | null;
+        submittedAt?: string | null;
+        retentionUntil?: string | null;
+        counselingRequestText?: string | null;
+        contactOnly?: boolean;
+        meanScore?: number | null;
+        campaignCode?: string | null;
+        campaignName?: string | null;
+        campaignPurpose?: string | null;
+        campaignRegistrationStatus?: 'REGISTERED' | 'UNREGISTERED' | 'ABSENT' | string | null;
+    }
+}
+
+export interface SurveyCampaignItem {
+    code: string;
+    companyName: string;
+    purpose: string | null;
+    startsAt: string | null;
+    endsAt: string | null;
+    isActive: boolean;
+    isRegistered: boolean;
+    campaignRegistrationStatus: 'REGISTERED' | 'UNREGISTERED';
+    receivedCount: number;
+    pendingReviewCount: number;
+    registeredReferralCount: number;
+    completedCount: number;
+    counts?: {
+        receivedCount: number;
+        pendingReviewCount: number;
+        registeredReferralCount: number;
+        completedCount: number;
+    };
+}
 
 interface SurveyManagementPageProps {
     currentUser: User;
     onNavigateToReferrals?: (initialData?: any) => void;
     showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+    refreshSidebarBadge?: () => void;
 }
 
 interface AssignableStaff {
@@ -77,7 +121,8 @@ type FilterTab = 'all' | 'consultation_requested' | 'screening_only' | 'addition
 export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     currentUser,
     onNavigateToReferrals,
-    showToast
+    showToast,
+    refreshSidebarBadge
 }) => {
     // --- State: Core Data ---
     const [imports, setImports] = useState<SurveyImportItem[]>([]);
@@ -137,6 +182,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     const [sortBy, setSortBy] = useState<string>('latest');
     const [staffFilter, setStaffFilter] = useState<string>('all');
     const [quickStatusFilter, setQuickStatusFilter] = useState<string>('all');
+    const [campaignFilter, setCampaignFilter] = useState<string>('all');
+    const [campaignsList, setCampaignsList] = useState<SurveyCampaignItem[]>([]);
 
     // --- State: Individual & Bulk Selection (In-Memory React State Only - Zero PII / No localStorage / No URL) ---
     const [selectedSubmissionIds, setSelectedSubmissionIds] = useState<Set<string>>(new Set());
@@ -194,9 +241,25 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         assignmentPriority: 'all',
         consultationStatus: 'all',
         startDate: '',
-        endDate: ''
+        endDate: '',
+        campaignCode: 'all'
     });
     const [isExporting, setIsExporting] = useState<boolean>(false);
+
+    // 4b. Campaign Management Modal (Admin Only)
+    const [isCampaignModalOpen, setIsCampaignModalOpen] = useState<boolean>(false);
+    const [campaignFormMode, setCampaignFormMode] = useState<'create' | 'edit'>('create');
+    const [campaignFormData, setCampaignFormData] = useState({
+        code: '',
+        companyName: '',
+        purpose: '',
+        startsAt: '',
+        endsAt: '',
+        isActive: true
+    });
+    const [campaignFormError, setCampaignFormError] = useState<string>('');
+    const [isSavingCampaign, setIsSavingCampaign] = useState<boolean>(false);
+    const [copyFeedbackCode, setCopyFeedbackCode] = useState<string | null>(null);
 
     // 5. File Preview Modal
     const [previewFile, setPreviewFile] = useState<Attachment | null>(null);
@@ -229,7 +292,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     const loadData = useCallback(async (preserveSelectionId?: string | null) => {
         try {
             setLoading(true);
-            const [statusRes, importsRes, staffRes, syncRes] = await Promise.all([
+            const [statusRes, importsRes, staffRes, syncRes, campaignsRes] = await Promise.all([
                 apiClient.getSurveyStatus(),
                 apiClient.getSurveyImports({
                     fromDate: appliedDateFrom || undefined,
@@ -237,10 +300,12 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     sortBy,
                     statusFilter: quickStatusFilter !== 'all' ? quickStatusFilter : undefined,
                     staffFilter: staffFilter !== 'all' ? staffFilter : undefined,
+                    campaignFilter: campaignFilter !== 'all' ? campaignFilter : undefined,
                     q: searchQuery || undefined
                 }),
                 apiClient.getSurveyAssignableStaff().catch(() => ({ staff: [] })),
-                apiClient.getSurveySyncStatus().catch(() => null)
+                apiClient.getSurveySyncStatus().catch(() => null),
+                apiClient.getSurveyCampaigns().catch(() => ({ campaigns: [] }))
             ]);
             setStatusSummary(statusRes);
             const list = importsRes?.imports || [];
@@ -248,6 +313,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             setAssignableStaff(staffRes?.staff || []);
             if (syncRes && syncRes.success) {
                 setAutoSyncStatus(syncRes);
+            }
+            if (campaignsRes && Array.isArray(campaignsRes.campaigns)) {
+                setCampaignsList(campaignsRes.campaigns);
             }
 
             // Set initial selected submission
@@ -266,11 +334,11 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         } finally {
             setLoading(false);
         }
-    }, [appliedDateFrom, appliedDateTo, sortBy, quickStatusFilter, staffFilter, searchQuery, selectedSubmissionId, showToast]);
+    }, [appliedDateFrom, appliedDateTo, sortBy, quickStatusFilter, staffFilter, campaignFilter, searchQuery, selectedSubmissionId, showToast]);
 
     useEffect(() => {
         loadData();
-    }, [appliedDateFrom, appliedDateTo, sortBy, quickStatusFilter, staffFilter]);
+    }, [appliedDateFrom, appliedDateTo, sortBy, quickStatusFilter, staffFilter, campaignFilter]);
 
     // Load detailed data when selection changes
     useEffect(() => {
@@ -545,7 +613,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                 if (showToast) showToast('담당자 배정이 완료되었습니다.', 'success');
                 await loadData(currentSelectedItem.submissionId);
             } else {
-                throw new Error(res.error?.message || '배정에 실패했습니다.');
+                throw new Error((res as any).error?.message || (res as any).message || '배정에 실패했습니다.');
             }
         } catch (err: any) {
             const msg = err.message || '담당자 배정 중 오류가 발생했습니다.';
@@ -599,7 +667,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     };
 
     // --- Action: Individual & Bulk Selection Handlers ---
-    const toggleSelect = (subId: string, e?: React.MouseEvent) => {
+    const toggleSelect = (subId: string, e?: React.SyntheticEvent) => {
         if (e) e.stopPropagation();
         setSelectedSubmissionIds(prev => {
             const next = new Set(prev);
@@ -763,6 +831,50 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         }
     };
 
+    // --- Action: Staff Assignment Modal ---
+    const handleOpenAssignModal = (item: SurveyImportItem) => {
+        setAssignTargetItem(item);
+        setSelectedStaffId(item.assignedUserId || '');
+        setSelectedPriority((item.assignmentPriority as any) || 'NORMAL');
+        setAssignReason('');
+        setIsAssignModalOpen(true);
+    };
+
+    const handleConfirmAssign = async () => {
+        if (!assignTargetItem || !selectedStaffId) return;
+        try {
+            setIsAssigning(true);
+            const isReassign = Boolean(assignTargetItem.assignedUserId);
+            const staffObj = assignableStaff.find(s => s.id === selectedStaffId);
+            const payload = {
+                assignedUserId: selectedStaffId,
+                assignedDepartmentId: staffObj?.team || '',
+                assignmentPriority: selectedPriority,
+                expectedVersion: assignTargetItem.version,
+                reason: assignReason || (isReassign ? '담당자 재배정' : '담당자 최초 배정')
+            };
+
+            const res = isReassign
+                ? await apiClient.reassignSurveyStaff(assignTargetItem.submissionId, payload)
+                : await apiClient.assignSurveyStaff(assignTargetItem.submissionId, payload);
+
+            if (res.success) {
+                if (showToast) {
+                    showToast('담당자 배정이 완료되었습니다.', 'success');
+                }
+                setIsAssignModalOpen(false);
+                await loadData(assignTargetItem.submissionId);
+            }
+        } catch (err: any) {
+            const msg = err.code === 'CONCURRENCY_CONFLICT'
+                ? '다른 사용자가 이미 배정 상태를 변경했습니다. 새로고침 후 다시 시도해 주세요.'
+                : (err.message || '담당자 배정에 실패했습니다.');
+            if (showToast) showToast(msg, 'error');
+        } finally {
+            setIsAssigning(false);
+        }
+    };
+
     // --- Action: Status Update ---
     const handleOpenStatusModal = (item: SurveyImportItem) => {
         setAssignTargetItem(item);
@@ -811,7 +923,13 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     const handleExecuteExport = async () => {
         try {
             setIsExporting(true);
-            const { blob, filename } = await apiClient.downloadSurveyExport(exportFilters);
+            const filtersToPass: Record<string, string> = {
+                ...exportFilters,
+                campaignCode: exportFilters.campaignCode && exportFilters.campaignCode !== 'all'
+                    ? exportFilters.campaignCode
+                    : (campaignFilter !== 'all' ? campaignFilter : '')
+            };
+            const { blob, filename } = await apiClient.downloadSurveyExport(filtersToPass);
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -827,6 +945,188 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         } finally {
             setIsExporting(false);
         }
+    };
+
+    // --- Action: Campaign Management (Admin Only) ---
+    const handleStartCreateCampaign = () => {
+        setCampaignFormMode('create');
+        setCampaignFormData({
+            code: '',
+            companyName: '',
+            purpose: '',
+            startsAt: '',
+            endsAt: '',
+            isActive: true
+        });
+        setCampaignFormError('');
+    };
+
+    const handleStartEditCampaign = (camp: SurveyCampaignItem) => {
+        setCampaignFormMode('edit');
+        setCampaignFormData({
+            code: camp.code,
+            companyName: camp.companyName || '',
+            purpose: camp.purpose || '',
+            startsAt: camp.startsAt ? camp.startsAt.slice(0, 10) : '',
+            endsAt: camp.endsAt ? camp.endsAt.slice(0, 10) : '',
+            isActive: camp.isActive
+        });
+        setCampaignFormError('');
+    };
+
+    const handleSubmitCampaignForm = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setCampaignFormError('');
+
+        if (campaignFormMode === 'create') {
+            const rawCode = campaignFormData.code.trim().toUpperCase();
+            if (!rawCode) {
+                setCampaignFormError('캠페인 코드를 입력해 주세요.');
+                return;
+            }
+            if (!/^[A-Z0-9_-]{2,32}$/.test(rawCode)) {
+                setCampaignFormError('캠페인 코드는 2~32자의 영문 대문자, 숫자, 하이픈(-), 밑줄(_)만 허용됩니다.');
+                return;
+            }
+        }
+
+        if (!campaignFormData.companyName.trim()) {
+            setCampaignFormError('회사명 또는 기관명을 입력해 주세요.');
+            return;
+        }
+
+        if (!campaignFormData.purpose.trim()) {
+            setCampaignFormError('운영 목적을 입력해 주세요.');
+            return;
+        }
+
+        if (campaignFormData.startsAt && campaignFormData.endsAt && campaignFormData.startsAt > campaignFormData.endsAt) {
+            setCampaignFormError('시작일은 종료일보다 이전이어야 합니다.');
+            return;
+        }
+
+        try {
+            setIsSavingCampaign(true);
+            if (campaignFormMode === 'create') {
+                await apiClient.createSurveyCampaign({
+                    code: campaignFormData.code.trim().toUpperCase(),
+                    companyName: campaignFormData.companyName.trim(),
+                    purpose: campaignFormData.purpose.trim(),
+                    startsAt: campaignFormData.startsAt || null,
+                    endsAt: campaignFormData.endsAt || null,
+                    isActive: campaignFormData.isActive
+                });
+                if (showToast) showToast('신규 캠페인이 등록되었습니다.', 'success');
+            } else {
+                await apiClient.updateSurveyCampaign(campaignFormData.code, {
+                    companyName: campaignFormData.companyName.trim(),
+                    purpose: campaignFormData.purpose.trim(),
+                    startsAt: campaignFormData.startsAt || null,
+                    endsAt: campaignFormData.endsAt || null,
+                    isActive: campaignFormData.isActive
+                });
+                if (showToast) showToast('캠페인 정보가 수정되었습니다.', 'success');
+            }
+
+            const campRes = await apiClient.getSurveyCampaigns().catch(() => ({ campaigns: [] }));
+            setCampaignsList(campRes?.campaigns || []);
+            await loadData(selectedSubmissionId);
+            handleStartCreateCampaign();
+        } catch (err: any) {
+            const msg = err.status === 409 || err.message?.includes('이미 등록된') || err.message?.includes('CONFLICT')
+                ? '이미 존재하는 캠페인 코드입니다. 다른 코드를 사용해 주세요.'
+                : (err.message || '캠페인 저장 중 오류가 발생했습니다.');
+            setCampaignFormError(msg);
+            if (showToast) showToast(msg, 'error');
+        } finally {
+            setIsSavingCampaign(false);
+        }
+    };
+
+    const handleToggleCampaignActive = async (camp: SurveyCampaignItem) => {
+        try {
+            const newActive = !camp.isActive;
+            await apiClient.updateSurveyCampaign(camp.code, {
+                isActive: newActive
+            });
+            if (showToast) {
+                showToast(`'${camp.companyName || camp.code}' 캠페인이 ${newActive ? '활성화' : '비활성화'}되었습니다.`, 'success');
+            }
+            const campRes = await apiClient.getSurveyCampaigns().catch(() => ({ campaigns: [] }));
+            setCampaignsList(campRes?.campaigns || []);
+            await loadData(selectedSubmissionId);
+        } catch (err: any) {
+            if (showToast) showToast(err.message || '캠페인 상태 변경에 실패했습니다.', 'error');
+        }
+    };
+
+    const handleCopyCampaignLink = async (campaign: SurveyCampaignItem) => {
+        if (!campaign.isActive) {
+            const proceed = window.confirm(
+                `[주의] '${campaign.companyName || campaign.code}' 캠페인은 현재 비활성 상태입니다.\n비활성 캠페인은 참여자가 설문을 제출할 수 없습니다. 계속 링크를 복사하시겠습니까?`
+            );
+            if (!proceed) return;
+        }
+
+        const url = buildCampaignDistributionUrl(campaign.code);
+        if (!url) {
+            if (showToast) showToast('유효하지 않은 캠페인 코드입니다.', 'error');
+            return;
+        }
+
+        try {
+            if (navigator?.clipboard?.writeText) {
+                await navigator.clipboard.writeText(url);
+            } else {
+                const textArea = document.createElement('textarea');
+                textArea.value = url;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                textArea.remove();
+            }
+            setCopyFeedbackCode(campaign.code);
+            setTimeout(() => setCopyFeedbackCode(null), 3000);
+            if (showToast) {
+                showToast(`[${campaign.code}] 배포 링크가 클립보드에 복사되었습니다.`, 'success');
+            }
+        } catch (err: any) {
+            if (showToast) showToast('링크 복사에 실패했습니다.', 'error');
+        }
+    };
+
+    const renderCampaignBadge = (item: SurveyImportItem) => {
+        const info = getCampaignLabelInfo(item);
+        if (info.type === 'unspecified') {
+            return (
+                <span
+                    className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200"
+                    title="캠페인 미지정 (일반 접수)"
+                >
+                    미지정
+                </span>
+            );
+        }
+        if (info.type === 'unregistered') {
+            return (
+                <span
+                    className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-300 flex items-center gap-1"
+                    title={`미등록 캠페인 코드: ${info.code || ''}`}
+                >
+                    <AlertTriangle className="w-2.5 h-2.5 text-rose-500" />
+                    미등록 캠페인
+                </span>
+            );
+        }
+        return (
+            <span
+                className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1 max-w-[150px] truncate"
+                title={`캠페인: ${info.label} (${info.code})`}
+            >
+                <Building2 className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
+                <span className="truncate">{info.label}</span>
+            </span>
+        );
     };
 
     // --- Action: Admin Purge Demo Data ---
@@ -859,7 +1159,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             setIsPurging(true);
             const res = await apiClient.purgeDemoSurveys(purgeReason, purgeConfirmationPhrase);
             if (showToast) {
-                showToast(`더미 데이터 ${res.purgedCount || 0}건이 안전하게 정리되었습니다.`, 'success');
+                showToast(`더미 데이터 ${(res as any).purgedCount || (res as any).result?.purgedCount || 0}건이 안전하게 정리되었습니다.`, 'success');
             }
             setIsPurgeDemoModalOpen(false);
             await loadData(null);
@@ -1027,8 +1327,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
         // 보관 건수 통계 (누적 / 현재 보관 / 삭제)
         const currentStoredCount = uniqueSubIds.length;
-        const cumulativeProcessed = statusSummary?.statistics?.cumulativeProcessed ?? (statusSummary?.totalImports || totalScreeningCompleted);
-        const deletedCount = statusSummary?.statistics?.deletedCount ?? 0;
+        const cumulativeProcessed = (statusSummary as any)?.statistics?.cumulativeProcessed ?? (statusSummary?.totalImports || totalScreeningCompleted);
+        const deletedCount = (statusSummary as any)?.statistics?.deletedCount ?? 0;
 
         return {
             totalScreeningCompleted,
@@ -1104,7 +1404,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                 const matchRegion = (item.region || '').toLowerCase().includes(q);
                 const matchScale = (item.assessmentId || '').toLowerCase().includes(q);
                 const matchAssignee = (item.assignedUserId || '').toLowerCase().includes(q);
-                return matchName || matchPhone || matchSubId || matchRefNo || matchRegion || matchScale || matchAssignee;
+                const matchCampaign = (item.campaignCode || '').toLowerCase().includes(q) || (item.campaignName || '').toLowerCase().includes(q);
+                return matchName || matchPhone || matchSubId || matchRefNo || matchRegion || matchScale || matchAssignee || matchCampaign;
             }
 
             return true;
@@ -1415,7 +1716,10 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     )}
 
                     <button
-                        onClick={() => setIsExportModalOpen(true)}
+                        onClick={() => {
+                            setExportFilters(f => ({ ...f, campaignCode: campaignFilter }));
+                            setIsExportModalOpen(true);
+                        }}
                         className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl shadow-sm hover:shadow transition"
                         title="현재 조회된 설문 데이터를 안전한 엑셀 파일로 다운로드합니다"
                     >
@@ -1794,6 +2098,56 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                             </div>
                         </div>
 
+                        {/* Row 3: Campaign Filter & Admin Campaign Management */}
+                        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-slate-100">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5 shrink-0">
+                                    <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+                                    캠페인:
+                                </span>
+                                <select
+                                    value={campaignFilter}
+                                    onChange={e => setCampaignFilter(e.target.value)}
+                                    className="px-2.5 py-1 text-xs font-semibold border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none cursor-pointer max-w-[280px] sm:max-w-[360px]"
+                                    aria-label="캠페인 필터 선택"
+                                >
+                                    <option value="all">전체 (미지정 포함)</option>
+                                    <option value="unspecified">미지정 (일반 접수)</option>
+                                    {campaignsList.map(camp => (
+                                        <option key={camp.code} value={camp.code}>
+                                            {camp.companyName || camp.code} {camp.purpose ? `— ${camp.purpose}` : ''} [{camp.code}] {!camp.isActive ? '(비활성)' : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                                {campaignFilter !== 'all' && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setCampaignFilter('all')}
+                                        className="px-2 py-0.5 text-[11px] font-bold text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+                                    >
+                                        초기화
+                                    </button>
+                                )}
+                            </div>
+
+                            {currentUser.role === 'admin' && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        handleStartCreateCampaign();
+                                        setIsCampaignModalOpen(true);
+                                    }}
+                                    className="px-3 py-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition flex items-center gap-1.5 shadow-2xs shrink-0"
+                                >
+                                    <Building2 className="w-3.5 h-3.5" />
+                                    <span>캠페인 관리</span>
+                                    <span className="px-1.5 py-0.2 bg-indigo-200/70 text-indigo-800 rounded-full text-[10px] font-black">
+                                        {campaignsList.length}
+                                    </span>
+                                </button>
+                            )}
+                        </div>
+
                         {dateError && (
                             <div className="text-xs font-bold text-rose-600 mt-1 flex items-center gap-1">
                                 <AlertCircle className="w-3.5 h-3.5" />
@@ -2018,6 +2372,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     </div>
                                                     <div className="flex items-center gap-1.5 flex-wrap justify-end">
                                                         {renderFixtureBadge(item)}
+                                                        {renderCampaignBadge(item)}
                                                         {renderRequestTypeBadge(item)}
                                                         {renderTransferStatusBadge(item)}
                                                         {renderStatusBadge(item.consultationStatus, item.isSbqrQuarantined)}
@@ -2398,6 +2753,25 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 </div>
                                             </div>
 
+                                            {/* Campaign Info Box */}
+                                            <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-100 mb-3 flex items-center justify-between">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                                                    <div className="truncate">
+                                                        <span className="text-[10px] font-bold text-slate-500 block">유입 캠페인</span>
+                                                        <span className="text-xs font-bold text-slate-800">
+                                                            {currentSelectedItem.campaignName || (currentSelectedItem.campaignCode ? `코드: ${currentSelectedItem.campaignCode}` : '미지정 (일반 접수)')}
+                                                        </span>
+                                                        {currentSelectedItem.campaignPurpose && (
+                                                            <span className="text-[10px] text-slate-500 ml-1.5 font-normal">({currentSelectedItem.campaignPurpose})</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="shrink-0 ml-2">
+                                                    {renderCampaignBadge(currentSelectedItem)}
+                                                </div>
+                                            </div>
+
                                             {/* Counseling Note Text */}
                                             <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200/80 mb-3">
                                                 <span className="text-xs font-bold text-slate-600 block mb-1.5 flex items-center gap-1.5">
@@ -2675,17 +3049,17 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
                                                             currentSelectedItem.hasReport
                                                                 ? 'bg-emerald-100 text-emerald-800'
-                                                                : (currentSelectedItem.internalStatus === 'IMPORT_FAILED' || currentSelectedItem.lastErrorCode)
+                                                                : ((currentSelectedItem.internalStatus as any) === 'IMPORT_FAILED' || currentSelectedItem.lastErrorCode)
                                                                     ? 'bg-rose-100 text-rose-800'
-                                                                    : (currentSelectedItem.internalStatus === 'IMPORTING' || currentSelectedItem.internalStatus === 'LEASED')
+                                                                    : ((currentSelectedItem.internalStatus as any) === 'IMPORTING' || (currentSelectedItem.internalStatus as any) === 'LEASED')
                                                                         ? 'bg-amber-100 text-amber-800'
                                                                         : 'bg-slate-100 text-slate-600'
                                                         }`}>
                                                             {currentSelectedItem.hasReport
                                                                 ? '리포트 준비 완료'
-                                                                : (currentSelectedItem.internalStatus === 'IMPORT_FAILED' || currentSelectedItem.lastErrorCode)
+                                                                : ((currentSelectedItem.internalStatus as any) === 'IMPORT_FAILED' || currentSelectedItem.lastErrorCode)
                                                                     ? '리포트 생성 실패'
-                                                                    : (currentSelectedItem.internalStatus === 'IMPORTING' || currentSelectedItem.internalStatus === 'LEASED')
+                                                                    : ((currentSelectedItem.internalStatus as any) === 'IMPORTING' || (currentSelectedItem.internalStatus as any) === 'LEASED')
                                                                         ? '리포트 생성 중'
                                                                         : '첨부파일 없음'
                                                             }
@@ -2712,7 +3086,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                             id: `att_${currentSelectedItem.submissionId}`,
                                                             name: currentSelectedItem.reportAttachment?.name || '온라인 마음건강 검진 결과보고서.pdf',
                                                             type: 'application/pdf',
-                                                            url: reportUrl
+                                                            url: reportUrl,
+                                                            size: 0,
+                                                            uploadedAt: new Date().toISOString()
                                                         });
                                                     }}
                                                     className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow transition flex items-center justify-center gap-2 active:scale-95"
@@ -3178,6 +3554,32 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         </div>
                                     </div>
 
+                                    {/* Campaign Info Card in Large Modal */}
+                                    <div className="bg-indigo-50/50 rounded-2xl border border-indigo-100 p-4 flex items-center justify-between flex-wrap gap-2">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl">
+                                                <Building2 className="w-5 h-5" />
+                                            </div>
+                                            <div>
+                                                <span className="text-[11px] font-bold text-slate-500 block">유입 캠페인 정보</span>
+                                                <div className="text-sm font-black text-slate-900 flex items-center gap-2">
+                                                    <span>{currentSelectedItem.campaignName || (currentSelectedItem.campaignCode ? `코드: ${currentSelectedItem.campaignCode}` : '캠페인 미지정 (일반 접수)')}</span>
+                                                    {currentSelectedItem.campaignCode && (
+                                                        <span className="text-xs font-mono font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-md">
+                                                            {currentSelectedItem.campaignCode}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {currentSelectedItem.campaignPurpose && (
+                                                    <p className="text-xs text-slate-600 mt-0.5 font-medium">{currentSelectedItem.campaignPurpose}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            {renderCampaignBadge(currentSelectedItem)}
+                                        </div>
+                                    </div>
+
                                     {/* Counseling Note Text */}
                                     <div className="bg-slate-50/70 rounded-2xl border border-slate-200 p-5">
                                         <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-2">
@@ -3398,7 +3800,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     id: `att_${currentSelectedItem.submissionId}`,
                                                     name: currentSelectedItem.reportAttachment?.name || '온라인 마음건강 검진 결과보고서.pdf',
                                                     type: 'application/pdf',
-                                                    url: reportUrl
+                                                    url: reportUrl,
+                                                    size: 0,
+                                                    uploadedAt: new Date().toISOString()
                                                 });
                                             }}
                                             className="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-md hover:shadow transition flex items-center gap-2 shrink-0 min-h-[44px]"
@@ -3877,6 +4281,23 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                         <div className="mt-4 space-y-3.5 text-xs">
                             <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-emerald-900">
                                 <strong>CWE-1236 수식 삽입 방어 적용:</strong> 모든 위험 기호(=, +, -, @)는 안전하게 이스케이프 처리되며 감사 로그가 자동으로 기록됩니다.
+                            </div>
+
+                            <div>
+                                <label className="block font-bold text-slate-700 mb-1">캠페인 필터</label>
+                                <select
+                                    value={exportFilters.campaignCode}
+                                    onChange={e => setExportFilters(f => ({ ...f, campaignCode: e.target.value }))}
+                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium"
+                                >
+                                    <option value="all">전체 (미지정 포함)</option>
+                                    <option value="unspecified">미지정 (일반 접수)</option>
+                                    {campaignsList.map(camp => (
+                                        <option key={camp.code} value={camp.code}>
+                                            {camp.companyName || camp.code} {camp.purpose ? `— ${camp.purpose}` : ''} [{camp.code}]
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
 
                             <div>
@@ -4380,6 +4801,358 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                 </button>
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* 8. Admin Campaign Management Modal */}
+            {currentUser.role === 'admin' && isCampaignModalOpen && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="campaign-modal-title"
+                    className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150 overflow-y-auto"
+                >
+                    <div className="bg-white rounded-3xl max-w-4xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150 text-left my-auto max-h-[90vh] flex flex-col">
+                        {/* Modal Header */}
+                        <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
+                            <div className="flex items-center gap-2.5">
+                                <div className="p-2.5 bg-indigo-100 text-indigo-700 rounded-2xl">
+                                    <Building2 className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <h3 id="campaign-modal-title" className="text-base font-black text-slate-900 flex items-center gap-2">
+                                        온라인 설문 캠페인 관리
+                                        <span className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full font-bold border border-indigo-200">
+                                            {campaignsList.length}개 운영 중
+                                        </span>
+                                    </h3>
+                                    <p className="text-[11px] text-slate-500 font-medium">
+                                        회사/기관별 고유 캠페인 코드를 생성하고 배포 링크를 관리합니다.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsCampaignModalOpen(false);
+                                    handleStartCreateCampaign();
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition"
+                                aria-label="닫기"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Modal Body - Scrollable */}
+                        <div className="py-4 space-y-5 overflow-y-auto custom-scrollbar flex-1 pr-1">
+                            {/* Campaign Create/Edit Form Box */}
+                            <div className="bg-slate-50/80 border border-slate-200/90 rounded-2xl p-4 sm:p-5">
+                                <div className="flex items-center justify-between mb-3">
+                                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                        {campaignFormMode === 'create' ? (
+                                            <>
+                                                <Plus className="w-4 h-4 text-indigo-600" />
+                                                신규 캠페인 등록
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Edit2 className="w-4 h-4 text-amber-600" />
+                                                캠페인 메타데이터 수정 (코드 변경 불가)
+                                            </>
+                                        )}
+                                    </h4>
+                                    {campaignFormMode === 'edit' && (
+                                        <button
+                                            type="button"
+                                            onClick={handleStartCreateCampaign}
+                                            className="text-xs font-bold text-slate-500 hover:text-slate-800 underline"
+                                        >
+                                            신규 등록 모드로 전환
+                                        </button>
+                                    )}
+                                </div>
+
+                                {campaignFormError && (
+                                    <div className="mb-3 p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs font-bold text-rose-700 flex items-center gap-2">
+                                        <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                                        <span>{campaignFormError}</span>
+                                    </div>
+                                )}
+
+                                <form onSubmit={handleSubmitCampaignForm} className="space-y-3">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        {/* Code Field */}
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-700 mb-1">
+                                                캠페인 코드 <span className="text-rose-500">*</span>
+                                                {campaignFormMode === 'edit' && (
+                                                    <span className="text-[10px] text-slate-400 font-normal ml-1">(수정 불가)</span>
+                                                )}
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={campaignFormData.code}
+                                                disabled={campaignFormMode === 'edit'}
+                                                onChange={e => setCampaignFormData(f => ({ ...f, code: e.target.value.toUpperCase() }))}
+                                                placeholder="예: SEC-2026, HY-HEALTH"
+                                                className={`w-full px-3 py-2 text-xs font-mono font-bold border rounded-xl focus:outline-none ${
+                                                    campaignFormMode === 'edit'
+                                                        ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed'
+                                                        : 'bg-white text-slate-800 border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+                                                }`}
+                                            />
+                                        </div>
+
+                                        {/* Company Name */}
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-700 mb-1">
+                                                회사 / 기관명 <span className="text-rose-500">*</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={campaignFormData.companyName}
+                                                onChange={e => setCampaignFormData(f => ({ ...f, companyName: e.target.value }))}
+                                                placeholder="예: 삼성전자 기흥사업장"
+                                                className="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-xl bg-white text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Purpose Field */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                                            운영 목적 <span className="text-rose-500">*</span>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={campaignFormData.purpose}
+                                            onChange={e => setCampaignFormData(f => ({ ...f, purpose: e.target.value }))}
+                                            placeholder="예: 2026 임직원 스트레스 검진 및 상담 연계"
+                                            className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-xl bg-white text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                                        />
+                                    </div>
+
+                                    {/* Dates & Active Checkbox */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-slate-600 mb-1">시작일 (선택)</label>
+                                            <input
+                                                type="date"
+                                                value={campaignFormData.startsAt}
+                                                onChange={e => setCampaignFormData(f => ({ ...f, startsAt: e.target.value }))}
+                                                className="w-full px-2.5 py-1.5 text-xs font-medium border border-slate-300 rounded-xl bg-white text-slate-800 focus:outline-none focus:border-indigo-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-slate-600 mb-1">종료일 (선택)</label>
+                                            <input
+                                                type="date"
+                                                value={campaignFormData.endsAt}
+                                                onChange={e => setCampaignFormData(f => ({ ...f, endsAt: e.target.value }))}
+                                                className="w-full px-2.5 py-1.5 text-xs font-medium border border-slate-300 rounded-xl bg-white text-slate-800 focus:outline-none focus:border-indigo-500"
+                                            />
+                                        </div>
+                                        <div className="flex items-center gap-2 pt-2">
+                                            <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer select-none">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={campaignFormData.isActive}
+                                                    onChange={e => setCampaignFormData(f => ({ ...f, isActive: e.target.checked }))}
+                                                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                                />
+                                                <span>캠페인 활성화</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-end gap-2 pt-2">
+                                        {campaignFormMode === 'edit' && (
+                                            <button
+                                                type="button"
+                                                onClick={handleStartCreateCampaign}
+                                                className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200/70 rounded-xl transition"
+                                            >
+                                                수정 취소
+                                            </button>
+                                        )}
+                                        <button
+                                            type="submit"
+                                            disabled={isSavingCampaign}
+                                            className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition disabled:opacity-50 flex items-center gap-1.5"
+                                        >
+                                            {isSavingCampaign ? (
+                                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                            ) : campaignFormMode === 'create' ? (
+                                                <Plus className="w-3.5 h-3.5" />
+                                            ) : (
+                                                <Check className="w-3.5 h-3.5" />
+                                            )}
+                                            <span>{campaignFormMode === 'create' ? '캠페인 생성' : '수정사항 저장'}</span>
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+
+                            {/* Campaign Table List */}
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                        <Layers className="w-4 h-4 text-slate-500" />
+                                        운영 및 접수 캠페인 목록
+                                    </h4>
+                                    <span className="text-[11px] text-slate-400 font-medium">
+                                        * 삭제 기능은 제공되지 않으며 비활성화로 운영을 중단할 수 있습니다.
+                                    </span>
+                                </div>
+
+                                <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-xs">
+                                            <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+                                                <tr>
+                                                    <th className="py-2.5 px-3">코드</th>
+                                                    <th className="py-2.5 px-3">회사/기관명</th>
+                                                    <th className="py-2.5 px-3">운영 목적</th>
+                                                    <th className="py-2.5 px-3 text-center">상태</th>
+                                                    <th className="py-2.5 px-3 text-center">접수/대기/완료</th>
+                                                    <th className="py-2.5 px-3 text-right">작업</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {campaignsList.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={6} className="py-8 text-center text-slate-400 font-medium">
+                                                            등록된 캠페인이 없습니다. 상단에서 첫 캠페인을 등록해 보세요.
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    campaignsList.map(camp => {
+                                                        const isUnregistered = camp.campaignRegistrationStatus === 'UNREGISTERED';
+                                                        const counts = camp.counts || {
+                                                            receivedCount: camp.receivedCount || 0,
+                                                            pendingReviewCount: camp.pendingReviewCount || 0,
+                                                            registeredReferralCount: camp.registeredReferralCount || 0,
+                                                            completedCount: camp.completedCount || 0
+                                                        };
+                                                        return (
+                                                            <tr key={camp.code} className="hover:bg-slate-50/80 transition">
+                                                                <td className="py-2.5 px-3 font-mono font-bold text-indigo-700 whitespace-nowrap">
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <span>{camp.code}</span>
+                                                                        {isUnregistered && (
+                                                                            <span className="px-1.5 py-0.2 bg-rose-100 text-rose-700 text-[10px] rounded font-bold">
+                                                                                미등록
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="py-2.5 px-3 font-bold text-slate-800 whitespace-nowrap">
+                                                                    {camp.companyName}
+                                                                </td>
+                                                                <td className="py-2.5 px-3 text-slate-600 max-w-[200px] truncate" title={camp.purpose || ''}>
+                                                                    {camp.purpose || '-'}
+                                                                </td>
+                                                                <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                                                    {camp.isActive ? (
+                                                                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[10px] font-bold">
+                                                                            활성
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="px-2 py-0.5 bg-slate-100 text-slate-500 border border-slate-200 rounded-full text-[10px] font-bold">
+                                                                            비활성
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                                                    <div className="text-[11px] font-medium text-slate-600">
+                                                                        <span className="font-bold text-slate-900" title="수신 건수">{counts.receivedCount}</span> /{' '}
+                                                                        <span className="font-bold text-amber-600" title="검토 대기">{counts.pendingReviewCount}</span> /{' '}
+                                                                        <span className="font-bold text-emerald-600" title="완료">{counts.completedCount}</span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                                                    <div className="flex items-center justify-end gap-1.5">
+                                                                        {/* Copy Link Button */}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleCopyCampaignLink(camp)}
+                                                                            className={`px-2 py-1 text-xs font-bold rounded-lg border transition flex items-center gap-1 ${
+                                                                                copyFeedbackCode === camp.code
+                                                                                    ? 'bg-emerald-600 text-white border-emerald-600'
+                                                                                    : camp.isActive
+                                                                                        ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                                                                                        : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
+                                                                            }`}
+                                                                            title={camp.isActive ? '설문 배포 링크 복사' : '비활성 캠페인 (클릭 시 확인 후 복사)'}
+                                                                        >
+                                                                            {copyFeedbackCode === camp.code ? (
+                                                                                <>
+                                                                                    <Check className="w-3 h-3" />
+                                                                                    <span>복사됨!</span>
+                                                                                </>
+                                                                            ) : (
+                                                                                <>
+                                                                                    <Copy className="w-3 h-3" />
+                                                                                    <span>링크 복사</span>
+                                                                                </>
+                                                                            )}
+                                                                        </button>
+
+                                                                        {/* Edit Button */}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleStartEditCampaign(camp)}
+                                                                            className="px-2 py-1 text-xs font-bold bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg transition flex items-center gap-1"
+                                                                            title="메타데이터 수정"
+                                                                        >
+                                                                            <Edit2 className="w-3 h-3" />
+                                                                            <span>수정</span>
+                                                                        </button>
+
+                                                                        {/* Active/Inactive Toggle Button */}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleToggleCampaignActive(camp)}
+                                                                            className={`px-2 py-1 text-[11px] font-bold rounded-lg border transition ${
+                                                                                camp.isActive
+                                                                                    ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                                                                                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                                                                            }`}
+                                                                            title={camp.isActive ? '캠페인 비활성화 (운영 중단)' : '캠페인 활성화'}
+                                                                        >
+                                                                            {camp.isActive ? '비활성화' : '활성화'}
+                                                                        </button>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="pt-3 border-t border-slate-100 flex items-center justify-between shrink-0">
+                            <span className="text-[11px] text-slate-400">
+                                캠페인 필터를 적용하려면 상단 필터 바의 드롭다운을 이용하세요.
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsCampaignModalOpen(false);
+                                    handleStartCreateCampaign();
+                                }}
+                                className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition"
+                            >
+                                닫기
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

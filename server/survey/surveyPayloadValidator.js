@@ -12,9 +12,17 @@ import {
     SBQR_OFFICIAL_OPTION_SCORES,
     BEPSI_K_RESULT_CODES,
     SBQR_RESULT_CODES,
-    TRACK_A_ASSESSMENT_QUESTION_COUNTS
+    TRACK_A_ASSESSMENT_QUESTION_COUNTS,
+    CAMPAIGN_CODE_PATTERN
 } from './surveyConstants.js';
 import { SurveyOperationError } from './surveyErrors.js';
+
+export const payloadCampaignMetadataMap = new WeakMap();
+
+export function getCampaignMetadataForPayload(payload) {
+    if (!payload || typeof payload !== 'object') return null;
+    return payloadCampaignMetadataMap.get(payload) || null;
+}
 
 const ALLOWED_TOP_LEVEL_KEYS = new Set([
     'submissionId',
@@ -38,7 +46,8 @@ const ALLOWED_TOP_LEVEL_KEYS = new Set([
     'requestType',
     'consultationRequested',
     'consultationRequestedAt',
-    'screeningCompletedAt'
+    'screeningCompletedAt',
+    'campaignCode'
 ]);
 
 const ALLOWED_CONTACT_KEYS = new Set([
@@ -644,6 +653,45 @@ export class SurveyPayloadValidator {
                 }
             }
         }
+
+        // 7. Normalize campaignCode and record validation metadata (Calibrations 1 & 5)
+        let campaignMetadata = {
+            status: 'ABSENT',
+            code: null
+        };
+
+        if (payload.campaignCode !== undefined && payload.campaignCode !== null) {
+            if (typeof payload.campaignCode === 'string') {
+                const trimmed = payload.campaignCode.trim().toUpperCase();
+                if (CAMPAIGN_CODE_PATTERN.test(trimmed)) {
+                    payload.campaignCode = trimmed;
+                    campaignMetadata = {
+                        status: 'VALID',
+                        code: trimmed
+                    };
+                    // Calibration 5: transmittedFieldSet conditional synchronization
+                    if (payload.consentEvidence && Array.isArray(payload.consentEvidence.transmittedFieldSet)) {
+                        if (!payload.consentEvidence.transmittedFieldSet.includes('campaignCode')) {
+                            payload.consentEvidence.transmittedFieldSet.push('campaignCode');
+                        }
+                    }
+                } else {
+                    // Invalid pattern: remove from payload, metadata status INVALID, no rejection/isolation
+                    delete payload.campaignCode;
+                    campaignMetadata = {
+                        status: 'INVALID',
+                        code: null
+                    };
+                }
+            } else {
+                delete payload.campaignCode;
+                campaignMetadata = {
+                    status: 'INVALID',
+                    code: null
+                };
+            }
+        }
+        payloadCampaignMetadataMap.set(payload, campaignMetadata);
     }
 
     /**
@@ -815,10 +863,15 @@ export class SurveyPayloadValidator {
                                           payload.assessment?.scoringPolicyId === SURVEY_SCORING_POLICIES.SBQR_GENERAL_POPULATION_CUTOFF_7;
 
                 if (this.sbqrApproved === false && !hasCanonicalPolicy) {
+                    const campaignMeta = payloadCampaignMetadataMap.get(payload) || {
+                        status: 'ABSENT',
+                        code: null
+                    };
                     return {
                         valid: true,
                         isSbqrQuarantined: true,
-                        quarantineReason: 'SBQ-R is not approved for automated referral creation; quarantined by policy gate'
+                        quarantineReason: 'SBQ-R is not approved for automated referral creation; quarantined by policy gate',
+                        campaignCodeMetadata: campaignMeta
                     };
                 }
             }
@@ -827,10 +880,16 @@ export class SurveyPayloadValidator {
             this._validateScaleSpecificPayload(assessmentId, payload);
         }
 
+        const campaignMeta = payloadCampaignMetadataMap.get(payload) || {
+            status: 'ABSENT',
+            code: null
+        };
+
         return {
             valid: true,
             isSbqrQuarantined: false,
-            quarantineReason: null
+            quarantineReason: null,
+            campaignCodeMetadata: campaignMeta
         };
     }
 
