@@ -10,8 +10,14 @@ import crypto from 'crypto';
 import {
     SURVEY_STORAGE_FILES,
     SURVEY_EXTERNAL_STATUS,
-    SURVEY_INTERNAL_STATUS
+    SURVEY_INTERNAL_STATUS,
+    CAMPAIGN_CODE_PATTERN,
+    SURVEY_CAMPAIGN_AUDIT_ACTIONS,
+    SURVEY_CAMPAIGN_CLASSIFICATIONS,
+    SURVEY_CAMPAIGN_REGISTRATION_STATUS,
+    SURVEY_ERROR_CODES
 } from './surveyConstants.js';
+import { getCampaignMetadataForPayload } from './surveyPayloadValidator.js';
 
 export class SurveyImportRepository {
     /**
@@ -30,10 +36,30 @@ export class SurveyImportRepository {
         this.sourceEnvironment = deps.sourceEnvironment || 'mock';
         this.attachmentsDir = deps.attachmentsDir || null;
         this.auditLogger = deps.auditLogger || null;
+        // Campaign-specific Promise mutex for strict serial atomic execution (Calibration 2)
+        this._campaignMutex = Promise.resolve();
     }
 
     _nowIso() {
         return new Date().toISOString();
+    }
+
+    /**
+     * Campaign-specific Mutex Critical Section (Calibration 2)
+     * Wraps: lock -> latest read -> duplicate check -> append/modify -> persist -> unlock.
+     */
+    async _withCampaignLock(operation) {
+        const currentLock = this._campaignMutex;
+        let release;
+        const opPromise = new Promise(resolve => { release = resolve; });
+        this._campaignMutex = currentLock.then(() => opPromise, () => opPromise);
+
+        try {
+            await currentLock;
+            return await operation();
+        } finally {
+            release();
+        }
     }
 
     // ──────────────────────────────────────────────────────────
@@ -148,6 +174,219 @@ export class SurveyImportRepository {
             return list[index];
         }
         return null;
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // 2.5. Survey Campaigns Registry (Calibration 2: Mutex Critical Section)
+    // ──────────────────────────────────────────────────────────
+
+    getCampaigns() {
+        return this.getData(SURVEY_STORAGE_FILES.SURVEY_CAMPAIGNS, []);
+    }
+
+    async saveCampaigns(list) {
+        return this.persistData(SURVEY_STORAGE_FILES.SURVEY_CAMPAIGNS, list);
+    }
+
+    findCampaignByCode(code) {
+        if (!code || typeof code !== 'string') return null;
+        const canonical = code.trim().toUpperCase();
+        const list = this.getCampaigns();
+        return list.find(c => c && c.code && c.code.toUpperCase() === canonical) || null;
+    }
+
+    /**
+     * Create a new survey campaign inside a campaign-specific mutex critical section.
+     * Sequence: lock -> latest read -> duplicate check -> append -> atomic persist -> unlock.
+     * Guaranteed: Read is 100% inside the lock.
+     */
+    async createCampaign({ code, companyName, purpose, startsAt = null, endsAt = null, actorId = 'system' }) {
+        if (!code || typeof code !== 'string') {
+            const err = new Error('캠페인 코드가 필요합니다.');
+            err.code = SURVEY_ERROR_CODES.INVALID_CAMPAIGN_CODE;
+            err.status = 400;
+            throw err;
+        }
+
+        const canonicalCode = code.trim().toUpperCase();
+        if (!CAMPAIGN_CODE_PATTERN.test(canonicalCode)) {
+            const err = new Error('캠페인 코드 형식이 올바르지 않습니다 (2~32자, 영문 대문자/숫자로 시작, 영문대문자·숫자·하이픈만 허용).');
+            err.code = SURVEY_ERROR_CODES.INVALID_CAMPAIGN_CODE;
+            err.status = 400;
+            throw err;
+        }
+
+        if (!companyName || typeof companyName !== 'string' || !companyName.trim()) {
+            const err = new Error('회사/기관명은 필수 입력 항목입니다.');
+            err.code = 'INVALID_REQUEST';
+            err.status = 400;
+            throw err;
+        }
+
+        if (!purpose || typeof purpose !== 'string' || !purpose.trim()) {
+            const err = new Error('캠페인 목적은 필수 입력 항목입니다.');
+            err.code = 'INVALID_REQUEST';
+            err.status = 400;
+            throw err;
+        }
+
+        if (startsAt && isNaN(Date.parse(startsAt))) {
+            const err = new Error('시작 일시 형식이 올바르지 않습니다.');
+            err.code = 'INVALID_DATE';
+            err.status = 400;
+            throw err;
+        }
+
+        if (endsAt && isNaN(Date.parse(endsAt))) {
+            const err = new Error('종료 일시 형식이 올바르지 않습니다.');
+            err.code = 'INVALID_DATE';
+            err.status = 400;
+            throw err;
+        }
+
+        return await this._withCampaignLock(async () => {
+            // 1. Read latest registry strictly inside mutex
+            const list = this.getCampaigns();
+
+            // 2. Duplicate check strictly inside mutex
+            const duplicate = list.find(c => c && c.code && c.code.toUpperCase() === canonicalCode);
+            if (duplicate) {
+                const err = new Error(`이미 존재하는 캠페인 코드입니다: ${canonicalCode}`);
+                err.code = SURVEY_ERROR_CODES.CONCURRENCY_CONFLICT;
+                err.status = 409;
+                throw err;
+            }
+
+            // 3. Append new campaign
+            const now = this._nowIso();
+            const newCampaign = {
+                code: canonicalCode,
+                companyName: companyName.trim(),
+                purpose: purpose.trim(),
+                startsAt: startsAt || null,
+                endsAt: endsAt || null,
+                isActive: true,
+                version: 1,
+                createdAt: now,
+                updatedAt: now
+            };
+            list.push(newCampaign);
+
+            // 4. Atomic persist strictly inside mutex
+            await this.saveCampaigns(list);
+
+            // 5. Record Audit Event
+            await this.recordAuditEvent({
+                actorId: actorId || 'system',
+                action: SURVEY_CAMPAIGN_AUDIT_ACTIONS.CAMPAIGN_CREATED,
+                result: 'SUCCESS',
+                details: {
+                    code: canonicalCode,
+                    companyName: newCampaign.companyName,
+                    purpose: newCampaign.purpose
+                }
+            });
+
+            return newCampaign;
+        });
+    }
+
+    /**
+     * Update an existing survey campaign inside a campaign-specific mutex critical section.
+     * Enforces strict code immutability and optimistic version checking if provided.
+     * Modifiable fields ONLY: companyName, purpose, startsAt, endsAt, isActive.
+     */
+    async updateCampaign(code, updates = {}, actorId = 'system') {
+        if (!code || typeof code !== 'string') {
+            const err = new Error('캠페인 코드가 필요합니다.');
+            err.code = SURVEY_ERROR_CODES.INVALID_CAMPAIGN_CODE;
+            err.status = 400;
+            throw err;
+        }
+
+        const canonicalCode = code.trim().toUpperCase();
+
+        // Enforce code immutability
+        if (updates.code !== undefined && updates.code !== null) {
+            const requestedCode = String(updates.code).trim().toUpperCase();
+            if (requestedCode !== canonicalCode) {
+                const err = new Error('캠페인 코드는 수정할 수 없습니다 (코드 불변).');
+                err.code = SURVEY_ERROR_CODES.CAMPAIGN_CODE_IMMUTABLE;
+                err.status = 400;
+                throw err;
+            }
+        }
+
+        if (updates.startsAt && isNaN(Date.parse(updates.startsAt))) {
+            const err = new Error('시작 일시 형식이 올바르지 않습니다.');
+            err.code = 'INVALID_DATE';
+            err.status = 400;
+            throw err;
+        }
+
+        if (updates.endsAt && isNaN(Date.parse(updates.endsAt))) {
+            const err = new Error('종료 일시 형식이 올바르지 않습니다.');
+            err.code = 'INVALID_DATE';
+            err.status = 400;
+            throw err;
+        }
+
+        return await this._withCampaignLock(async () => {
+            // 1. Read latest registry strictly inside mutex
+            const list = this.getCampaigns();
+
+            // 2. Find target campaign
+            const index = list.findIndex(c => c && c.code && c.code.toUpperCase() === canonicalCode);
+            if (index === -1) {
+                const err = new Error(`캠페인을 찾을 수 없습니다: ${canonicalCode}`);
+                err.code = SURVEY_ERROR_CODES.RECORD_NOT_FOUND;
+                err.status = 404;
+                throw err;
+            }
+
+            const existing = list[index];
+
+            // 3. Optimistic version check if provided
+            if (updates.expectedVersion !== undefined && updates.expectedVersion !== null) {
+                if (Number(existing.version) !== Number(updates.expectedVersion)) {
+                    const err = new Error('캠페인이 이미 다른 프로세스에 의해 수정되었습니다 (버전 불일치).');
+                    err.code = SURVEY_ERROR_CODES.CONCURRENCY_CONFLICT;
+                    err.status = 409;
+                    throw err;
+                }
+            }
+
+            // 4. Apply allowed updates ONLY
+            const now = this._nowIso();
+            const updated = {
+                ...existing,
+                companyName: updates.companyName !== undefined && updates.companyName !== null ? String(updates.companyName).trim() : existing.companyName,
+                purpose: updates.purpose !== undefined && updates.purpose !== null ? String(updates.purpose).trim() : existing.purpose,
+                startsAt: updates.startsAt !== undefined ? updates.startsAt : existing.startsAt,
+                endsAt: updates.endsAt !== undefined ? updates.endsAt : existing.endsAt,
+                isActive: updates.isActive !== undefined ? Boolean(updates.isActive) : existing.isActive,
+                version: (Number(existing.version) || 1) + 1,
+                updatedAt: now
+            };
+            list[index] = updated;
+
+            // 5. Atomic persist strictly inside mutex
+            await this.saveCampaigns(list);
+
+            // 6. Record Audit Event
+            await this.recordAuditEvent({
+                actorId: actorId || 'system',
+                action: SURVEY_CAMPAIGN_AUDIT_ACTIONS.CAMPAIGN_UPDATED,
+                result: 'SUCCESS',
+                details: {
+                    code: canonicalCode,
+                    updatedVersion: updated.version,
+                    changes: Object.keys(updates).filter(k => k !== 'code' && k !== 'expectedVersion')
+                }
+            });
+
+            return updated;
+        });
     }
 
     /**
@@ -794,7 +1033,7 @@ export class SurveyImportRepository {
      * Persist a validated survey submission into the database.
      * Integrates with PendingReferrals without unsafe auto-merge.
      */
-    async persistSurveyIntake({ envelope, payload, isSbqrQuarantined, quarantineReason, actorId, batchId }) {
+    async persistSurveyIntake({ envelope, payload, campaignCodeMetadata = null, isSbqrQuarantined, quarantineReason, actorId, batchId }) {
         const effectiveSourceEnv = envelope.sourceEnvironment || this.sourceEnvironment || 'mock';
         if (this.sourceEnvironment === 'production' && effectiveSourceEnv !== 'production') {
             throw new Error(`[SECURITY_VIOLATION] Production mode rejected intake write with non-production sourceEnvironment: ${effectiveSourceEnv}`);
@@ -854,6 +1093,7 @@ export class SurveyImportRepository {
             sourceEnvironment: envelope.sourceEnvironment || this.sourceEnvironment || 'mock',
             contact: payload.contact || {},
             assessment: payload.assessment || {},
+            campaignCode: payload.campaignCode || null,
             createdAt: now,
             updatedAt: now
         };
@@ -924,7 +1164,21 @@ export class SurveyImportRepository {
             lastAttemptAt: now
         });
 
-        // 5. Record Audit
+        // 5. Campaign Intake Classification & Audit (Calibration 1 & M1 §I.3)
+        let campaignClassification = SURVEY_CAMPAIGN_CLASSIFICATIONS.ABSENT;
+        const campaignMeta = campaignCodeMetadata || (envelope && envelope.campaignCodeMetadata) || getCampaignMetadataForPayload(payload);
+        if (campaignMeta && campaignMeta.status === 'INVALID') {
+            campaignClassification = SURVEY_CAMPAIGN_CLASSIFICATIONS.INVALID;
+        } else if (payload.campaignCode) {
+            const registeredCampaign = this.findCampaignByCode(payload.campaignCode);
+            campaignClassification = registeredCampaign
+                ? SURVEY_CAMPAIGN_CLASSIFICATIONS.VALID_REGISTERED
+                : SURVEY_CAMPAIGN_CLASSIFICATIONS.VALID_UNREGISTERED;
+        } else {
+            campaignClassification = SURVEY_CAMPAIGN_CLASSIFICATIONS.ABSENT;
+        }
+
+        // 5a. Record Standard Intake Audit
         await this.recordAuditEvent({
             actorId,
             action: isSbqrQuarantined ? 'SURVEY_IMPORT_QUARANTINED' : 'SURVEY_IMPORT_STORED',
@@ -932,6 +1186,21 @@ export class SurveyImportRepository {
             internalSurveyId,
             result: isSbqrQuarantined ? 'QUARANTINED' : 'SUCCESS',
             errorCode: isSbqrQuarantined ? 'SBQR_GATE_UNAPPROVED' : null,
+            campaignClassification,
+            // CRITICAL: NEVER log raw invalid code string in audit logs
+            campaignCode: campaignClassification === SURVEY_CAMPAIGN_CLASSIFICATIONS.INVALID ? null : (payload.campaignCode || null),
+            batchId
+        });
+
+        // 5b. Record Explicit Intake Classification Audit Event
+        await this.recordAuditEvent({
+            actorId: actorId || 'system',
+            action: campaignClassification,
+            submissionId,
+            internalSurveyId,
+            result: 'SUCCESS',
+            campaignClassification,
+            campaignCode: campaignClassification === SURVEY_CAMPAIGN_CLASSIFICATIONS.INVALID ? null : (payload.campaignCode || null),
             batchId
         });
 

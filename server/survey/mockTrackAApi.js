@@ -141,6 +141,7 @@ export class MockTrackAApi {
                 schemaVersion: 'v1.0',
                 assessmentId: 'phq-9',
                 assessmentVersion: '1.0.0',
+                campaignCode: 'DEMO-2026-1',
                 contactOnly: false,
                 submittedAt: nowIso,
                 contact: {
@@ -170,7 +171,7 @@ export class MockTrackAApi {
                     personalInfoConsent: true,
                     sensitiveInfoConsent: true,
                     consentedAt: nowIso,
-                    transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'severity', 'responses']
+                    transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'severity', 'responses', 'campaignCode']
                 },
                 retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
             }
@@ -988,5 +989,110 @@ export class MockTrackAApi {
             state: 'DELETED',
             requestId: deleteOpts?.requestId || null
         };
+    }
+
+    /**
+     * Get synthetic campaign seed fixture (DEMO-2026-1)
+     */
+    getDemoCampaignSeed() {
+        return {
+            code: 'DEMO-2026-1',
+            companyName: '데모주식회사',
+            purpose: '2026년 상반기 임직원 마음건강 검진',
+            startsAt: '2026-01-01T00:00:00.000Z',
+            endsAt: '2026-12-31T23:59:59.999Z',
+            isActive: true,
+            version: 1,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z'
+        };
+    }
+
+    /**
+     * Seed a synthetic submission with a valid canonical format, but unregistered campaign code.
+     */
+    seedValidUnregisteredSubmission(publicKeyPem, options = {}) {
+        const subId = options.submissionId || 'sub-demo-unreg-001';
+        const nowIso = new Date().toISOString();
+        return this.seedSubmission({
+            submissionId: subId,
+            publicKeyPem,
+            payload: {
+                submissionId: subId,
+                schemaVersion: 'v1.0',
+                assessmentId: 'phq-9',
+                assessmentVersion: '1.0.0',
+                campaignCode: options.campaignCode || 'UNREG-2026-1',
+                contactOnly: false,
+                submittedAt: nowIso,
+                contact: {
+                    clientName: '미등록테스트',
+                    phone: '010-9988-7766',
+                    gender: '남성',
+                    birthDate: '1992-04-10',
+                    region: '이천시',
+                    counselingRequestText: '미등록 캠페인 코드 접수 테스트'
+                },
+                assessment: {
+                    totalScore: 8,
+                    severity: '경도 우울',
+                    responses: [
+                        { questionNumber: 1, questionLabel: '흥미 저하', score: 1, answerLabel: '며칠' }
+                    ]
+                },
+                consentEvidence: {
+                    consentVersion: '2026.1',
+                    personalInfoConsent: true,
+                    sensitiveInfoConsent: true,
+                    consentedAt: nowIso,
+                    transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'severity', 'responses', 'campaignCode']
+                },
+                retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+            }
+        });
+    }
+
+    /**
+     * Seed a synthetic submission with an invalid campaign code (e.g. invalid format or characters).
+     */
+    seedInvalidCampaignCodeSubmission(publicKeyPem, options = {}) {
+        const subId = options.submissionId || 'sub-demo-invalid-code-001';
+        const nowIso = new Date().toISOString();
+        return this.seedSubmission({
+            submissionId: subId,
+            publicKeyPem,
+            payload: {
+                submissionId: subId,
+                schemaVersion: 'v1.0',
+                assessmentId: 'phq-9',
+                assessmentVersion: '1.0.0',
+                campaignCode: options.campaignCode || 'INVALID_CODE!@#',
+                contactOnly: false,
+                submittedAt: nowIso,
+                contact: {
+                    clientName: '무효코드테스트',
+                    phone: '010-1122-3344',
+                    gender: '여성',
+                    birthDate: '1994-06-20',
+                    region: '이천시',
+                    counselingRequestText: '무효 캠페인 코드 접수 테스트'
+                },
+                assessment: {
+                    totalScore: 6,
+                    severity: '정상',
+                    responses: [
+                        { questionNumber: 1, questionLabel: '흥미 저하', score: 1, answerLabel: '며칠' }
+                    ]
+                },
+                consentEvidence: {
+                    consentVersion: '2026.1',
+                    personalInfoConsent: true,
+                    sensitiveInfoConsent: true,
+                    consentedAt: nowIso,
+                    transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'severity', 'responses']
+                },
+                retention: { policy: 'standard_counseling_1yr', retentionDays: 365 }
+            }
+        });
     }
 }

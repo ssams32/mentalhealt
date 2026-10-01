@@ -4,9 +4,32 @@
  */
 
 import express from 'express';
-import { SURVEY_ASSIGNMENT_PRIORITY, NOTIFICATION_TYPES, SURVEY_ERROR_CODES } from './surveyConstants.js';
+import { SURVEY_ASSIGNMENT_PRIORITY, NOTIFICATION_TYPES, SURVEY_ERROR_CODES, CAMPAIGN_CODE_PATTERN } from './surveyConstants.js';
 import { hasOnlineSurveyAccess } from '../permissions/voiceCapabilities.js';
 import { getKstDateRangeUtcBoundaries } from './kstUtils.js';
+
+/**
+ * Validates and normalizes campaign filter inputs for import list and export endpoints (Calibration 4).
+ * Allowed: 'all' (or empty/undefined), 'unspecified'/'none'/'미지정', or valid CAMPAIGN_CODE_PATTERN.
+ */
+export function validateAndNormalizeCampaignFilter(filter) {
+    if (filter === undefined || filter === null) {
+        return { valid: true, type: 'ALL', code: null };
+    }
+    const str = String(filter).trim();
+    if (str === '' || str.toLowerCase() === 'all') {
+        return { valid: true, type: 'ALL', code: null };
+    }
+    const lower = str.toLowerCase();
+    if (lower === 'unspecified' || lower === 'none' || str === '미지정') {
+        return { valid: true, type: 'UNSPECIFIED', code: null };
+    }
+    const canonical = str.toUpperCase();
+    if (CAMPAIGN_CODE_PATTERN.test(canonical)) {
+        return { valid: true, type: 'CODE', code: canonical };
+    }
+    return { valid: false, type: 'INVALID', code: null };
+}
 
 /**
  * Mask client personal name for list views (e.g. 홍길동 -> 홍*동, 이산 -> 이*)
@@ -363,8 +386,20 @@ export function createSurveyImportRouter(deps = {}) {
                 sortBy = 'latest',
                 statusFilter,
                 staffFilter,
-                q: searchQuery
+                q: searchQuery,
+                campaignFilter
             } = req.query;
+
+            // Validate campaign filter (Calibration 4)
+            const campaignFilterResult = validateAndNormalizeCampaignFilter(campaignFilter);
+            if (!campaignFilterResult.valid) {
+                return res.status(400).json({
+                    error: {
+                        code: 'INVALID_CAMPAIGN_FILTER',
+                        message: '유효하지 않은 캠페인 코드 필터 형식입니다.'
+                    }
+                });
+            }
 
             // Validate date range boundaries
             let dateBoundaries = null;
@@ -386,6 +421,8 @@ export function createSurveyImportRouter(deps = {}) {
             const subMap = new Map(submissions.map(s => [s.submissionId, s]));
             const referrals = surveyRepository.getData('Referrals', []);
             const refMap = new Map(referrals.filter(r => r.sourceSubmissionId).map(r => [r.sourceSubmissionId, r]));
+            const campaigns = typeof surveyRepository.getCampaigns === 'function' ? surveyRepository.getCampaigns() : [];
+            const campaignMap = new Map(campaigns.map(c => [c.code.toUpperCase(), c]));
 
             const currentUserId = String(req.auth?.id || req.auth?.userId || '');
             const role = (req.auth?.role || req.auth?.userRole || 'user').toLowerCase();
@@ -437,6 +474,22 @@ export function createSurveyImportRouter(deps = {}) {
                     : (item.consultationRequested !== undefined ? Boolean(item.consultationRequested) : requestType === 'CONSULTATION_REQUEST');
                 const isScreeningOnly = requestType === 'SCREENING_ONLY';
 
+                const rawCampaignCode = sub?.campaignCode || null;
+                let campaignRegistrationStatus = 'ABSENT';
+                let campaignName = null;
+                let campaignPurpose = null;
+
+                if (rawCampaignCode) {
+                    const matchedCampaign = campaignMap.get(rawCampaignCode.toUpperCase());
+                    if (matchedCampaign) {
+                        campaignRegistrationStatus = 'REGISTERED';
+                        campaignName = matchedCampaign.companyName || null;
+                        campaignPurpose = matchedCampaign.purpose || null;
+                    } else {
+                        campaignRegistrationStatus = 'UNREGISTERED';
+                    }
+                }
+
                 return {
                     internalImportId: item.internalImportId,
                     submissionId: item.submissionId,
@@ -451,6 +504,11 @@ export function createSurveyImportRouter(deps = {}) {
                     lastErrorCode: item.lastErrorCode,
                     assessmentId: sub?.assessmentId || 'unknown',
                     isSbqrQuarantined: sub?.isSbqrQuarantined || false,
+                    // Campaign fields (Contract §I.4 & Calibration 4)
+                    campaignCode: rawCampaignCode,
+                    campaignName,
+                    campaignPurpose,
+                    campaignRegistrationStatus,
                     // Data Contract Fields
                     requestType,
                     consultationRequested,
@@ -530,6 +588,13 @@ export function createSurveyImportRouter(deps = {}) {
                 }
             }
 
+            // 4.5. Campaign Filter (Calibration 4)
+            if (campaignFilterResult.type === 'UNSPECIFIED') {
+                safeList = safeList.filter(item => !item.campaignCode);
+            } else if (campaignFilterResult.type === 'CODE') {
+                safeList = safeList.filter(item => item.campaignCode && item.campaignCode.toUpperCase() === campaignFilterResult.code);
+            }
+
             // 5. Search Query Filter
             if (searchQuery && typeof searchQuery === 'string' && searchQuery.trim()) {
                 const q = searchQuery.trim().toLowerCase();
@@ -540,7 +605,9 @@ export function createSurveyImportRouter(deps = {}) {
                     (item.region && item.region.toLowerCase().includes(q)) ||
                     (item.assessmentId && item.assessmentId.toLowerCase().includes(q)) ||
                     (item.counselingRequestText && item.counselingRequestText.toLowerCase().includes(q)) ||
-                    (item.refNo && item.refNo.toLowerCase().includes(q))
+                    (item.refNo && item.refNo.toLowerCase().includes(q)) ||
+                    (item.campaignCode && item.campaignCode.toLowerCase().includes(q)) ||
+                    (item.campaignName && item.campaignName.toLowerCase().includes(q))
                 );
             }
 
@@ -648,7 +715,18 @@ export function createSurveyImportRouter(deps = {}) {
             let records = surveyRepository.getSurveySubmissions();
 
             // Filter criteria
-            const { assessmentId, assignedUserId, assignmentPriority, consultationStatus, startDate, endDate } = req.query;
+            const { assessmentId, assignedUserId, assignmentPriority, consultationStatus, startDate, endDate, campaignCode } = req.query;
+
+            // Validate campaign code filter (Calibration 4)
+            const campaignFilterResult = validateAndNormalizeCampaignFilter(campaignCode);
+            if (!campaignFilterResult.valid) {
+                return res.status(400).json({
+                    error: {
+                        code: 'INVALID_CAMPAIGN_FILTER',
+                        message: '유효하지 않은 캠페인 코드 필터 형식입니다.'
+                    }
+                });
+            }
 
             if (assessmentId && assessmentId !== 'all') {
                 records = records.filter(r => r.assessmentId === assessmentId);
@@ -668,6 +746,11 @@ export function createSurveyImportRouter(deps = {}) {
             if (endDate) {
                 const endDateTime = endDate.length === 10 ? `${endDate}T23:59:59.999Z` : endDate;
                 records = records.filter(r => (r.createdAt || r.importedAt || '') <= endDateTime);
+            }
+            if (campaignFilterResult.type === 'UNSPECIFIED') {
+                records = records.filter(r => !r.campaignCode);
+            } else if (campaignFilterResult.type === 'CODE') {
+                records = records.filter(r => r.campaignCode && r.campaignCode.toUpperCase() === campaignFilterResult.code);
             }
 
             const { buffer, filename, rowCount } = surveyExportService.generateExcelBuffer(records, {
@@ -704,6 +787,268 @@ export function createSurveyImportRouter(deps = {}) {
         } catch (err) {
             console.error('❌ GET /api/surveys/export error:', err.message);
             res.status(500).json({ error: { code: 'EXPORT_FAILED', message: err.message } });
+        }
+    });
+
+    // ──────────────────────────────────────────────────────────
+    // 5.5. Campaign Management Endpoints (Contract §I.4 & Calibrations 2, 3, 4)
+    // ──────────────────────────────────────────────────────────
+
+    // GET /api/surveys/campaigns - List campaigns with official 4-count aggregation (Calibration 3)
+    router.get('/campaigns', requireAuth, requireSurveyImportPermission, (req, res) => {
+        try {
+            const campaigns = typeof surveyRepository.getCampaigns === 'function' ? surveyRepository.getCampaigns() : [];
+            const submissions = typeof surveyRepository.getSurveySubmissions === 'function' ? surveyRepository.getSurveySubmissions() : [];
+            const referrals = typeof surveyRepository.getData === 'function' ? surveyRepository.getData('Referrals', []) : [];
+
+            const refMap = new Map(
+                referrals
+                    .filter(r => r && r.sourceSubmissionId)
+                    .map(r => [r.sourceSubmissionId, r])
+            );
+
+            // Calibration 3: Explicit Allowlist (Broad conditions like !== COMPLETED are prohibited)
+            // 1. Pending review allowlist: PENDING_STAFF_REVIEW, STAFF_ASSIGNED (if not yet converted to official referral)
+            const PENDING_REVIEW_STATUSES = new Set([
+                'PENDING_STAFF_REVIEW',
+                'STAFF_ASSIGNED'
+            ]);
+
+            // 2. Completed allowlist: COMPLETED, or SCREENING_COMPLETED (screening-only submission where testing is done)
+            const COMPLETED_STATUSES = new Set([
+                'COMPLETED',
+                'SCREENING_COMPLETED'
+            ]);
+
+            const createCounter = () => ({
+                receivedCount: 0,
+                pendingReviewCount: 0,
+                registeredReferralCount: 0,
+                completedCount: 0
+            });
+
+            const campaignCountsMap = new Map();
+            const unspecifiedCounts = createCounter();
+            const totalCounts = createCounter();
+
+            for (const sub of submissions) {
+                if (!sub || sub.deletionStatus === 'deleted' || sub.status === 'deleted') continue;
+
+                const code = (sub.campaignCode && typeof sub.campaignCode === 'string')
+                    ? sub.campaignCode.trim().toUpperCase()
+                    : null;
+
+                const hasReferral = Boolean(sub.referralId || refMap.has(sub.submissionId));
+                const ref = refMap.get(sub.submissionId);
+
+                const isPending = !hasReferral && PENDING_REVIEW_STATUSES.has(sub.processingStatus);
+                const isCompleted = COMPLETED_STATUSES.has(sub.processingStatus) ||
+                    (hasReferral && ref && (ref.closureStatus || ref.status === 'closed' || ref.referralStatus === 'COMPLETED'));
+
+                const inc = (c) => {
+                    c.receivedCount++;
+                    if (isPending) c.pendingReviewCount++;
+                    if (hasReferral) c.registeredReferralCount++;
+                    if (isCompleted) c.completedCount++;
+                };
+
+                inc(totalCounts);
+
+                if (code) {
+                    if (!campaignCountsMap.has(code)) {
+                        campaignCountsMap.set(code, createCounter());
+                    }
+                    inc(campaignCountsMap.get(code));
+                } else {
+                    inc(unspecifiedCounts);
+                }
+            }
+
+            const enrichedCampaigns = campaigns.map(camp => {
+                const canonicalCode = camp.code.trim().toUpperCase();
+                const cnt = campaignCountsMap.get(canonicalCode) || createCounter();
+                return {
+                    ...camp,
+                    isRegistered: true,
+                    campaignRegistrationStatus: 'REGISTERED',
+                    receivedCount: cnt.receivedCount,
+                    pendingReviewCount: cnt.pendingReviewCount,
+                    registeredReferralCount: cnt.registeredReferralCount,
+                    completedCount: cnt.completedCount,
+                    counts: {
+                        receivedCount: cnt.receivedCount,
+                        pendingReviewCount: cnt.pendingReviewCount,
+                        registeredReferralCount: cnt.registeredReferralCount,
+                        completedCount: cnt.completedCount
+                    }
+                };
+            });
+
+            const registeredCodeSet = new Set(campaigns.map(c => c.code.trim().toUpperCase()));
+            const unregisteredCampaignEntries = [];
+            for (const [code, cnt] of campaignCountsMap.entries()) {
+                if (!registeredCodeSet.has(code)) {
+                    unregisteredCampaignEntries.push({
+                        code,
+                        companyName: '(미등록 캠페인)',
+                        purpose: null,
+                        startsAt: null,
+                        endsAt: null,
+                        isActive: true,
+                        isRegistered: false,
+                        campaignRegistrationStatus: 'UNREGISTERED',
+                        receivedCount: cnt.receivedCount,
+                        pendingReviewCount: cnt.pendingReviewCount,
+                        registeredReferralCount: cnt.registeredReferralCount,
+                        completedCount: cnt.completedCount,
+                        counts: {
+                            receivedCount: cnt.receivedCount,
+                            pendingReviewCount: cnt.pendingReviewCount,
+                            registeredReferralCount: cnt.registeredReferralCount,
+                            completedCount: cnt.completedCount
+                        }
+                    });
+                }
+            }
+            const finalCampaignList = [...enrichedCampaigns, ...unregisteredCampaignEntries];
+
+            return res.json({
+                total: finalCampaignList.length,
+                campaigns: finalCampaignList,
+                unspecifiedCounts,
+                totalCounts
+            });
+        } catch (err) {
+            console.error('❌ GET /api/surveys/campaigns error:', err.message);
+            return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: err.message } });
+        }
+    });
+
+    // POST /api/surveys/campaigns - Admin only: create a new campaign with strict validation & mutex protection
+    router.post('/campaigns', requireAuth, requireSurveyImportPermission, requireAdmin, async (req, res) => {
+        try {
+            const { code, companyName, purpose, startsAt, endsAt } = req.body || {};
+            const actorId = req.auth?.id || req.auth?.userId || req.auth?.username || 'admin';
+
+            if (!code || typeof code !== 'string') {
+                return res.status(400).json({
+                    error: { code: 'INVALID_CAMPAIGN_CODE', message: '캠페인 코드가 필요합니다.' }
+                });
+            }
+
+            const canonicalCode = code.trim().toUpperCase();
+            if (!CAMPAIGN_CODE_PATTERN.test(canonicalCode)) {
+                return res.status(400).json({
+                    error: {
+                        code: 'INVALID_CAMPAIGN_CODE',
+                        message: '캠페인 코드 형식이 올바르지 않습니다 (2~32자, 영문 대문자/숫자로 시작, 영문대문자·숫자·하이픈만 허용).'
+                    }
+                });
+            }
+
+            if (!companyName || typeof companyName !== 'string' || !companyName.trim()) {
+                return res.status(400).json({
+                    error: { code: 'INVALID_REQUEST', message: '회사/기관명은 필수 입력 항목입니다.' }
+                });
+            }
+
+            if (!purpose || typeof purpose !== 'string' || !purpose.trim()) {
+                return res.status(400).json({
+                    error: { code: 'INVALID_REQUEST', message: '캠페인 목적은 필수 입력 항목입니다.' }
+                });
+            }
+
+            if (startsAt && isNaN(Date.parse(startsAt))) {
+                return res.status(400).json({
+                    error: { code: 'INVALID_DATE', message: '시작 일시 형식이 올바르지 않습니다.' }
+                });
+            }
+
+            if (endsAt && isNaN(Date.parse(endsAt))) {
+                return res.status(400).json({
+                    error: { code: 'INVALID_DATE', message: '종료 일시 형식이 올바르지 않습니다.' }
+                });
+            }
+
+            const created = await surveyRepository.createCampaign({
+                code: canonicalCode,
+                companyName: companyName.trim(),
+                purpose: purpose.trim(),
+                startsAt: startsAt || null,
+                endsAt: endsAt || null,
+                actorId
+            });
+
+            return res.status(201).json({
+                success: true,
+                campaign: created
+            });
+        } catch (err) {
+            if (err.status === 409 || err.code === 'CONCURRENCY_CONFLICT') {
+                return res.status(409).json({
+                    error: { code: 'CONCURRENCY_CONFLICT', message: err.message }
+                });
+            }
+            if (err.status === 400 || err.code === 'INVALID_CAMPAIGN_CODE') {
+                return res.status(400).json({
+                    error: { code: err.code || 'INVALID_REQUEST', message: err.message }
+                });
+            }
+            console.error('❌ POST /api/surveys/campaigns error:', err.message);
+            return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: err.message } });
+        }
+    });
+
+    // PATCH /api/surveys/campaigns/:code - Admin only: update campaign details (code is immutable)
+    router.patch('/campaigns/:code', requireAuth, requireSurveyImportPermission, requireAdmin, async (req, res) => {
+        try {
+            const { code } = req.params;
+            const actorId = req.auth?.id || req.auth?.userId || req.auth?.username || 'admin';
+            const updates = req.body || {};
+
+            if (!code || typeof code !== 'string') {
+                return res.status(400).json({
+                    error: { code: 'INVALID_CAMPAIGN_CODE', message: '캠페인 코드가 필요합니다.' }
+                });
+            }
+
+            // Reject any code modification attempt (Code is strictly immutable)
+            if (updates.code !== undefined && updates.code !== null) {
+                const requestedCode = String(updates.code).trim().toUpperCase();
+                if (requestedCode !== code.trim().toUpperCase()) {
+                    return res.status(400).json({
+                        error: {
+                            code: 'CAMPAIGN_CODE_IMMUTABLE',
+                            message: '캠페인 코드는 수정할 수 없습니다 (코드 불변).'
+                        }
+                    });
+                }
+            }
+
+            const updated = await surveyRepository.updateCampaign(code, updates, actorId);
+
+            return res.json({
+                success: true,
+                campaign: updated
+            });
+        } catch (err) {
+            if (err.status === 404 || err.code === 'RECORD_NOT_FOUND') {
+                return res.status(404).json({
+                    error: { code: 'RECORD_NOT_FOUND', message: err.message }
+                });
+            }
+            if (err.status === 409 || err.code === 'CONCURRENCY_CONFLICT') {
+                return res.status(409).json({
+                    error: { code: 'CONCURRENCY_CONFLICT', message: err.message }
+                });
+            }
+            if (err.status === 400 || err.code === 'CAMPAIGN_CODE_IMMUTABLE' || err.code === 'INVALID_CAMPAIGN_CODE') {
+                return res.status(400).json({
+                    error: { code: err.code || 'INVALID_REQUEST', message: err.message }
+                });
+            }
+            console.error('❌ PATCH /api/surveys/campaigns/:code error:', err.message);
+            return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: err.message } });
         }
     });
 

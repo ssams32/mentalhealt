@@ -612,6 +612,7 @@ class ApiClient {
         sortBy?: string;
         statusFilter?: string;
         staffFilter?: string;
+        campaignFilter?: string;
         q?: string;
     }): Promise<{ total: number; imports: any[] }> {
         const queryParams = new URLSearchParams();
@@ -621,6 +622,7 @@ class ApiClient {
             if (params.sortBy) queryParams.set('sortBy', params.sortBy);
             if (params.statusFilter) queryParams.set('statusFilter', params.statusFilter);
             if (params.staffFilter) queryParams.set('staffFilter', params.staffFilter);
+            if (params.campaignFilter && params.campaignFilter !== 'all') queryParams.set('campaignFilter', params.campaignFilter);
             if (params.q) queryParams.set('q', params.q);
         }
         const qs = queryParams.toString();
@@ -777,6 +779,74 @@ class ApiClient {
     }
 
     // ──────────────────────────────────────────────────────────
+    // [Track B: Campaigns] 온라인 설문 캠페인 관리 API
+    // ──────────────────────────────────────────────────────────
+    async getSurveyCampaigns(): Promise<{
+        total: number;
+        campaigns: Array<{
+            code: string;
+            companyName: string;
+            purpose: string | null;
+            startsAt: string | null;
+            endsAt: string | null;
+            isActive: boolean;
+            isRegistered: boolean;
+            campaignRegistrationStatus: 'REGISTERED' | 'UNREGISTERED';
+            receivedCount: number;
+            pendingReviewCount: number;
+            registeredReferralCount: number;
+            completedCount: number;
+            counts: {
+                receivedCount: number;
+                pendingReviewCount: number;
+                registeredReferralCount: number;
+                completedCount: number;
+            };
+        }>;
+        unspecifiedCounts: {
+            receivedCount: number;
+            pendingReviewCount: number;
+            registeredReferralCount: number;
+            completedCount: number;
+        };
+        totalCounts: {
+            receivedCount: number;
+            pendingReviewCount: number;
+            registeredReferralCount: number;
+            completedCount: number;
+        };
+    }> {
+        return this.request('/surveys/campaigns');
+    }
+
+    async createSurveyCampaign(payload: {
+        code: string;
+        companyName: string;
+        purpose: string;
+        startsAt?: string | null;
+        endsAt?: string | null;
+        isActive?: boolean;
+    }): Promise<{ success: boolean; campaign: any }> {
+        return this.request('/surveys/campaigns', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+    }
+
+    async updateSurveyCampaign(code: string, payload: {
+        companyName?: string;
+        purpose?: string;
+        startsAt?: string | null;
+        endsAt?: string | null;
+        isActive?: boolean;
+    }): Promise<{ success: boolean; campaign: any }> {
+        return this.request(`/surveys/campaigns/${encodeURIComponent(code)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload)
+        });
+    }
+
+    // ──────────────────────────────────────────────────────────
     // [Track B: Notifications] 사내 인앱 알림 API
     // ──────────────────────────────────────────────────────────
     async getInternalNotifications(params: { limit?: number; includeRead?: boolean } = {}): Promise<{ notifications: any[] }> {
@@ -813,4 +883,69 @@ class ApiClient {
     isAvailable(): boolean { return true; }
 }
 
+/**
+ * [Campaign Link Helper]
+ * Track A 설문 기본 URL과 캠페인 코드를 결합하여 배포 링크를 안전하게 생성합니다.
+ * 내부 URL을 하드코딩하지 않고, 환경 변수 또는 현재 브라우저 origin을 기반으로 동적 생성합니다.
+ */
+export function buildCampaignDistributionUrl(campaignCode: string, customBaseUrl?: string): string {
+    if (!campaignCode || typeof campaignCode !== 'string') return '';
+    const cleanCode = campaignCode.trim().toUpperCase();
+    if (!cleanCode) return '';
+    const encoded = encodeURIComponent(cleanCode);
+
+    let baseUrl = (customBaseUrl && customBaseUrl.trim()) ||
+        (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_TRACK_A_BASE_URL) ||
+        (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SURVEY_BASE_URL) ||
+        (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SURVEY_URL) ||
+        (typeof window !== 'undefined' && window.location?.origin ? `${window.location.origin}/survey` : 'https://survey.center.local/survey');
+
+    baseUrl = baseUrl.replace(/\/+$/, '');
+    const separator = baseUrl.includes('?') ? '&' : '?';
+    return `${baseUrl}${separator}c=${encoded}`;
+}
+
+/**
+ * [Campaign Label Helper]
+ * 접수 항목의 캠페인 상태에 따른 레이블 및 스타일 분류를 반환합니다.
+ */
+export function getCampaignLabelInfo(item: {
+    campaignCode?: string | null;
+    campaignName?: string | null;
+    campaignRegistrationStatus?: string | null;
+}): {
+    label: string;
+    code: string | null;
+    type: 'registered' | 'unregistered' | 'unspecified';
+    isWarning: boolean;
+} {
+    const code = item?.campaignCode ? String(item.campaignCode).trim().toUpperCase() : null;
+    if (!code) {
+        return {
+            label: '미지정',
+            code: null,
+            type: 'unspecified',
+            isWarning: false
+        };
+    }
+
+    if (item.campaignRegistrationStatus === 'UNREGISTERED') {
+        return {
+            label: '미등록 캠페인',
+            code,
+            type: 'unregistered',
+            isWarning: true
+        };
+    }
+
+    const companyName = item.campaignName && item.campaignName.trim() ? item.campaignName.trim() : code;
+    return {
+        label: companyName,
+        code,
+        type: 'registered',
+        isWarning: false
+    };
+}
+
+export { ApiClient };
 export const apiClient = new ApiClient();

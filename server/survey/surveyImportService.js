@@ -535,6 +535,7 @@ export class SurveyImportService {
                     intakeResult = await this.repository.persistSurveyIntake({
                         envelope,
                         payload,
+                        campaignCodeMetadata: validationResult.campaignCodeMetadata,
                         isSbqrQuarantined: validationResult.isSbqrQuarantined,
                         quarantineReason: validationResult.quarantineReason,
                         actorId,
