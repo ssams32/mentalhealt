@@ -22,6 +22,39 @@ export const VOICE_CAPABILITIES = {
 
 export const VOICE_RECORDING_AI_ACCESS = 'VOICE_RECORDING_AI_ACCESS';
 export const ONLINE_SURVEY_ACCESS = 'ONLINE_SURVEY_ACCESS';
+export const SURVEY_ASSIGNMENT_ACCESS = 'SURVEY_ASSIGNMENT_ACCESS';
+
+/**
+ * Check Survey Assignment feature access:
+ * isAdministrator === true OR (authenticatedUser.status === 'active' AND permissions includes SURVEY_ASSIGNMENT_ACCESS)
+ */
+export function hasSurveyAssignmentAccess(user) {
+    if (!user || user.status !== 'active') {
+        return false;
+    }
+    if (user.role === 'admin') {
+        return true;
+    }
+    if (!user.permissions) {
+        return false;
+    }
+    if (Array.isArray(user.permissions)) {
+        return user.permissions.includes(SURVEY_ASSIGNMENT_ACCESS);
+    }
+    if (typeof user.permissions === 'object' && user.permissions !== null) {
+        if (typeof user.permissions[SURVEY_ASSIGNMENT_ACCESS] === 'boolean') {
+            return user.permissions[SURVEY_ASSIGNMENT_ACCESS];
+        }
+        if (typeof user.permissions.SURVEY_ASSIGNMENT_ACCESS === 'boolean') {
+            return user.permissions.SURVEY_ASSIGNMENT_ACCESS;
+        }
+        if (typeof user.permissions.surveyAssignmentAccess === 'boolean') {
+            return user.permissions.surveyAssignmentAccess;
+        }
+        return false;
+    }
+    return false;
+}
 
 /**
  * Check foundational Online Survey feature access:

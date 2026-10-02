@@ -5,7 +5,7 @@
 
 import express from 'express';
 import { SURVEY_ASSIGNMENT_PRIORITY, NOTIFICATION_TYPES, SURVEY_ERROR_CODES, CAMPAIGN_CODE_PATTERN } from './surveyConstants.js';
-import { hasOnlineSurveyAccess } from '../permissions/voiceCapabilities.js';
+import { hasOnlineSurveyAccess, hasSurveyAssignmentAccess } from '../permissions/voiceCapabilities.js';
 import { getKstDateRangeUtcBoundaries } from './kstUtils.js';
 
 /**
@@ -1056,9 +1056,9 @@ export function createSurveyImportRouter(deps = {}) {
             const { assignedUserId, assignedDepartmentId, assignmentPriority, expectedVersion, reason } = req.body || {};
 
             const role = (req.auth?.role || req.auth?.userRole || 'user').toLowerCase();
-            if (role !== 'admin') {
+            if (role !== 'admin' && !hasSurveyAssignmentAccess(req.auth)) {
                 return res.status(403).json({
-                    error: { code: 'FORBIDDEN', message: '관리자(Admin)만 담당자를 배정할 수 있습니다.' }
+                    error: { code: 'FORBIDDEN', message: '관리자(Admin) 또는 설문 담당자 배정 권한이 필요합니다.' }
                 });
             }
 

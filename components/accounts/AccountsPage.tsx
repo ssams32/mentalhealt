@@ -52,6 +52,13 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
             : Boolean((u.permissions as any)?.VOICE_RECORDING_AI_ACCESS || (u.permissions as any)?.voiceCalls);
     };
 
+    const checkHasSurveyAssignmentAccess = (u: User) => {
+        if (!u.permissions) return false;
+        return Array.isArray(u.permissions)
+            ? (u.permissions as any).includes('SURVEY_ASSIGNMENT_ACCESS')
+            : Boolean((u.permissions as any)?.SURVEY_ASSIGNMENT_ACCESS);
+    };
+
     const handleToggleOnlineSurveyAccess = async (user: User) => {
         if (currentUser.role !== 'admin') return;
         if (updatingPerm?.userId === user.id && updatingPerm?.permKey === 'online_survey') return;
@@ -942,6 +949,30 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                             </div>
                         ))}
                     </div>
+                </div>
+
+                {/* SURVEY_ASSIGNMENT_ACCESS Toggle */}
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={checkHasSurveyAssignmentAccess(editingUser)}
+                            onChange={(e) => {
+                                const isChecked = e.target.checked;
+                                const newPerms = Array.isArray(editingUser.permissions)
+                                    ? (isChecked
+                                        ? [...(editingUser.permissions as any[]).filter(p => p !== 'SURVEY_ASSIGNMENT_ACCESS'), 'SURVEY_ASSIGNMENT_ACCESS']
+                                        : (editingUser.permissions as any[]).filter(p => p !== 'SURVEY_ASSIGNMENT_ACCESS'))
+                                    : { ...(editingUser.permissions || {}), SURVEY_ASSIGNMENT_ACCESS: isChecked };
+                                setEditingUser({ ...editingUser, permissions: newPerms as any });
+                            }}
+                            className="mt-0.5 w-4 h-4 rounded text-blue-600 focus:ring-0 border-slate-300"
+                        />
+                        <div className="flex flex-col">
+                            <span className="text-xs font-bold text-slate-800">설문 담당자 배정</span>
+                            <span className="text-[11px] text-slate-500">개별 설문의 담당자 배정·재배정 가능</span>
+                        </div>
+                    </label>
                 </div>
 
                 <div className="flex justify-end gap-3 pt-4"><button type="button" onClick={handleCloseEditModal} className="px-6 py-3 bg-slate-100 rounded-xl font-bold text-slate-500">취소</button><button type="submit" className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg">저장</button></div></form></div></div>}

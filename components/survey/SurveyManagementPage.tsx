@@ -84,6 +84,30 @@ export function hasOnlineSurveyAccess(user?: User | null): boolean {
     return false;
 }
 
+/**
+ * Check if user has survey assignment access.
+ * Admin or active users with SURVEY_ASSIGNMENT_ACCESS permission.
+ */
+export function hasSurveyAssignmentAccess(user?: User | null): boolean {
+    if (!user) return false;
+    if (user.status && user.status !== 'active') return false;
+    if (user.role === 'admin') return true;
+    if (!user.permissions) return false;
+    if (Array.isArray(user.permissions)) {
+        return (user.permissions as any).includes('SURVEY_ASSIGNMENT_ACCESS');
+    }
+    if (typeof user.permissions === 'object' && user.permissions !== null) {
+        const perms = user.permissions as Record<string, any>;
+        if (typeof perms.SURVEY_ASSIGNMENT_ACCESS === 'boolean') {
+            return perms.SURVEY_ASSIGNMENT_ACCESS;
+        }
+        if (typeof perms.surveyAssignmentAccess === 'boolean') {
+            return perms.surveyAssignmentAccess;
+        }
+    }
+    return false;
+}
+
 declare module '../../types' {
     interface SurveyImportItem {
         refNo?: string | null;
@@ -2594,6 +2618,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                         item.processingStatus === 'COMPLETED'
                                                     );
                                                     const isAdmin = currentUser.role === 'admin';
+                                                    const canAssign = hasSurveyAssignmentAccess(currentUser);
                                                     const isRowAssigning = assigningRowId === item.submissionId;
 
                                                     if (isRowAssigning) {
@@ -2623,7 +2648,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                         );
                                                     }
 
-                                                    if (isAdmin) {
+                                                    if (canAssign) {
                                                         return (
                                                             <div
                                                                 className="mt-2.5 pt-2 border-t border-slate-100 flex items-center gap-2"
@@ -2658,7 +2683,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                                 </div>
 
                                                                 {/* Safe Single Unassign Button */}
-                                                                {item.assignedUserId && (
+                                                                {isAdmin && item.assignedUserId && (
                                                                     <button
                                                                         type="button"
                                                                         onClick={e => {
@@ -2781,7 +2806,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 </button>
                                             )}
 
-                                            {currentUser.role === 'admin' && (
+                                            {hasSurveyAssignmentAccess(currentUser) && (
                                                 <button
                                                     onClick={() => handleOpenAssignModal(currentSelectedItem)}
                                                     className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200 shadow-sm transition"
@@ -2811,7 +2836,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     </button>
                                                 )
                                             ) : (!currentSelectedItem.assignedUserId || currentSelectedItem.assignmentStatus === 'unassigned') ? (
-                                                currentUser.role === 'admin' ? (
+                                                hasSurveyAssignmentAccess(currentUser) ? (
                                                     <button
                                                         onClick={() => handleOpenAssignModal(currentSelectedItem)}
                                                         className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold rounded-xl border border-amber-300 shadow-sm transition"
@@ -3265,7 +3290,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                         등록된 의뢰대장 상세 열기
                                                     </button>
                                                 ) : (!currentSelectedItem.assignedUserId || currentSelectedItem.assignmentStatus === 'unassigned') ? (
-                                                    currentUser.role === 'admin' ? (
+                                                    hasSurveyAssignmentAccess(currentUser) ? (
                                                         <button
                                                             onClick={() => handleOpenAssignModal(currentSelectedItem)}
                                                             className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-2"
@@ -3314,12 +3339,14 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                         <History className="w-3.5 h-3.5" />
                                                         배정 이력
                                                     </button>
-                                                    <button
-                                                        onClick={() => handleOpenAssignModal(currentSelectedItem)}
-                                                        className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg border border-indigo-200 transition"
-                                                    >
-                                                        배정 변경
-                                                    </button>
+                                                    {hasSurveyAssignmentAccess(currentUser) && (
+                                                        <button
+                                                            onClick={() => handleOpenAssignModal(currentSelectedItem)}
+                                                            className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg border border-indigo-200 transition"
+                                                        >
+                                                            배정 변경
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
 
@@ -4003,7 +4030,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                     </div>
 
                                     {/* Assignment Form (Admin Only) */}
-                                    {currentUser.role === 'admin' ? (
+                                    {hasSurveyAssignmentAccess(currentUser) ? (
                                         <div className="bg-white rounded-2xl border border-indigo-200/90 p-5 shadow-sm space-y-4">
                                             <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
                                                 <UserPlus className="w-4 h-4 text-indigo-600" />
@@ -4113,7 +4140,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         </div>
                                     ) : (
                                         <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-500">
-                                            담당 직원 배정 및 변경은 센터 관리자(Admin) 권한 보유자만 실행할 수 있습니다.
+                                            담당 직원 배정 및 변경은 관리자 또는 설문 담당자 배정 권한 보유자만 실행할 수 있습니다.
                                         </div>
                                     )}
                                 </div>
