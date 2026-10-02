@@ -806,6 +806,23 @@ class ApiClient {
         });
     }
 
+    async softDeleteSurveySubmission(id: string, reason: string, confirmSubmissionId?: string): Promise<{ success: boolean; message: string; result: any }> {
+        return this.request(`/surveys/submissions/${id}/soft-delete`, {
+            method: 'POST',
+            body: JSON.stringify({ reason, confirmSubmissionId: confirmSubmissionId || id })
+        });
+    }
+
+    async getTrashSurveySubmissions(): Promise<{ success: boolean; total: number; submissions: any[] }> {
+        return this.request('/surveys/admin/trash');
+    }
+
+    async restoreSurveySubmission(id: string): Promise<{ success: boolean; message: string; submission: any }> {
+        return this.request(`/surveys/admin/submissions/${id}/restore`, {
+            method: 'POST'
+        });
+    }
+
     // ──────────────────────────────────────────────────────────
     // [Track B: Campaigns] 온라인 설문 캠페인 관리 API
     // ──────────────────────────────────────────────────────────

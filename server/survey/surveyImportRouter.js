@@ -161,7 +161,7 @@ export function createSurveyImportRouter(deps = {}) {
             let totalPendingReferralCount = 0;
 
             for (const s of subs) {
-                if (!s || s.status === 'deleted') continue;
+                if (!s || s.status === 'deleted' || s.deletionStatus === 'deleted') continue;
                 const isConsultation = s.requestType === 'CONSULTATION_REQUEST' || s.consultationRequested === true;
                 if (!isConsultation) continue;
 
@@ -452,8 +452,13 @@ export function createSurveyImportRouter(deps = {}) {
                 });
             }
 
-            // Map each item to safe client representation
-            let safeList = baseList.map(item => {
+            // Map each item to safe client representation (excluding soft-deleted or deleted submissions)
+            let safeList = baseList
+                .filter(item => {
+                    const sub = subMap.get(item.submissionId);
+                    return !(sub?.deletionStatus === 'deleted' || sub?.status === 'deleted');
+                })
+                .map(item => {
                 const sub = subMap.get(item.submissionId);
                 const ref = refMap.get(item.submissionId);
                 const reportAttachment = ref?.attachments?.find(a =>
@@ -703,8 +708,8 @@ export function createSurveyImportRouter(deps = {}) {
                 )
             );
 
-            // Fetch submissions
-            let records = surveyRepository.getSurveySubmissions();
+            // Fetch submissions (excluding deleted and soft-deleted)
+            let records = surveyRepository.getSurveySubmissions().filter(r => r && r.status !== 'deleted' && r.deletionStatus !== 'deleted');
 
             // Filter criteria
             const { assessmentId, assignedUserId, assignmentPriority, consultationStatus, startDate, endDate, campaignCode } = req.query;
@@ -916,8 +921,8 @@ export function createSurveyImportRouter(deps = {}) {
         }
     });
 
-    // POST /api/surveys/campaigns - Admin only: create a new campaign with strict validation & mutex protection
-    router.post('/campaigns', requireAuth, requireSurveyImportPermission, requireAdmin, async (req, res) => {
+    // POST /api/surveys/campaigns - Create a new campaign with strict validation & mutex protection
+    router.post('/campaigns', requireAuth, requireSurveyImportPermission, async (req, res) => {
         try {
             const { code, companyName, purpose, startsAt, endsAt } = req.body || {};
             const actorId = req.auth?.id || req.auth?.userId || req.auth?.username || 'admin';
@@ -991,8 +996,8 @@ export function createSurveyImportRouter(deps = {}) {
         }
     });
 
-    // PATCH /api/surveys/campaigns/:code - Admin only: update campaign details (code is immutable)
-    router.patch('/campaigns/:code', requireAuth, requireSurveyImportPermission, requireAdmin, async (req, res) => {
+    // PATCH /api/surveys/campaigns/:code - Update campaign details (code is immutable)
+    router.patch('/campaigns/:code', requireAuth, requireSurveyImportPermission, async (req, res) => {
         try {
             const { code } = req.params;
             const actorId = req.auth?.id || req.auth?.userId || req.auth?.username || 'admin';
@@ -1430,7 +1435,7 @@ export function createSurveyImportRouter(deps = {}) {
             const { id } = req.params;
             const submission = surveyRepository.findSubmissionById(id);
 
-            if (!submission) {
+            if (!submission || submission.deletionStatus === 'deleted' || submission.status === 'deleted') {
                 return res.status(404).json({
                     error: { code: 'NOT_FOUND', message: '해당 설문 제출 건을 찾을 수 없습니다.' }
                 });
@@ -1795,6 +1800,124 @@ export function createSurveyImportRouter(deps = {}) {
             const status = err.code === 'DEMO_PURGE_CONTAINS_REAL_DATA' ? 400 : 500;
             res.status(status).json({
                 error: { code: err.code || 'PURGE_FAILED', message: err.message }
+            });
+        }
+    });
+
+    // POST /api/surveys/submissions/:id/soft-delete - Staff-permitted safe soft delete
+    router.post('/submissions/:id/soft-delete', requireAuth, requireSurveyImportPermission, async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { confirmSubmissionId, reason } = req.body || {};
+
+            if (!reason || typeof reason !== 'string' || !reason.trim()) {
+                return res.status(400).json({
+                    error: {
+                        code: 'MISSING_DELETION_REASON',
+                        message: '삭제 사유를 입력해야 합니다.'
+                    }
+                });
+            }
+
+            if (!confirmSubmissionId || confirmSubmissionId !== id) {
+                return res.status(400).json({
+                    error: {
+                        code: 'SUBMISSION_ID_MISMATCH',
+                        message: '확인용 submissionId가 일치하지 않습니다.'
+                    }
+                });
+            }
+
+            if (surveyImportService.getStatusSummary().isImportRunning) {
+                return res.status(409).json({
+                    error: {
+                        code: 'PROCESSING_IN_PROGRESS',
+                        message: '설문 가져오기 작업 진행 중에는 삭제할 수 없습니다.'
+                    }
+                });
+            }
+
+            const actorId = req.auth.userId || req.auth.id || req.auth.username || 'staff';
+            const result = await surveyRepository.softDeleteSubmission({
+                submissionId: id,
+                actorId,
+                reason: reason.trim()
+            });
+
+            return res.json({
+                success: true,
+                message: `대상자 (${id}) 온라인 설문 결과가 안전하게 삭제(보관)되었습니다.`,
+                result
+            });
+        } catch (err) {
+            const status = err.status || (err.code === 'NOT_FOUND' ? 404 : 400);
+            return res.status(status).json({
+                error: { code: err.code || 'SOFT_DELETE_FAILED', message: err.message }
+            });
+        }
+    });
+
+    // GET /api/surveys/admin/trash - Admin only: view soft-deleted submissions
+    router.get('/admin/trash', requireAuth, requireAdmin, async (req, res) => {
+        try {
+            const trashItems = typeof surveyRepository.getTrashSubmissions === 'function'
+                ? surveyRepository.getTrashSubmissions()
+                : surveyRepository.getSurveySubmissions().filter(s => s && s.deletionStatus === 'deleted');
+
+            return res.json({
+                success: true,
+                total: trashItems.length,
+                submissions: trashItems
+            });
+        } catch (err) {
+            return res.status(500).json({
+                error: { code: 'INTERNAL_ERROR', message: err.message }
+            });
+        }
+    });
+
+    // GET /api/surveys/admin/trash/:id - Admin only: view single soft-deleted submission
+    router.get('/admin/trash/:id', requireAuth, requireAdmin, async (req, res) => {
+        try {
+            const { id } = req.params;
+            const subs = surveyRepository.getSurveySubmissions();
+            const submission = subs.find(s => s && (s.submissionId === id || s.internalSurveyId === id) && s.deletionStatus === 'deleted');
+            if (!submission) {
+                return res.status(404).json({
+                    error: { code: 'NOT_FOUND', message: '휴지통에서 해당 설문 제출 건을 찾을 수 없습니다.' }
+                });
+            }
+            return res.json({
+                success: true,
+                submission
+            });
+        } catch (err) {
+            return res.status(500).json({
+                error: { code: 'INTERNAL_ERROR', message: err.message }
+            });
+        }
+    });
+
+    // POST /api/surveys/admin/submissions/:id/restore - Admin only: restore soft-deleted submission
+    router.post('/admin/submissions/:id/restore', requireAuth, requireAdmin, async (req, res) => {
+        try {
+            const { id } = req.params;
+            const actorId = req.auth.userId || req.auth.id || req.auth.username || 'admin';
+
+            const result = await surveyRepository.restoreSubmission({
+                submissionId: id,
+                actorId
+            });
+
+            return res.json({
+                success: true,
+                message: `대상자 (${id}) 설문이 복구되었습니다.`,
+                result
+            });
+        } catch (err) {
+            const status = err.status || (err.code === 'NOT_FOUND' ? 404 : 400);
+            return res.status(status).json({
+                error: { code: err.code || 'RESTORE_FAILED', message: err.message }
             });
         }
     });

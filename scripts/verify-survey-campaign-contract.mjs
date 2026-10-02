@@ -1196,7 +1196,7 @@ async function runCampaignBackendVerificationSuite() {
     // ──────────────────────────────────────────────────────────
     console.log('\n▶️ SUITE 7: Permissions Guarding on Campaign Endpoints');
 
-    await testAsync('7.1. Regular user gets 403 on POST /campaigns and PATCH /campaigns/:code', async () => {
+    await testAsync('7.1. Permitted staff succeeds on POST/PATCH, unauthorized user gets 403', async () => {
         const store = createInMemoryStorage();
         const repo = new SurveyImportRepository({
             getData: store.getData,
@@ -1205,14 +1205,15 @@ async function runCampaignBackendVerificationSuite() {
 
         await repo.createCampaign({ code: 'PERM-TEST', companyName: '권한테스트', purpose: '테스트' });
 
+        let currentAuth = { id: 'user-2', role: 'user', status: 'active', permissions: { ONLINE_SURVEY_ACCESS: true } };
         const app = express();
         app.use(express.json());
-        const regularAuth = (req, res, next) => {
-            req.auth = { id: 'user-2', role: 'user', status: 'active', permissions: { ONLINE_SURVEY_ACCESS: true } };
+        const dynamicAuth = (req, res, next) => {
+            req.auth = currentAuth;
             next();
         };
         const router = createSurveyImportRouter({
-            requireAuth: regularAuth,
+            requireAuth: dynamicAuth,
             surveyImportService: { getStatusSummary: () => ({}) },
             surveyRepository: repo
         });
@@ -1221,25 +1222,41 @@ async function runCampaignBackendVerificationSuite() {
         const server = app.listen(0);
         const port = server.address().port;
         try {
-            // POST should fail with 403
+            // Permitted staff: POST should succeed with 201
             const postRes = await fetch(`http://127.0.0.1:${port}/api/surveys/campaigns`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: 'SUCCESS-CODE', companyName: '성공', purpose: '성공' })
+            });
+            assert.strictEqual(postRes.status, 201);
+
+            // Permitted staff: PATCH should succeed with 200
+            const patchRes = await fetch(`http://127.0.0.1:${port}/api/surveys/campaigns/PERM-TEST`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ purpose: '성공' })
+            });
+            assert.strictEqual(patchRes.status, 200);
+
+            // Permitted staff: GET should succeed with 200
+            const getRes = await fetch(`http://127.0.0.1:${port}/api/surveys/campaigns`);
+            assert.strictEqual(getRes.status, 200);
+
+            // Unauthorized user: should get 403
+            currentAuth = { id: 'user-unauthorized', role: 'user', status: 'active', permissions: {} };
+            const unauthPostRes = await fetch(`http://127.0.0.1:${port}/api/surveys/campaigns`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ code: 'FAIL-CODE', companyName: '실패', purpose: '실패' })
             });
-            assert.strictEqual(postRes.status, 403);
+            assert.strictEqual(unauthPostRes.status, 403);
 
-            // PATCH should fail with 403
-            const patchRes = await fetch(`http://127.0.0.1:${port}/api/surveys/campaigns/PERM-TEST`, {
+            const unauthPatchRes = await fetch(`http://127.0.0.1:${port}/api/surveys/campaigns/PERM-TEST`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ purpose: '실패' })
             });
-            assert.strictEqual(patchRes.status, 403);
-
-            // GET should succeed with 200
-            const getRes = await fetch(`http://127.0.0.1:${port}/api/surveys/campaigns`);
-            assert.strictEqual(getRes.status, 200);
+            assert.strictEqual(unauthPatchRes.status, 403);
         } finally {
             server.close();
         }

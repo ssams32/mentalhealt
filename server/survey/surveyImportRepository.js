@@ -1761,4 +1761,120 @@ export class SurveyImportRepository {
             deletedCount: totalDeleted
         };
     }
+
+    /**
+     * Soft delete a survey submission.
+     * Marks deletionStatus='deleted', deletedAt, deletedBy, deleteReason, deletionType='SOFT_DELETE'.
+     * Preserves records in SurveySubmissions (no splice), ledger, PDF files, and previous audits.
+     * Records safe audit event: ONLINE_SCREENING_SUBJECT_SOFT_DELETED.
+     */
+    async softDeleteSubmission({ submissionId, actorId = 'system', reason = '' }) {
+        if (!submissionId) {
+            const err = new Error('제출 ID(submissionId)가 필요합니다.');
+            err.code = 'INVALID_SUBMISSION_ID';
+            err.status = 400;
+            throw err;
+        }
+
+        const subs = this.getSurveySubmissions();
+        const sub = subs.find(s => s && (s.submissionId === submissionId || s.internalSurveyId === submissionId));
+        if (!sub) {
+            const err = new Error('해당 설문 제출 건을 찾을 수 없습니다.');
+            err.code = 'NOT_FOUND';
+            err.status = 404;
+            throw err;
+        }
+
+        if (sub.deletionStatus === 'deleted') {
+            const err = new Error('이미 삭제 처리된 설문입니다.');
+            err.code = 'ALREADY_DELETED';
+            err.status = 400;
+            throw err;
+        }
+
+        sub.deletionStatus = 'deleted';
+        sub.deletedAt = this._nowIso();
+        sub.deletedBy = actorId;
+        sub.deleteReason = String(reason || '').trim();
+        sub.deletionType = 'SOFT_DELETE';
+
+        await this.persistData(SURVEY_STORAGE_FILES.SURVEY_SUBMISSIONS, subs);
+
+        await this.recordAuditEvent({
+            actorId,
+            actorUserId: actorId,
+            action: 'ONLINE_SCREENING_SUBJECT_SOFT_DELETED',
+            target: sub.submissionId,
+            submissionId: sub.submissionId,
+            internalSurveyId: sub.internalSurveyId,
+            reason: String(reason || '').trim().substring(0, 200),
+            result: 'SUCCESS',
+            deletionType: 'SOFT_DELETE'
+        });
+
+        return {
+            success: true,
+            submissionId: sub.submissionId,
+            deletionType: 'SOFT_DELETE'
+        };
+    }
+
+    /**
+     * Restore a soft-deleted survey submission.
+     * Reverts deletionStatus to 'active'.
+     * Records safe audit event: ONLINE_SCREENING_SUBJECT_RESTORED.
+     */
+    async restoreSubmission({ submissionId, actorId = 'admin' }) {
+        if (!submissionId) {
+            const err = new Error('제출 ID(submissionId)가 필요합니다.');
+            err.code = 'INVALID_SUBMISSION_ID';
+            err.status = 400;
+            throw err;
+        }
+
+        const subs = this.getSurveySubmissions();
+        const sub = subs.find(s => s && (s.submissionId === submissionId || s.internalSurveyId === submissionId));
+        if (!sub) {
+            const err = new Error('해당 설문 제출 건을 찾을 수 없습니다.');
+            err.code = 'NOT_FOUND';
+            err.status = 404;
+            throw err;
+        }
+
+        if (sub.deletionStatus !== 'deleted') {
+            const err = new Error('삭제 상태가 아닌 설문 건입니다.');
+            err.code = 'NOT_DELETED';
+            err.status = 400;
+            throw err;
+        }
+
+        sub.deletionStatus = 'active';
+        sub.restoredAt = this._nowIso();
+        sub.restoredBy = actorId;
+
+        await this.persistData(SURVEY_STORAGE_FILES.SURVEY_SUBMISSIONS, subs);
+
+        await this.recordAuditEvent({
+            actorId,
+            actorUserId: actorId,
+            action: 'ONLINE_SCREENING_SUBJECT_RESTORED',
+            target: sub.submissionId,
+            submissionId: sub.submissionId,
+            internalSurveyId: sub.internalSurveyId,
+            result: 'SUCCESS'
+        });
+
+        return {
+            success: true,
+            submission: sub
+        };
+    }
+
+    /**
+     * Get all soft-deleted submissions.
+     */
+    getTrashSubmissions() {
+        const subs = this.getSurveySubmissions();
+        return subs.filter(s => s && s.deletionStatus === 'deleted');
+    }
 }
