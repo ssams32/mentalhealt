@@ -2909,9 +2909,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 </div>
 
                                                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                                                    <span className="text-[10px] font-bold text-slate-400 block mb-0.5">성별 / 생년월일</span>
+                                                    <span className="text-[10px] font-bold text-slate-400 block mb-0.5">성별 / 나이</span>
                                                     <span className="text-sm font-bold text-slate-800">
-                                                        {submissionDetail?.submission?.contact?.gender || '미입력'} / {submissionDetail?.submission?.contact?.birthDate || '미입력'}
+                                                        {submissionDetail?.submission?.contact?.gender || '미입력'} / {submissionDetail?.submission?.contact?.birthDate ? calculateCompletedAge(submissionDetail?.submission?.contact?.birthDate, currentSelectedItem?.submittedAt || currentSelectedItem?.importedAt) : '미입력'}
                                                     </span>
                                                 </div>
                                             </div>
