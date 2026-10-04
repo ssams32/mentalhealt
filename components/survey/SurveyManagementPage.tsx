@@ -2486,8 +2486,12 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 key={item.submissionId}
                                                 onClick={() => {
                                                     setSelectedSubmissionId(item.submissionId);
-                                                    setIsMobileDetailOpen(true);
-                                                    setIsLargeDetailModalOpen(true);
+                                                    // 데스크톱(lg+): 우측 패널만 갱신 — 모달 자동 오픈 금지 (jun UX 지적 반영)
+                                                    // 모바일: 기존 동작 유지 (우측 패널이 없으므로 상세 화면 + 모달)
+                                                    if (!window.matchMedia('(min-width: 1024px)').matches) {
+                                                        setIsMobileDetailOpen(true);
+                                                        setIsLargeDetailModalOpen(true);
+                                                    }
                                                 }}
                                                 className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-left relative min-h-[132px] space-y-2 ${
                                                     isSelected
