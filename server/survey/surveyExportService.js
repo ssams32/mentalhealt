@@ -37,7 +37,7 @@ function maskPhone(phone) {
 export class SurveyExportService {
     /**
      * Generate an in-memory XLSX Buffer for survey submissions.
-     * 
+     *
      * @param {Array<Object>} records - Merged survey submissions and ledger records
      * @param {Object} options
      * @param {boolean} options.isIdentifiable - Whether the user has permission to view unmasked PII
@@ -45,26 +45,13 @@ export class SurveyExportService {
      */
     generateExcelBuffer(records = [], { isIdentifiable = false } = {}) {
         const headers = [
-            '내부접수ID',
-            '외부제출ID',
-            '접수일시',
-            '수신일시',
-            '내담자명',
+            '이름',
             '연락처',
-            '지역',
-            '상담신청내용',
-            '검진척도',
-            '총점',
-            '심각도/위험도',
-            '상담진행상태',
-            '담당직원',
-            '배정일시',
-            '배정우선순위',
-            '개인정보동의',
-            '민감정보동의',
-            '동의버전',
-            '보존만료예정일',
-            '외부삭제상태'
+            '우울(PHQ-9)',
+            '불안(GAD-7)',
+            '수면(ISI-K)',
+            '스트레스(BEPSI-K)',
+            '자살위험(SBQ-R)'
         ];
 
         const rows = records.map(item => {
@@ -76,29 +63,25 @@ export class SurveyExportService {
                 ? item.contact?.phone || '-'
                 : maskPhone(item.contact?.phone);
 
+            // Helper to get score if assessmentId matches (case-insensitive)
+            const getScoreIfMatch = (targetId) => {
+                if (!item.assessmentId) return '-';
+                if (item.assessmentId.toLowerCase() === targetId.toLowerCase()) {
+                    return item.assessment?.totalScore !== undefined && item.assessment?.totalScore !== null
+                        ? item.assessment.totalScore
+                        : '-';
+                }
+                return '-';
+            };
+
             return [
-                sanitizeExcelCell(item.internalSurveyId),
-                sanitizeExcelCell(item.submissionId),
-                sanitizeExcelCell(item.createdAt ? item.createdAt.substring(0, 16).replace('T', ' ') : '-'),
-                sanitizeExcelCell(item.importedAt ? item.importedAt.substring(0, 16).replace('T', ' ') : '-'),
                 sanitizeExcelCell(clientName),
                 sanitizeExcelCell(phone), // Preserves text format & leading zeroes
-                sanitizeExcelCell(item.contact?.region || '-'),
-                sanitizeExcelCell(item.contact?.counselingRequestText || '-'),
-                sanitizeExcelCell(item.assessmentId ? item.assessmentId.toUpperCase() : '-'),
-                item.assessment?.totalScore !== undefined && item.assessment?.totalScore !== null
-                    ? item.assessment.totalScore
-                    : '-',
-                sanitizeExcelCell(item.assessment?.severity || '-'),
-                sanitizeExcelCell(item.consultationStatus || '-'),
-                sanitizeExcelCell(item.assignedUserId || '미배정'),
-                sanitizeExcelCell(item.assignedAt ? item.assignedAt.substring(0, 16).replace('T', ' ') : '-'),
-                sanitizeExcelCell(item.assignmentPriority || 'NORMAL'),
-                item.consentEvidence?.personalInfoConsent ? '동의' : '미동의',
-                item.consentEvidence?.sensitiveInfoConsent ? '동의' : '미동의',
-                sanitizeExcelCell(item.consentEvidence?.consentVersion || '-'),
-                sanitizeExcelCell(item.retentionUntil ? item.retentionUntil.substring(0, 10) : '-'),
-                sanitizeExcelCell(item.externalStatus || '-')
+                sanitizeExcelCell(getScoreIfMatch('phq-9')),
+                sanitizeExcelCell(getScoreIfMatch('gad-7')),
+                sanitizeExcelCell(getScoreIfMatch('isi-k')),
+                sanitizeExcelCell(getScoreIfMatch('bepsi-k')),
+                sanitizeExcelCell(getScoreIfMatch('sbq-r'))
             ];
         });
 
@@ -108,26 +91,13 @@ export class SurveyExportService {
 
         // Explicitly format column widths and text cells
         const colWidths = [
-            { wch: 18 }, // 내부접수ID
-            { wch: 20 }, // 외부제출ID
-            { wch: 18 }, // 접수일시
-            { wch: 18 }, // 수신일시
-            { wch: 12 }, // 내담자명
+            { wch: 12 }, // 이름
             { wch: 16 }, // 연락처
-            { wch: 14 }, // 지역
-            { wch: 30 }, // 상담신청내용
-            { wch: 12 }, // 검진척도
-            { wch: 8 },  // 총점
-            { wch: 14 }, // 심각도/위험도
-            { wch: 14 }, // 상담진행상태
-            { wch: 12 }, // 담당직원
-            { wch: 18 }, // 배정일시
-            { wch: 16 }, // 배정우선순위
-            { wch: 12 }, // 개인정보동의
-            { wch: 12 }, // 민감정보동의
-            { wch: 10 }, // 동의버전
-            { wch: 14 }, // 보존만료예정일
-            { wch: 14 }  // 외부삭제상태
+            { wch: 8 },  // 우울(PHQ-9)
+            { wch: 8 },  // 불안(GAD-7)
+            { wch: 8 },  // 수면(ISI-K)
+            { wch: 8 },  // 스트레스(BEPSI-K)
+            { wch: 8 }   // 자살위험(SBQ-R)
         ];
         ws['!cols'] = colWidths;
 
