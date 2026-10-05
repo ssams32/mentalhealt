@@ -2047,6 +2047,15 @@ const handleReferralUpdate = async (req, res) => {
             return res.status(400).json({ success: false, error: "요청 본문이 올바르지 않습니다." });
         }
 
+        // B3: 성명 빈 문자열/공백 가드
+        if (referral.name !== undefined && (typeof referral.name !== 'string' || !referral.name.trim())) {
+            return res.status(400).json({
+                success: false,
+                code: 'INVALID_NAME',
+                error: "성명을 입력해야 합니다."
+            });
+        }
+
         const targetId = req.params.id || referral.referralId || referral.refNo || referral.clientId;
         if (!targetId) {
             return res.status(400).json({ success: false, error: "Missing identifier (referralId or refNo)" });
