@@ -2218,8 +2218,8 @@ const handleReferralUpdate = async (req, res) => {
     }
 };
 
-app.put('/api/referrals', requireAuth, requireAdmin, handleReferralUpdate);
-app.put('/api/referrals/:id', requireAuth, requireAdmin, handleReferralUpdate);
+app.put('/api/referrals', requireAuth, handleReferralUpdate);
+app.put('/api/referrals/:id', requireAuth, handleReferralUpdate);
 
 const handleReferralDelete = async (req, res) => {
     try {
