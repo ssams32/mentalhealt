@@ -32,16 +32,15 @@ interface ReferralEditorProps {
     onPreviewRequest?: (file: Attachment) => void;
 }
 
-const INTERVENTION_TEMPLATE = `자살시도력: (+) 1st 2022년 1월 Wrist cutting, 2nd 2022년 2월 농약음독, 3rd 2022 7월 투신하려다 경찰신고
-정신과 약물복용 및 치료여부: 2022년 1월 수원아주다남병원 응급입원 후 퇴원, 2022년 원주기독병원 위세척 후 귀가.입원에 거부적이며 2월까지정신과 약물 복용했으나 2022년 6월 임의 중단
-음주여부: 매일 소주 2병씩 / 식사 및 수면: 2~3시간 잤다가 깨어남.
-    진단명 : 양극성 정동장애
-약물: (아침) 아리피졸정 2mg, 명인벤즈트로핀메실레이트정 1mg, 데파킨크로노정 300mg, 리보트릴정, 스리반정 0.5mg
-    (저녁) 데타킨크로노정 300mg, 팔리스펜서방정3mg, 리보트릴정, 스리반정 0.5mg
-외래병원: 하은정신의학과의원
-보호요인: 거북이 / 지지체계 : 초등학교 동창생
-주호소 및 개입내용: 1인 가구이며 고등학교 졸업 후 이천으로 왔으나 뚜렷한 직장없이 집에서 은둔.최근 2개월간 무분별한 지출과 폭음 증가.정신과적 문제가 있으나 약물을 임의 중단하여 하은정신의학과의원에 연계하였으며 주 1회 외래동행하여 상담 및 약물 처방 중, 경제적 문제로 이천시청에서 경기도형 긴급생계비 지원, 신체치료(어깨 탈골)을 위해 이천의료원 공공사업과 자원 연계
-현상황: 등록을 위해 초기 상담 중`;
+const INTERVENTION_TEMPLATE = `자살시도력:
+정신과 약물복용 및 치료여부:
+음주여부 / 식사 및 수면:
+진단명:
+약물:
+외래병원:
+보호요인 / 지지체계:
+주호소 및 개입내용:
+현상황:`;
 
 const ReferralEditor: React.FC<ReferralEditorProps> = ({
     referralData,
@@ -863,7 +862,7 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                         </div>
 
                         {/* Original Official Doc UI was removed per user request */}
-                        {isEditing && (
+                        {isEditing && currentUser?.role === 'admin' && (
                             <button
                                 type="button"
                                 onClick={handleDelete}

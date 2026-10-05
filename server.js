@@ -2209,8 +2209,8 @@ const handleReferralUpdate = async (req, res) => {
     }
 };
 
-app.put('/api/referrals', requireAuth, handleReferralUpdate);
-app.put('/api/referrals/:id', requireAuth, handleReferralUpdate);
+app.put('/api/referrals', requireAuth, requireAdmin, handleReferralUpdate);
+app.put('/api/referrals/:id', requireAuth, requireAdmin, handleReferralUpdate);
 
 const handleReferralDelete = async (req, res) => {
     try {
@@ -2309,8 +2309,8 @@ const handleReferralDelete = async (req, res) => {
     }
 };
 
-app.delete('/api/referrals/:refNo', requireAuth, handleReferralDelete);
-app.delete('/api/referrals', requireAuth, handleReferralDelete);
+app.delete('/api/referrals/:refNo', requireAuth, requireAdmin, handleReferralDelete);
+app.delete('/api/referrals', requireAuth, requireAdmin, handleReferralDelete);
 
 // SUICIDE ATTEMPTERS
 app.get('/api/suicideattempters', requireAuth, (req, res) => {
@@ -3043,7 +3043,7 @@ app.post('/api/users/change-password', requireAuth, (req, res) => {
     }
 });
 
-app.post('/api/referrals/bulk-delete', requireAuth, async (req, res) => {
+app.post('/api/referrals/bulk-delete', requireAuth, requireAdmin, async (req, res) => {
     try {
         const userRole = (req.auth?.role || req.auth?.userRole || 'user').toLowerCase();
         if (userRole !== 'admin') {
@@ -3268,11 +3268,11 @@ app.delete('/api/unregistered/:id', requireAuth, (req, res) => {
     res.json({ success: true });
 });
 
-app.get('/api/trash', requireAuth, (req, res) => {
+app.get('/api/trash', requireAuth, requireAdmin, (req, res) => {
     res.json(getData('Trash', []));
 });
 
-app.post('/api/trash/restore', requireAuth, async (req, res) => {
+app.post('/api/trash/restore', requireAuth, requireAdmin, async (req, res) => {
     try {
         const { id } = req.body;
         if (!id) {
@@ -3384,7 +3384,7 @@ app.post('/api/trash/restore', requireAuth, async (req, res) => {
     }
 });
 
-app.delete('/api/trash/:id', requireAuth, async (req, res) => {
+app.delete('/api/trash/:id', requireAuth, requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         let trash = getData('Trash', []);

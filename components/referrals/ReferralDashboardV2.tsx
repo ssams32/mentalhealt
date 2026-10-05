@@ -659,6 +659,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                             <Monitor size={14} strokeWidth={2.5} />
                             <span>미등록</span>
                         </button>
+{currentUser?.role === 'admin' && (
                         <button
                             onClick={() => setViewMode('trash')}
                             className={`p-1.5 px-2 rounded-lg transition-all flex items-center gap-1.5 font-bold text-xs ${viewMode === 'trash' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
@@ -667,6 +668,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                             <Trash2 size={14} strokeWidth={2.5} />
                             <span>휴지통</span>
                         </button>
+                    )}
                     </div>
                 </div>
 
@@ -861,6 +863,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                                             >
                                                 복구
                                             </button>
+{currentUser?.role === 'admin' && (
                                             <button
                                                 onClick={async (e) => {
                                                     e.stopPropagation();
@@ -875,6 +878,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                                             >
                                                 영구 삭제
                                             </button>
+)}
                                         </div>
                                     )}
                                 </div>
