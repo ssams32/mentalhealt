@@ -484,7 +484,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                     sanitizeExcelCell(r.name),
                     sanitizeExcelCell(r.gender === '여성' ? '여' : r.gender === '남성' ? '남' : r.gender),
                     sanitizeExcelCell(r.age),
-                    sanitizeExcelCell(r.region || '이천시'),
+                    sanitizeExcelCell(r.address || '-'),
                     sanitizeExcelCell(r.phone || '-'),
                     sanitizeExcelCell(r.requestDate),
                     sanitizeExcelCell(r.requestAgency),
@@ -810,7 +810,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                                 </div>
 
                                 <div className="flex items-center gap-2 text-xs text-slate-500 mb-2">
-                                    <span>{referral.gender === '남성' ? '남' : '여'}</span>
+                                    <span>{referral.gender === '남성' ? '남' : referral.gender === '여성' ? '여' : (referral.gender || '-')}</span>
                                     <span className="w-0.5 h-2 bg-slate-300 rounded-full"></span>
                                     <span>{referral.age}세</span>
                                     <span className="w-0.5 h-2 bg-slate-300 rounded-full"></span>

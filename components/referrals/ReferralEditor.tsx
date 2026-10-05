@@ -336,6 +336,13 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
             autoSaveTimerRef.current = null;
         }
 
+        // B3: 성명 필수 검증 (빈 값이면 저장 차단 + 알림)
+        if (!dataToSave.name || !dataToSave.name.trim()) {
+            setSaveStatus('error');
+            if (showToast) showToast('성명을 입력해야 저장됩니다');
+            return;
+        }
+
         if (isSavingRef.current) {
             // 이미 저장 진행 중이면 잠시 후 재시도
             autoSaveTimerRef.current = setTimeout(() => performSave(latestFormDataRef.current), 500);
@@ -380,6 +387,13 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
         if (!isEditing || !dataToSave.refNo) return;
 
         if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+
+        // B3: 성명 필수 검증 (빈 값이면 저장 차단 + 알림)
+        if (!dataToSave.name || !dataToSave.name.trim()) {
+            setSaveStatus('error');
+            if (showToast) showToast('성명을 입력해야 저장됩니다');
+            return;
+        }
 
         if (immediate) {
             performSave(dataToSave);
