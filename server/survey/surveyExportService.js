@@ -54,36 +54,67 @@ export class SurveyExportService {
             '자살위험(SBQ-R)'
         ];
 
-        const rows = records.map(item => {
-            const clientName = isIdentifiable
-                ? item.contact?.clientName || '-'
-                : maskName(item.contact?.clientName);
+        const rows = [];
+        {
+            // 1인 1행 집계: 동일인(personKey)별로 묶고,
+            // 5개 점수 컬럼은 각 검사의 최신 submission의 assessment.totalScore로 채운다.
+            // 응시하지 않은 검사는 '-' 유지.
+            const ASSESSMENT_COLUMNS = ['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r'];
 
-            const phone = isIdentifiable
-                ? item.contact?.phone || '-'
-                : maskPhone(item.contact?.phone);
-
-            // Helper to get score if assessmentId matches (case-insensitive)
-            const getScoreIfMatch = (targetId) => {
-                if (!item.assessmentId) return '-';
-                if (item.assessmentId.toLowerCase() === targetId.toLowerCase()) {
-                    return item.assessment?.totalScore !== undefined && item.assessment?.totalScore !== null
-                        ? item.assessment.totalScore
-                        : '-';
-                }
-                return '-';
+            const digitsOf = (v) => String(v || '').replace(/\D/g, '');
+            const personKeyOf = (item, index) => {
+                const digits = digitsOf(item.contact?.phone);
+                if (digits) return `phone:${digits}`;
+                const name = String(item.contact?.clientName || '').trim();
+                if (name) return `name:${name}`;
+                // 식별 정보가 전혀 없으면 행별 분리 (서로 다른 익명 레코드 병합 방지)
+                return `row:${index}`;
+            };
+            const effectiveTimeOf = (item) => {
+                const t = item.importedAt || item.submittedAt || item.receivedAt;
+                const ms = t ? Date.parse(t) : NaN;
+                return Number.isNaN(ms) ? 0 : ms;
+            };
+            const scoreOf = (item) => {
+                const s = item.assessment?.totalScore;
+                return (s !== undefined && s !== null) ? s : '-';
             };
 
-            return [
-                sanitizeExcelCell(clientName),
-                sanitizeExcelCell(phone), // Preserves text format & leading zeroes
-                sanitizeExcelCell(getScoreIfMatch('phq-9')),
-                sanitizeExcelCell(getScoreIfMatch('gad-7')),
-                sanitizeExcelCell(getScoreIfMatch('isi-k')),
-                sanitizeExcelCell(getScoreIfMatch('bepsi-k')),
-                sanitizeExcelCell(getScoreIfMatch('sbq-r'))
-            ];
-        });
+            const groups = new Map(); // personKey -> [{ item, time }]
+            records.forEach((item, index) => {
+                if (!item) return;
+                const key = personKeyOf(item, index);
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push({ item, time: effectiveTimeOf(item) });
+            });
+
+            for (const entries of groups.values()) {
+                // 최신순 정렬 (Array.prototype.sort는 stable → 동점 시 입력 순서 유지)
+                const sorted = [...entries].sort((a, b) => b.time - a.time);
+                const latest = sorted[0].item;
+
+                const clientName = isIdentifiable
+                    ? latest.contact?.clientName || '-'
+                    : maskName(latest.contact?.clientName);
+
+                const phone = isIdentifiable
+                    ? latest.contact?.phone || '-'
+                    : maskPhone(latest.contact?.phone);
+
+                const scoreCells = ASSESSMENT_COLUMNS.map((targetId) => {
+                    const match = sorted.find(({ item }) =>
+                        String(item.assessmentId || '').toLowerCase() === targetId
+                    );
+                    return match ? scoreOf(match.item) : '-';
+                });
+
+                rows.push([
+                    sanitizeExcelCell(clientName),
+                    sanitizeExcelCell(phone), // Preserves text format & leading zeroes
+                    ...scoreCells.map((s) => sanitizeExcelCell(s))
+                ]);
+            }
+        }
 
         // Build XLSX workbook in-memory
         const sheetData = [headers, ...rows];
