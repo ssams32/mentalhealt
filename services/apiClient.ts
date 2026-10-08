@@ -71,8 +71,10 @@ class ApiClient {
 
     /**
      * 중앙집중형 요청 처리 함수
+     * @param timeoutMs fetch 타임아웃 (기본 30000ms). 장시간 폴링 대상이 아닌
+     *                  요청에서만 상향 조정할 것.
      */
-    private async request<T>(url: string, options: RequestInit = {}, retryCount = 0): Promise<T> {
+    private async request<T>(url: string, options: RequestInit = {}, retryCount = 0, timeoutMs: number = 30000): Promise<T> {
         if (this.activeRequests === 0) this.notifyLoading(true);
         this.activeRequests++;
 
@@ -81,7 +83,7 @@ class ApiClient {
 
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s 기본 타임아웃
+            const timeoutId = setTimeout(() => controller.abort(), timeoutMs); // 기본 30s 타임아웃
 
             response = await fetch(fullUrl, {
                 credentials: 'include',
@@ -104,7 +106,7 @@ class ApiClient {
                 this.activeRequests--;
                 const delay = Math.pow(2, retryCount) * 1000 + Math.floor(Math.random() * 200);
                 await this.wait(delay);
-                return this.request<T>(url, options, retryCount + 1);
+                return this.request<T>(url, options, retryCount + 1, timeoutMs);
             }
 
             if (!response.ok) {
@@ -591,7 +593,8 @@ class ApiClient {
     async importOnlineSurveys(options?: number | { batchSize?: number; maxItems?: number }): Promise<{
         success: boolean;
         message: string;
-        summary: {
+        jobId?: string; // 202 비동기 잡 응답 (신규)
+        summary?: {
             jobId?: string;
             batchId: string;
             discovered?: number;
@@ -607,7 +610,7 @@ class ApiClient {
             stopReason?: string;
             ackPending: number;
             deletePending: number;
-        };
+        }; // 동기 완료 응답 (구버전 서버 호환용, 현재는 잡 폴링으로 수신)
     }> {
         const body = typeof options === 'number'
             ? { limit: options }
@@ -630,6 +633,15 @@ class ApiClient {
         nextScheduledAt: string | null;
         lastImportedCount: number;
         lastFailedCount: number;
+        manualJob?: {
+            status: 'idle' | 'running' | 'completed' | 'failed';
+            jobId: string | null;
+            isRunning: boolean;
+            startedAt: string | null;
+            completedAt: string | null;
+            summary: any | null;
+            error: { code: string; message: string } | null;
+        } | null;
     }> {
         return this.request('/surveys/sync-status');
     }

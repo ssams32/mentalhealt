@@ -181,6 +181,25 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     const [importing, setImporting] = useState<boolean>(false);
     const [retryingDeletions, setRetryingDeletions] = useState<boolean>(false);
 
+    // --- Async import job polling refs (202 + polling pattern) ---
+    const importPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const importCancelledRef = useRef<boolean>(false);
+
+    const clearImportPolling = () => {
+        if (importPollTimerRef.current !== null) {
+            clearInterval(importPollTimerRef.current);
+            importPollTimerRef.current = null;
+        }
+    };
+
+    // 언마운트 시 진행 중인 잡 폴링 정리 (메모리 릭 방지)
+    useEffect(() => {
+        return () => {
+            importCancelledRef.current = true;
+            clearImportPolling();
+        };
+    }, []);
+
     // --- State: Survey Automation & Sync Progress ---
     const [syncProgress, setSyncProgress] = useState<{
         isOpen: boolean;
@@ -428,10 +447,110 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         return () => { isCancelled = true; };
     }, [selectedSubmissionId]);
 
-    // --- Action: Manual Survey Import (Drain All Pending Safely) ---
+    // --- Action: Manual Survey Import (async job + polling) ---
+    // POST /api/surveys/import 는 202 + jobId 로 즉시 반환하고,
+    // 실제 동기화는 서버 백그라운드에서 수행 → 3초 간격으로 sync-status 폴링.
+    // (기존 동기 방식은 30초 fetch 타임아웃에 걸려 "signal is aborted without reason" 오류 발생)
     const handleImportClick = async () => {
         if (importing || syncProgress.isSyncing) return;
-        let importCompleted = false;
+        clearImportPolling();
+        importCancelledRef.current = false;
+        const isCancelled = () => importCancelledRef.current;
+
+        const finishWithSummary = (s: any) => {
+            if (isCancelled()) return;
+            const imp = s.imported ?? 0;
+            const fld = s.failed ?? s.quarantined ?? 0;
+            const rsd = s.reused ?? s.duplicates ?? 0;
+            const tot = s.discovered ?? s.totalFetched ?? (imp + fld + rsd);
+
+            // 서버 결과를 summary state에 먼저 보존. 이후 새로고침 실패가
+            // 이 결과를 덮어쓰지 않도록 분리 처리한다.
+            setSyncProgress({
+                isOpen: true,
+                isSyncing: false,
+                isError: false,
+                imported: imp,
+                failed: fld,
+                reused: rsd,
+                total: tot,
+                stopReason: s.stopReason || '동기화 완료',
+                message: tot === 0
+                    ? '현재 대기 중인 신규 설문이 없습니다.'
+                    : `동기화 완료: 신규 수신 ${imp}건, 재사용/중복 ${rsd}건, 오류/격리 ${fld}건 (총 ${tot}건 처리)`
+            });
+
+            if (showToast) {
+                showToast(`설문 동기화 완료: 신규 ${imp}건, 재사용 ${rsd}건, 오류/격리 ${fld}건`, 'success');
+            }
+        };
+
+        const finishWithError = (msg: string) => {
+            if (isCancelled()) return;
+            setSyncProgress(prev => ({
+                ...prev,
+                isSyncing: false,
+                isError: true,
+                message: `오류 발생: ${msg}`
+            }));
+            if (showToast) showToast(msg, 'error');
+        };
+
+        const refreshAfterImport = async () => {
+            if (isCancelled()) return;
+            try {
+                await loadData(selectedSubmissionId);
+            } catch (refreshErr) {
+                console.warn('[SurveySync] 동기화 후 목록 새로고침에 실패했습니다. (동기화 결과는 유지됩니다)', refreshErr);
+            }
+            if (typeof refreshSidebarBadge === 'function') {
+                try {
+                    await refreshSidebarBadge();
+                } catch (badgeErr) {
+                    console.warn('[SurveySync] 사이드바 배지 새로고침에 실패했습니다. (동기화 결과는 유지됩니다)', badgeErr);
+                }
+            }
+        };
+
+        // 지정된 jobId의 잡이 끝날 때까지 sync-status 폴링 (3초 간격, 최대 10분)
+        const pollJobUntilDone = (jobId: string | null, maxWaitMs = 10 * 60 * 1000): Promise<void> => {
+            return new Promise((resolve) => {
+                const startedAt = Date.now();
+                const done = () => {
+                    clearImportPolling();
+                    resolve();
+                };
+                const tick = async () => {
+                    if (isCancelled()) { done(); return; }
+                    if (Date.now() - startedAt > maxWaitMs) {
+                        done();
+                        finishWithError('동기화 작업이 제한 시간(10분)을 초과했습니다. 잠시 후 목록을 새로고침해 주세요.');
+                        return;
+                    }
+                    try {
+                        const st: any = await apiClient.getSurveySyncStatus();
+                        const job = st?.manualJob;
+                        const isTarget = jobId ? job?.jobId === jobId : !!job;
+                        if (job && isTarget && job.status !== 'running') {
+                            done();
+                            if (job.status === 'completed' && job.summary) {
+                                finishWithSummary(job.summary);
+                            } else if (job.status === 'failed') {
+                                finishWithError(job.error?.message || '설문 동기화 중 오류가 발생했습니다.');
+                            } else {
+                                finishWithSummary({ imported: 0, failed: 0, reused: 0, discovered: 0, stopReason: '잡 상태 확인 불가' });
+                            }
+                        }
+                        // 'running'이거나 잡 정보가 아직 없으면 다음 틱에서 재시도
+                    } catch (pollErr) {
+                        console.warn('[SurveySync] 잡 상태 조회 실패, 다음 주기에 재시도합니다.', pollErr);
+                    }
+                };
+                importPollTimerRef.current = setInterval(tick, 3000);
+                tick(); // 즉시 1회 조회
+            });
+        };
+
         try {
             setImporting(true);
             setSyncProgress({
@@ -442,76 +561,52 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                 failed: 0,
                 reused: 0,
                 total: 0,
-                message: '온라인 설문을 안전하게 동기화하고 있습니다...'
+                message: '온라인 설문 동기화를 시작하고 있습니다...'
             });
 
-            const res = await apiClient.importOnlineSurveys({ batchSize: 10, maxItems: 200 });
-            if (res.success && res.summary) {
-                const s = res.summary;
-                const imp = s.imported ?? 0;
-                const fld = s.failed ?? s.quarantined ?? 0;
-                const rsd = s.reused ?? s.duplicates ?? 0;
-                const tot = s.discovered ?? s.totalFetched ?? (imp + fld + rsd);
-
-                // 1) Preserve the server result in the summary state first.
-                //    Post-success refresh runs after this try/catch so a refresh
-                //    failure can never overwrite a completed import result.
-                setSyncProgress({
-                    isOpen: true,
-                    isSyncing: false,
-                    isError: false,
-                    imported: imp,
-                    failed: fld,
-                    reused: rsd,
-                    total: tot,
-                    stopReason: s.stopReason || '동기화 완료',
-                    message: tot === 0
-                        ? '현재 대기 중인 신규 설문이 없습니다.'
-                        : `동기화 완료: 신규 수신 ${imp}건, 재사용/중복 ${rsd}건, 오류/격리 ${fld}건 (총 ${tot}건 처리)`
-                });
-
-                if (showToast) {
-                    showToast(`설문 동기화 완료: 신규 ${imp}건, 재사용 ${rsd}건, 오류/격리 ${fld}건`, 'success');
-                }
-                importCompleted = true;
-            } else {
-                // Resolved-but-unsuccessful response: surface the server's own
-                // message instead of leaving a false completion state behind.
-                throw new Error((res as any)?.message || '설문 동기화 요청이 서버에서 완료되지 않았습니다.');
-            }
-        } catch (err: any) {
-            const isRunning = err.code === 'IMPORT_ALREADY_IN_PROGRESS' || err.code === 'IMPORT_ALREADY_RUNNING';
-            const msg = isRunning
-                ? '현재 다른 설문 동기화 작업이 진행 중입니다. 잠시 후 다시 확인해 주세요.'
-                : (err.message || '설문 동기화 중 오류가 발생했습니다.');
-
-            setSyncProgress(prev => ({
-                ...prev,
-                isSyncing: false,
-                isError: true,
-                message: `오류 발생: ${msg}`
-            }));
-            if (showToast) showToast(msg, 'error');
-        } finally {
-            setImporting(false);
-        }
-
-        if (!importCompleted) return;
-
-        // 2~4) Post-success refresh only, each step isolated: a refresh failure
-        // must never overwrite the preserved import result, must never re-run
-        // the import, and must not update state after unmount (no setState here).
-        try {
-            await loadData(selectedSubmissionId);
-        } catch (refreshErr) {
-            console.warn('[SurveySync] 동기화 후 목록 새로고침에 실패했습니다. (동기화 결과는 유지됩니다)', refreshErr);
-        }
-        if (typeof refreshSidebarBadge === 'function') {
+            let jobId: string | null = null;
             try {
-                await refreshSidebarBadge();
-            } catch (badgeErr) {
-                console.warn('[SurveySync] 사이드바 배지 새로고침에 실패했습니다. (동기화 결과는 유지됩니다)', badgeErr);
+                const res: any = await apiClient.importOnlineSurveys({ batchSize: 10, maxItems: 200 });
+                if (res?.jobId) {
+                    jobId = res.jobId;
+                    setSyncProgress(prev => ({
+                        ...prev,
+                        message: '동기화 작업이 백그라운드에서 진행 중입니다...'
+                    }));
+                } else if (res?.success && res?.summary) {
+                    // 구버전 서버(동기 응답) 호환: summary가 바로 오면 폴링 없이 표시
+                    if (!isCancelled()) setImporting(false);
+                    finishWithSummary(res.summary);
+                    await refreshAfterImport();
+                    return;
+                } else {
+                    throw new Error(res?.message || '설문 동기화 요청이 서버에서 접수되지 않았습니다.');
+                }
+            } catch (err: any) {
+                const alreadyRunning = err.code === 'IMPORT_ALREADY_IN_PROGRESS' || err.code === 'IMPORT_ALREADY_RUNNING';
+                if (!alreadyRunning) throw err;
+                // 이미 실행 중인 잡이 있으면 그 잡의 완료를 폴링으로 따라감
+                if (showToast) showToast('현재 다른 설문 동기화 작업이 진행 중입니다. 완료를 기다립니다...', 'info');
+                setSyncProgress(prev => ({
+                    ...prev,
+                    message: '다른 동기화 작업이 진행 중입니다. 완료를 기다리고 있습니다...'
+                }));
+                const st: any = await apiClient.getSurveySyncStatus().catch(() => null);
+                jobId = st?.manualJob?.jobId || null;
+                if (!jobId || st?.manualJob?.status !== 'running') {
+                    finishWithError('현재 다른 설문 동기화 작업이 진행 중입니다. 잠시 후 다시 확인해 주세요.');
+                    return;
+                }
             }
+
+            await pollJobUntilDone(jobId);
+            await refreshAfterImport();
+        } catch (err: any) {
+            clearImportPolling();
+            finishWithError(err.message || '설문 동기화 중 오류가 발생했습니다.');
+        } finally {
+            clearImportPolling();
+            if (!isCancelled()) setImporting(false);
         }
     };
 

@@ -311,23 +311,26 @@ export function createSurveyImportRouter(deps = {}) {
         }
     });
 
-    // 2. POST /api/surveys/import - Trigger manual import workflow (processes all pending in safe batches)
+    // 2. POST /api/surveys/import - Start manual import as a background job.
+    // Returns 202 immediately with a jobId; the drain loop runs detached.
+    // Clients poll GET /api/surveys/sync-status (manualJob) for completion.
+    // This avoids the client-side 30s fetch timeout aborting long imports.
     router.post('/import', requireAuth, requireSurveyImportPermission, async (req, res) => {
         try {
             const actorId = req.auth.userId || req.auth.id || req.auth.username || 'admin';
             const batchSize = Number(req.body?.batchSize) || Number(req.body?.limit) || 10;
             const maxItems = Number(req.body?.maxItems) || 200;
 
-            const summary = await surveyImportService.runManualImport({
+            const jobId = surveyImportService.startManualImportAsync({
                 actorId,
                 batchSize,
                 maxItems
             });
 
-            res.json({
+            res.status(202).json({
                 success: true,
-                message: '온라인 설문 가져오기가 완료되었습니다.',
-                summary
+                jobId,
+                message: '온라인 설문 동기화를 백그라운드에서 시작했습니다.'
             });
         } catch (err) {
             const statusCode = (err.code === 'IMPORT_ALREADY_IN_PROGRESS' || err.code === 'IMPORT_ALREADY_RUNNING') ? 409 : 500;
@@ -341,7 +344,8 @@ export function createSurveyImportRouter(deps = {}) {
         }
     });
 
-    // 2-1. GET /api/surveys/sync-status - Query server-side automatic synchronization state
+    // 2-1. GET /api/surveys/sync-status - Query server-side automatic synchronization state.
+    // Also carries the current manual import job (manualJob) for 202+polling clients.
     router.get('/sync-status', requireAuth, requireSurveyImportPermission, (req, res) => {
         try {
             const scheduler = autoImportScheduler || null;
@@ -360,9 +364,20 @@ export function createSurveyImportRouter(deps = {}) {
                     lastFailedCount: 0
                 };
 
+            const job = surveyImportService.manualImportJob || null;
+
             res.json({
                 success: true,
-                ...status
+                ...status,
+                manualJob: job ? {
+                    status: job.status,
+                    jobId: job.jobId,
+                    isRunning: job.status === 'running',
+                    startedAt: job.startedAt,
+                    completedAt: job.completedAt,
+                    summary: job.summary,
+                    error: job.error
+                } : null
             });
         } catch (err) {
             res.status(500).json({ error: { code: 'SYNC_STATUS_ERROR', message: err.message } });

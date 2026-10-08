@@ -57,6 +57,18 @@ export class SurveyImportService {
 
         this._isImportRunning = false;
         this._currentBatchId = null;
+
+        // Async manual-import job tracking (202 + polling pattern).
+        // Updated synchronously on start, then on background completion/failure.
+        this._manualJob = {
+            status: 'idle', // idle | running | completed | failed
+            jobId: null,
+            actorId: null,
+            startedAt: null,
+            completedAt: null,
+            summary: null,
+            error: null
+        };
     }
 
     /**
@@ -87,6 +99,60 @@ export class SurveyImportService {
      */
     get isImportRunning() {
         return this._isImportRunning;
+    }
+
+    /**
+     * Current manual import job state for status polling.
+     * Shape: { status, jobId, actorId, startedAt, completedAt, summary, error }
+     */
+    get manualImportJob() {
+        return this._manualJob;
+    }
+
+    /**
+     * Start a manual import as a background job.
+     * Acquires the import semaphore synchronously and returns the jobId immediately,
+     * so the HTTP handler can respond 202 without waiting for the drain loop.
+     * Completion/failure is recorded on `manualImportJob` for polling.
+     * Throws IMPORT_ALREADY_IN_PROGRESS when another import is already running.
+     */
+    startManualImportAsync(options = {}) {
+        const batchId = this._acquireLock();
+
+        const job = this._manualJob;
+        job.status = 'running';
+        job.jobId = batchId;
+        job.actorId = options.actorId || 'admin';
+        job.startedAt = new Date().toISOString();
+        job.completedAt = null;
+        job.summary = null;
+        job.error = null;
+
+        // Detached execution: never awaited by the caller.
+        // .then/.catch attached, so no unhandled rejection.
+        this._drainAndImportSubmissions({
+            actorId: job.actorId,
+            mode: 'MANUAL',
+            limit: options.limit,
+            batchSize: options.batchSize,
+            maxItems: options.maxItems,
+            maxDurationMs: options.maxDurationMs,
+            delayBetweenBatchesMs: options.delayBetweenBatchesMs,
+            _acquiredBatchId: batchId
+        }).then((summary) => {
+            job.status = 'completed';
+            job.completedAt = new Date().toISOString();
+            job.summary = summary;
+        }).catch((err) => {
+            job.status = 'failed';
+            job.completedAt = new Date().toISOString();
+            job.error = {
+                code: err.code || 'IMPORT_FAILED',
+                message: err.message || '설문 동기화 중 오류가 발생했습니다.'
+            };
+        });
+
+        return batchId;
     }
 
     /**
@@ -129,9 +195,12 @@ export class SurveyImportService {
         batchSize = 10,
         maxItems = 200,
         maxDurationMs = 600000,
-        delayBetweenBatchesMs = 300
+        delayBetweenBatchesMs = 300,
+        _acquiredBatchId = null
     } = {}) {
-        const batchId = this._acquireLock();
+        // When started via startManualImportAsync the lock is already held;
+        // otherwise acquire it here (throws IMPORT_ALREADY_IN_PROGRESS).
+        const batchId = _acquiredBatchId || this._acquireLock();
         const startTime = Date.now();
 
         const effBatchSize = Math.max(1, Math.min(50, Number(batchSize) || Number(limit) || 10));
