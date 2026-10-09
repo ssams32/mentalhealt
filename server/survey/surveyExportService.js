@@ -75,9 +75,66 @@ export class SurveyExportService {
                 const ms = t ? Date.parse(t) : NaN;
                 return Number.isNaN(ms) ? 0 : ms;
             };
-            const scoreOf = (item) => {
-                const s = item.assessment?.totalScore;
-                return (s !== undefined && s !== null) ? s : '-';
+            const scoreOf = (item, targetId) => {
+                const a = item.assessment;
+                if (!a || typeof a !== 'object') return '-';
+                // 1. 직접 totalScore
+                if (a.totalScore !== undefined && a.totalScore !== null) return a.totalScore;
+                // 2. scores 서브오브젝트 (phq9, gad7, isi, bepsi, sbqr 등)
+                const scores = a.scores;
+                if (scores && typeof scores === 'object') {
+                    const keyMap = {
+                        'phq-9': ['phq9', 'phq'],
+                        'gad-7': ['gad7', 'gad'],
+                        'isi-k': ['isik', 'isi'],
+                        'bepsi-k': ['bepsik', 'bepsi'],
+                        'sbq-r': ['sbqr']
+                    };
+                    const keys = keyMap[targetId] || [];
+                    for (const k of keys) {
+                        const v = scores[k];
+                        if (v !== undefined && v !== null) {
+                            // 객체면 totalScore/total/mean 추출
+                            if (typeof v === 'object') {
+                                const inner = v.totalScore ?? v.total ?? v.meanScore ?? v.score;
+                                if (inner !== undefined && inner !== null) return inner;
+                            } else {
+                                return v;
+                            }
+                        }
+                    }
+                }
+                // 3. assessment 직접 키 (phq9, gad7 등)
+                const directMap = {
+                    'phq-9': ['phq9', 'phq'],
+                    'gad-7': ['gad7', 'gad'],
+                    'isi-k': ['isik', 'isi'],
+                    'bepsi-k': ['bepsik', 'bepsi'],
+                    'sbq-r': ['sbqr']
+                };
+                const dKeys = directMap[targetId] || [];
+                for (const k of dKeys) {
+                    const v = a[k];
+                    if (v !== undefined && v !== null) {
+                        if (typeof v === 'object') {
+                            const inner = v.totalScore ?? v.total ?? v.meanScore ?? v.score;
+                            if (inner !== undefined && inner !== null) return inner;
+                        } else {
+                            return v;
+                        }
+                    }
+                }
+                // 4. scaleScores 배열
+                if (Array.isArray(a.scaleScores)) {
+                    const found = a.scaleScores.find((s) =>
+                        String(s.scaleId || s.id || '').toLowerCase() === targetId
+                    );
+                    if (found) {
+                        const v = found.totalScore ?? found.total ?? found.score;
+                        if (v !== undefined && v !== null) return v;
+                    }
+                }
+                return '-';
             };
 
             const groups = new Map(); // personKey -> [{ item, time }]
@@ -105,7 +162,7 @@ export class SurveyExportService {
                     const match = sorted.find(({ item }) =>
                         String(item.assessmentId || '').toLowerCase() === targetId
                     );
-                    return match ? scoreOf(match.item) : '-';
+                    return match ? scoreOf(match.item, targetId) : '-';
                 });
 
                 rows.push([
