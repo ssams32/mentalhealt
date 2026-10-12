@@ -732,6 +732,39 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         return `만 ${age}세`;
     }, []);
 
+    // 성별/나이 표시 통일 (PDF 리포트와 동일한 해석 로직)
+    // - 성별: contact.gender → identity.gender 순으로 확인, 영문 코드를 한글로 변환
+    // - 나이: contact.demographics.age → identity.demographics.age → birthDate 계산 순
+    const resolveDisplayGender = useCallback((submission: any): string => {
+        const raw = submission?.contact?.gender ?? submission?.identity?.gender;
+        if (!raw || typeof raw !== 'string') return '미입력';
+        const trimmed = raw.trim();
+        if (!trimmed) return '미입력';
+        const upper = trimmed.toUpperCase();
+        if (upper === 'FEMALE' || upper === 'F' || trimmed === '여성' || trimmed === '여자' || trimmed === '여') return '여';
+        if (upper === 'MALE' || upper === 'M' || trimmed === '남성' || trimmed === '남자' || trimmed === '남') return '남';
+        if (upper === 'OTHER' || trimmed === '기타') return '기타';
+        return trimmed;
+    }, []);
+
+    const resolveDisplayAge = useCallback((submission: any, submittedAtStr?: string): string => {
+        const ageRaw = submission?.contact?.demographics?.age ?? submission?.identity?.demographics?.age;
+        if (ageRaw !== undefined && ageRaw !== null) {
+            const val = String(ageRaw).trim();
+            if (val !== '') {
+                const num = parseInt(val, 10);
+                if (!isNaN(num)) return `만 ${num}세`;
+                return val;
+            }
+        }
+        const birthDate = submission?.contact?.birthDate;
+        if (birthDate) {
+            const calculated = calculateCompletedAge(birthDate, submittedAtStr);
+            if (calculated !== '-') return calculated;
+        }
+        return '미입력';
+    }, [calculateCompletedAge]);
+
     // Selected item object (P0: Declared before hooks and handlers referencing it to prevent TDZ)
     const currentSelectedItem = useMemo(() => {
         return imports.find(i => i.submissionId === selectedSubmissionId) ?? null;
@@ -3010,7 +3043,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                                                     <span className="text-[10px] font-bold text-slate-400 block mb-0.5">성별 / 나이</span>
                                                     <span className="text-sm font-bold text-slate-800">
-                                                        {submissionDetail?.submission?.contact?.gender || '미입력'} / {submissionDetail?.submission?.contact?.birthDate ? calculateCompletedAge(submissionDetail?.submission?.contact?.birthDate, currentSelectedItem?.submittedAt || currentSelectedItem?.importedAt) : '미입력'}
+                                                        {resolveDisplayGender(submissionDetail?.submission)} / {resolveDisplayAge(submissionDetail?.submission, currentSelectedItem?.submittedAt || currentSelectedItem?.importedAt)}
                                                     </span>
                                                 </div>
                                             </div>
@@ -3809,9 +3842,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                             <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-xs">
                                                 <span className="text-[11px] font-bold text-slate-400 block mb-1">성별 / 생년월일 / 연령</span>
                                                 <div className="text-sm font-bold text-slate-900">
-                                                    <span>{submissionDetail?.submission?.contact?.gender || '미입력'} / {submissionDetail?.submission?.contact?.birthDate || '미입력'}</span>
+                                                    <span>{resolveDisplayGender(submissionDetail?.submission)} / {submissionDetail?.submission?.contact?.birthDate || '미입력'}</span>
                                                     <span className="ml-1 text-xs text-indigo-600 font-black">
-                                                        ({calculateCompletedAge(submissionDetail?.submission?.contact?.birthDate, currentSelectedItem.submittedAt || currentSelectedItem.importedAt)})
+                                                        ({resolveDisplayAge(submissionDetail?.submission, currentSelectedItem.submittedAt || currentSelectedItem.importedAt)})
                                                     </span>
                                                 </div>
                                             </div>
