@@ -1532,15 +1532,24 @@ export function createSurveyImportRouter(deps = {}) {
                 });
             }
 
-            // 4. Calculate Age
+            // 4. Calculate Age (demographics.age 우선, birthDate 폴백)
             let calculatedAge = 0;
-            const birthDateStr = submission.contact?.birthDate;
-            if (birthDateStr && typeof birthDateStr === 'string') {
-                const parts = birthDateStr.split('-');
-                if (parts.length >= 1) {
-                    const birthYear = parseInt(parts[0], 10);
-                    if (!isNaN(birthYear) && birthYear > 1900 && birthYear <= new Date().getFullYear()) {
-                        calculatedAge = new Date().getFullYear() - birthYear;
+            const demoAge = submission.contact?.demographics?.age ?? submission.identity?.demographics?.age;
+            if (demoAge !== undefined && demoAge !== null && String(demoAge).trim() !== '') {
+                const parsed = parseInt(String(demoAge), 10);
+                if (!isNaN(parsed) && parsed > 0 && parsed < 130) {
+                    calculatedAge = parsed;
+                }
+            }
+            if (calculatedAge === 0) {
+                const birthDateStr = submission.contact?.birthDate;
+                if (birthDateStr && typeof birthDateStr === 'string') {
+                    const parts = birthDateStr.split('-');
+                    if (parts.length >= 1) {
+                        const birthYear = parseInt(parts[0], 10);
+                        if (!isNaN(birthYear) && birthYear > 1900 && birthYear <= new Date().getFullYear()) {
+                            calculatedAge = new Date().getFullYear() - birthYear;
+                        }
                     }
                 }
             }
@@ -1557,10 +1566,11 @@ export function createSurveyImportRouter(deps = {}) {
             const severity = assessment.severity || assessment.resultLabel || '평가완료';
             const screeningSummary = `[온라인 검진 접수] 척도: ${scaleName}, 총점: ${totalScore}, 판정: ${severity}`;
 
-            const rawGender = submission.contact?.gender;
-            const normalizedGender = (rawGender === '남성' || rawGender === 'M' || rawGender === 'male')
+            const rawGender = submission.contact?.gender ?? submission.identity?.gender;
+            const genderUpper = typeof rawGender === 'string' ? rawGender.trim().toUpperCase() : '';
+            const normalizedGender = (genderUpper === 'MALE' || genderUpper === 'M' || rawGender === '남성' || rawGender === '남자' || rawGender === '남')
                 ? '남성'
-                : ((rawGender === '여성' || rawGender === 'F' || rawGender === 'female') ? '여성' : (rawGender || '기타'));
+                : ((genderUpper === 'FEMALE' || genderUpper === 'F' || rawGender === '여성' || rawGender === '여자' || rawGender === '여') ? '여성' : (rawGender || '기타'));
 
             const draft = {
                 name: submission.contact?.clientName || '성명미상',
