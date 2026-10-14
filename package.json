@@ -51,6 +51,7 @@
     "jspdf": "^4.1.0",
     "lodash": "^4.17.21",
     "lucide-react": "^0.555.0",
+    "puppeteer-core": "^24.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "recharts": "^3.5.1",

@@ -19,6 +19,19 @@ RUN npm run build:local
 FROM node:20-alpine AS runner
 WORKDIR /app
 
+# [Headless scraper 2026-10-14] 시스템 Chromium (puppeteer-core용)
+# --disable-dev-shm-usage: Docker 기본 /dev/shm(64MB) 부족으로 인한 크래시 방지
+# root 실행이므로 --no-sandbox는 런타임 args에서 처리
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    udev
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
 # Copy package files for production deps only
 COPY package*.json ./
 RUN npm install --omit=dev

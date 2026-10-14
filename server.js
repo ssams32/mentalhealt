@@ -4156,7 +4156,214 @@ function isAllowedWebsiteReferralPeriod(dateStr) {
 
 let isWebsiteSyncing = false;
 
-async function fetchExternalReferrals(options = {}) {
+// [Headless 2026-10-14] 타임아웃 시 강제 종료용 transport 참조
+let activeScraperTransport = null;
+
+// [Headless scraper 2026-10-14] 홈페이지 보안 강화로 fetch 기반 전송 계층이
+// 세션 검증을 통과하지 못함. 전송 계층을 추상화하여 헤드리스 브라우저로 교체.
+// 파싱 로직(정규식)은 그대로 유지. SCRAPER_TRANSPORT=fetch 로 즉시 롤백 가능.
+const SCRAPER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+// 연속 빈 결과 카운터: 3회 연속 시 차단 징후 WARN (데이터는 절대 삭제하지 않음)
+let consecutiveEmptyScraperRuns = 0;
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// --- FetchTransport: 기존 fetch 로직 (비상 폴백용) ---
+class FetchTransport {
+    constructor() {
+        this.name = 'fetch';
+        this.sessionCookie = '';
+    }
+
+    async init(credentials) {
+        const loginFormData = new URLSearchParams();
+        Object.entries(credentials).forEach(([k, v]) => loginFormData.append(k, v));
+
+        const loginRes = await fetch(EXTERNAL_CONFIG.loginUrl, {
+            method: 'POST',
+            body: loginFormData,
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': SCRAPER_USER_AGENT
+            },
+            redirect: 'manual'
+        });
+
+        const cookieHeader = loginRes.headers.get('set-cookie');
+        if (!cookieHeader) {
+            throw new Error('No session cookie received from login');
+        }
+
+        // [Hotfix 2026-10-14] 다중 쿠키 전송 (단일 쿠키 환경에서는 기존과 동일)
+        const setCookies = loginRes.headers.getSetCookie?.()
+            ?? [loginRes.headers.get('set-cookie')].filter(Boolean);
+        this.sessionCookie = setCookies.map(c => c.split(';')[0]).join('; ');
+    }
+
+    async getListHtml(pageNum) {
+        const pageUrl = pageNum === 1
+            ? EXTERNAL_CONFIG.listUrl
+            : `${EXTERNAL_CONFIG.listUrl}?page=${pageNum}`;
+        try {
+            const listRes = await fetch(pageUrl, {
+                headers: {
+                    'Cookie': this.sessionCookie,
+                    'User-Agent': SCRAPER_USER_AGENT
+                }
+            });
+            if (!listRes.ok) return null;
+            return await listRes.text();
+        } catch (e) {
+            console.warn(`⚠️ [FetchTransport] List page ${pageNum} failed:`, e.message);
+            return null;
+        }
+    }
+
+    async getViewHtml(idx) {
+        try {
+            const viewRes = await fetch(`${EXTERNAL_CONFIG.viewUrl}?idx=${idx}`, {
+                headers: {
+                    'Cookie': this.sessionCookie,
+                    'User-Agent': SCRAPER_USER_AGENT
+                }
+            });
+            if (!viewRes.ok) return null;
+            return await viewRes.text();
+        } catch (e) {
+            console.warn(`⚠️ [FetchTransport] View page idx=${idx} failed:`, e.message);
+            return null;
+        }
+    }
+
+    async close() {
+        // fetch는 정리할 리소스 없음
+    }
+}
+
+// --- BrowserTransport: Puppeteer 헤드리스 브라우저 (기본값) ---
+class BrowserTransport {
+    constructor() {
+        this.name = 'browser';
+        this.browser = null;
+        this.page = null;
+    }
+
+    async init(credentials) {
+        let puppeteer;
+        try {
+            puppeteer = (await import('puppeteer-core')).default;
+        } catch (e) {
+            throw new Error('puppeteer-core not available: ' + e.message);
+        }
+
+        const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium';
+        try {
+            this.browser = await puppeteer.launch({
+                executablePath,
+                headless: 'new',
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                ],
+                timeout: 30000,
+            });
+        } catch (e) {
+            throw new Error('Chromium launch failed (' + executablePath + '): ' + e.message);
+        }
+
+        this.page = await this.browser.newPage();
+        await this.page.setUserAgent(SCRAPER_USER_AGENT);
+        await this.page.setViewport({ width: 1366, height: 768 });
+
+        // 로그인: 기존 POST 엔드포인트를 브라우저 컨텍스트에서 실행.
+        // 브라우저의 쿠키 저장소·TLS 지문을 그대로 활용하므로 별도 폼 파싱 불필요.
+        // [P0-D3] 자격증명은 page.evaluate 인자로만 전달, 로그에 절대 출력하지 않음.
+        const loginOk = await this.page.evaluate(async (loginUrl, creds) => {
+            try {
+                const fd = new URLSearchParams();
+                for (const [k, v] of Object.entries(creds)) fd.append(k, v);
+                await fetch(loginUrl, {
+                    method: 'POST',
+                    body: fd,
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    credentials: 'include',
+                });
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }, EXTERNAL_CONFIG.loginUrl, credentials);
+
+        if (!loginOk) {
+            throw new Error('Browser login POST failed');
+        }
+
+        // 세션 검증: 목록 페이지 로드 후 로그인 폼(password input)이 남아있는지 확인
+        await this.page.goto(EXTERNAL_CONFIG.listUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await sleep(1500);
+        const html = await this.page.content();
+        if (/<input[^>]*type=["']password["']/i.test(html)) {
+            throw new Error('Login verification failed: password field still present on list page');
+        }
+        console.log('✅ [BrowserTransport] Login verified, session active');
+    }
+
+    async getListHtml(pageNum) {
+        const pageUrl = pageNum === 1
+            ? EXTERNAL_CONFIG.listUrl
+            : `${EXTERNAL_CONFIG.listUrl}?page=${pageNum}`;
+        try {
+            await this.page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await sleep(1000); // PHP 렌더링 완료 여유
+            const html = await this.page.content();
+            if (process.env.SCRAPER_DEBUG === 'true') {
+                console.log(`🔍 [BrowserTransport] List page ${pageNum} HTML head:`, html.substring(0, 500));
+            }
+            return html;
+        } catch (e) {
+            console.warn(`⚠️ [BrowserTransport] List page ${pageNum} failed:`, e.message);
+            return null;
+        }
+    }
+
+    async getViewHtml(idx) {
+        try {
+            await this.page.goto(`${EXTERNAL_CONFIG.viewUrl}?idx=${idx}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await sleep(1000 + Math.random() * 1000); // 1~2초 간격 (예의 + 레이트리밋 회피)
+            return await this.page.content();
+        } catch (e) {
+            console.warn(`⚠️ [BrowserTransport] View page idx=${idx} failed:`, e.message);
+            return null;
+        }
+    }
+
+    async close() {
+        if (this.browser) {
+            try {
+                await this.browser.close();
+            } catch (e) {
+                console.warn('⚠️ [BrowserTransport] browser.close() failed:', e.message);
+            }
+            this.browser = null;
+            this.page = null;
+        }
+    }
+}
+
+// 전송 계층 선택: SCRAPER_TRANSPORT=browser(기본) | fetch(비상 폴백)
+function createScraperTransport() {
+    const name = (process.env.SCRAPER_TRANSPORT || 'browser').toLowerCase();
+    if (name === 'fetch') {
+        console.log('ℹ️ [Scraper] Using FetchTransport (SCRAPER_TRANSPORT=fetch)');
+        return new FetchTransport();
+    }
+    return new BrowserTransport();
+}
+
+async function fetchExternalReferralsInner(options = {}) {
     if (isWebsiteSyncing) {
         console.log('⏳ [Scraper] Sync already in progress, skipping duplicate invocation.');
         return { success: false, inProgress: true };
@@ -4178,38 +4385,39 @@ async function fetchExternalReferrals(options = {}) {
         return { success: false, error: meta.lastSyncError };
     }
 
+    // [Headless 2026-10-14] 전송 계층 초기화 (로그인). 브라우저 기본, 실패 시 fetch 폴백.
+    // NOTE: transport.close()는 아래 finally에서 보장됨.
+    let transport = createScraperTransport();
     try {
-        // 1. Login to get session cookie via HTTPS
-        const loginFormData = new URLSearchParams();
-        Object.entries(credentials).forEach(([k, v]) => loginFormData.append(k, v));
-
-        const loginRes = await fetch(EXTERNAL_CONFIG.loginUrl, {
-            method: 'POST',
-            body: loginFormData,
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-            },
-            redirect: 'manual'
-        });
-
-        const cookieHeader = loginRes.headers.get('set-cookie');
-        if (!cookieHeader) {
-            console.error('❌ [Scraper] Login failed: No cookies received');
+        await transport.init(credentials);
+    } catch (initErr) {
+        console.error(`❌ [Scraper] ${transport.name} transport init failed:`, initErr.message);
+        try { await transport.close(); } catch {}
+        const fallbackEnabled = (process.env.SCRAPER_FALLBACK_FETCH ?? 'true').toLowerCase() !== 'false';
+        if (transport.name !== 'fetch' && fallbackEnabled) {
+            console.warn('⚠️ [Scraper] Falling back to FetchTransport');
+            transport = new FetchTransport();
+            try {
+                await transport.init(credentials);
+            } catch (fallbackErr) {
+                console.error('❌ [Scraper] Fallback login also failed:', fallbackErr.message);
+                meta.lastSyncStatus = 'failed';
+                meta.lastSyncError = 'Login failed: ' + fallbackErr.message;
+                saveWebsiteSyncMetadata(meta);
+                isWebsiteSyncing = false;
+                return { success: false, error: meta.lastSyncError };
+            }
+        } else {
             meta.lastSyncStatus = 'failed';
-            meta.lastSyncError = 'No session cookie received from login';
+            meta.lastSyncError = 'Login failed: ' + initErr.message;
             saveWebsiteSyncMetadata(meta);
             isWebsiteSyncing = false;
             return { success: false, error: meta.lastSyncError };
         }
+    }
+    activeScraperTransport = transport;
 
-        // [Hotfix 2026-10-14] 홈페이지 보안 강화로 로그인 시 다중 쿠키가 설정되기 시작.
-        // 기존 코드는 첫 번째 쿠키만 전송하여 세션이 불완전해지고 빈 목록이 반환됨.
-        // getSetCookie()로 전체 쿠키를 받아 name=value 부분만 결합하여 전송.
-        const setCookies = loginRes.headers.getSetCookie?.()
-            ?? [loginRes.headers.get('set-cookie')].filter(Boolean);
-        const sessionCookie = setCookies.map(c => c.split(';')[0]).join('; ');
-
+    try {
         const referrals = getData('Referrals', []);
         let existingPending = getData('PendingReferrals', []);
         const scrapedIdsArray = getData('ScrapedExternalIds', []);
@@ -4270,19 +4478,9 @@ async function fetchExternalReferrals(options = {}) {
         const discoveredIndices = [];
         const maxPages = 5;
         for (let page = 1; page <= maxPages; page++) {
-            const pageUrl = page === 1
-                ? EXTERNAL_CONFIG.listUrl
-                : `${EXTERNAL_CONFIG.listUrl}?page=${page}`;
+            const listHtml = await transport.getListHtml(page);
+            if (!listHtml) break;
 
-            const listRes = await fetch(pageUrl, {
-                headers: {
-                    'Cookie': sessionCookie,
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-                }
-            });
-            if (!listRes.ok) break;
-
-            const listHtml = await listRes.text();
             const idxMatches = [...listHtml.matchAll(/reqask_view\.php\?idx=([0-9]+)/g)];
             const pageIndices = [...new Set(idxMatches.map(m => m[1]))];
             if (pageIndices.length === 0) break;
@@ -4302,13 +4500,18 @@ async function fetchExternalReferrals(options = {}) {
 
         if (discoveredIndices.length === 0) {
             console.log('ℹ️ [Scraper] No referrals found on list pages');
+            consecutiveEmptyScraperRuns += 1;
+            if (consecutiveEmptyScraperRuns >= 3) {
+                console.warn(`⚠️ [Scraper] ${consecutiveEmptyScraperRuns} consecutive empty runs — possible blocking. Data untouched.`);
+            }
             meta.lastSuccessfulSyncAt = new Date().toISOString();
             meta.lastSyncStatus = 'success';
             meta.lastSyncError = null;
             saveWebsiteSyncMetadata(meta);
-            isWebsiteSyncing = false;
             return { success: true, added: 0 };
         }
+        // 목록에서 항목을 찾으면 연속 빈 결과 카운터 리셋
+        consecutiveEmptyScraperRuns = 0;
 
         // 3. Fetch details for each unscraped index
         const newItems = [];
@@ -4320,17 +4523,11 @@ async function fetchExternalReferrals(options = {}) {
 
             try {
                 console.log(`📥 [Scraper] Fetching details for idx: ${idx}`);
-                const viewRes = await fetch(`${EXTERNAL_CONFIG.viewUrl}?idx=${idx}`, {
-                    headers: {
-                        'Cookie': sessionCookie,
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-                    }
-                });
-                if (!viewRes.ok) {
+                const viewHtml = await transport.getViewHtml(idx);
+                if (!viewHtml) {
                     failedCount++;
                     continue;
                 }
-                const viewHtml = await viewRes.text();
 
                 const extractField = (label) => {
                     const regex = new RegExp(`<label>${label}<\\/label>\\s*<div><strong>(.*?)<\\/strong><\\/div>`, 's');
@@ -4482,7 +4679,43 @@ async function fetchExternalReferrals(options = {}) {
         await saveWebsiteSyncMetadata(meta);
         return { success: false, error: err.message };
     } finally {
+        if (transport) {
+            try { await transport.close(); } catch (closeErr) {
+                console.warn('⚠️ [Scraper] transport.close() failed:', closeErr.message);
+            }
+        }
+        activeScraperTransport = null;
         isWebsiteSyncing = false;
+    }
+}
+
+// [Headless 2026-10-14] 타임아웃 래퍼: 브라우저 hang 방지 (기본 8분).
+// 내부 함수의 finally가 transport 정리·플래그 해제를 보장하므로,
+// 타임아웃 시에는 여기서 강제 종료 + 메타데이터 기록만 수행.
+async function fetchExternalReferrals(options = {}) {
+    const timeoutMs = parseInt(process.env.SCRAPER_TIMEOUT_MS || '480000', 10);
+    try {
+        return await Promise.race([
+            fetchExternalReferralsInner(options),
+            new Promise((_, reject) => setTimeout(async () => {
+                if (activeScraperTransport) {
+                    try { await activeScraperTransport.close(); } catch {}
+                    activeScraperTransport = null;
+                }
+                reject(new Error(`Scraper timed out after ${timeoutMs}ms`));
+            }, timeoutMs)),
+        ]);
+    } catch (err) {
+        if (err.message && err.message.includes('timed out')) {
+            console.error('❌ [Scraper]', err.message);
+            const meta = getWebsiteSyncMetadata();
+            meta.lastAttemptedSyncAt = new Date().toISOString();
+            meta.lastSyncStatus = 'failed';
+            meta.lastSyncError = err.message;
+            await saveWebsiteSyncMetadata(meta);
+            return { success: false, error: err.message };
+        }
+        throw err;
     }
 }
 
