@@ -4203,7 +4203,12 @@ async function fetchExternalReferrals(options = {}) {
             return { success: false, error: meta.lastSyncError };
         }
 
-        const sessionCookie = cookieHeader.split(';')[0];
+        // [Hotfix 2026-10-14] 홈페이지 보안 강화로 로그인 시 다중 쿠키가 설정되기 시작.
+        // 기존 코드는 첫 번째 쿠키만 전송하여 세션이 불완전해지고 빈 목록이 반환됨.
+        // getSetCookie()로 전체 쿠키를 받아 name=value 부분만 결합하여 전송.
+        const setCookies = loginRes.headers.getSetCookie?.()
+            ?? [loginRes.headers.get('set-cookie')].filter(Boolean);
+        const sessionCookie = setCookies.map(c => c.split(';')[0]).join('; ');
 
         const referrals = getData('Referrals', []);
         let existingPending = getData('PendingReferrals', []);
