@@ -52,6 +52,8 @@
     "lodash": "^4.17.21",
     "lucide-react": "^0.555.0",
     "puppeteer-core": "^24.0.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "recharts": "^3.5.1",

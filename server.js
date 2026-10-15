@@ -4250,12 +4250,25 @@ class BrowserTransport {
     }
 
     async init(credentials) {
+        // [Stealth 2026-10-15] 홈페이지 봇 차단 우회: puppeteer-extra + stealth 플러그인.
+        // 스텔스 로드 실패 시 puppeteer-core로 자동 폴백 (기존 동작 유지, 크래시 없음).
         let puppeteer;
+        let browserLib = 'puppeteer-core';
         try {
-            puppeteer = (await import('puppeteer-core')).default;
+            const puppeteerExtra = (await import('puppeteer-extra')).default;
+            const StealthPlugin = (await import('puppeteer-extra-plugin-stealth')).default;
+            puppeteerExtra.use(StealthPlugin());
+            puppeteer = puppeteerExtra;
+            browserLib = 'puppeteer-extra+stealth';
         } catch (e) {
-            throw new Error('puppeteer-core not available: ' + e.message);
+            console.warn('⚠️ [BrowserTransport] stealth unavailable, falling back to puppeteer-core:', e.message);
+            try {
+                puppeteer = (await import('puppeteer-core')).default;
+            } catch (e2) {
+                throw new Error('no browser automation lib available: ' + e2.message);
+            }
         }
+        console.log(`ℹ️ [BrowserTransport] Using ${browserLib}`);
 
         const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium';
         try {
