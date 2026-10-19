@@ -5,7 +5,7 @@ import { apiClient, registerSessionExpiredHandler, notifySessionExpired, resetSe
 import { safeLocalStorage, safeSessionStorage } from './utils/safeLocalStorage';
 import LoginScreen from './components/auth/LoginScreen';
 import SetupWizard from './components/setup/SetupWizard';
-import { initOrgConfig, getTeams } from './services/orgConfig';
+import { initOrgConfig, refreshOrgConfig, getTeams } from './services/orgConfig';
 import Sidebar from './components/layout/Sidebar';
 import ReferralDashboardV2 from './components/referrals/ReferralDashboardV2';
 
@@ -480,6 +480,8 @@ function App() {
     const handleLogin = async (user: User) => {
         resetSessionExpiredGuard();
         safeSessionStorage.setItem('currentUser', JSON.stringify(user));
+        // 🏢 로그인 후 기관 설정을 인증 컨텍스트로 다시 로드 (신규 설치에서 setup 후 설정 반영)
+        await refreshOrgConfig();
         setCurrentUser(user);
         setSelectedTeam('all'); // 로그인 시 전체팀 의뢰가 기본으로 한눈에 보이도록 설정
         const newLog: Log = { logId: `log_${Date.now()}`, userId: user.id, loginTime: new Date().toLocaleString('ko-KR'), logoutTime: null };
@@ -813,7 +815,7 @@ function App() {
             requestAgency: sa.requestAgency || '',
             region: sa.region || '',
             assignee: sa.assignee || '',
-            team: currentUser?.team || getTeams()[0] || '',
+            team: (currentUser?.team || getTeams()[0] || '') as Team,
             closureStatus: '미종결',
             criLevel: 'c',
             referralPath: '직접의뢰',

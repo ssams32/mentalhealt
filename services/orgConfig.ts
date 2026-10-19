@@ -55,6 +55,18 @@ let initPromise: Promise<OrgSettings> | null = null;
 
 function sanitize(raw: any): OrgSettings | null {
     if (!raw || typeof raw !== 'object') return null;
+    // 신규 설치(미인증): GET /api/settings는 {setupCompleted:false}만 반환한다.
+    // teams가 없어도 마법사가 표시되도록 플래그를 살린 기본값을 반환 (chicken-and-egg 방지).
+    if (raw.setupCompleted === false && !(Array.isArray(raw.teams) && raw.teams.length > 0)) {
+        return {
+            ...DEFAULT_SETTINGS,
+            teams: DEFAULT_SETTINGS.teams.map((t) => ({ ...t })),
+            subTeams: [...DEFAULT_SETTINGS.subTeams],
+            regions: [...DEFAULT_SETTINGS.regions],
+            referralPaths: [...DEFAULT_SETTINGS.referralPaths],
+            setupCompleted: false,
+        };
+    }
     const teams = Array.isArray(raw.teams) && raw.teams.length > 0
         ? raw.teams.filter((t: any) => t && t.name).map((t: any) => ({ name: String(t.name), code: String(t.code || 'ET') }))
         : null;

@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { User, Log, Permission, AnyLog } from '../../types';
+import { User, Log, Permission, AnyLog, Team } from '../../types';
 import PageContainer from '../layout/PageContainer';
 import { getTeams, getTeamsConfig } from '../../services/orgConfig';
 import OrgSettingsPanel from '../setup/OrgSettingsPanel';
@@ -33,7 +33,7 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
-    const [newUser, setNewUser] = useState<Partial<User>>({ role: 'user', status: 'active', team: getTeams()[0] || '' });
+    const [newUser, setNewUser] = useState<Partial<User>>({ role: 'user', status: 'active', team: (getTeams()[0] || '') as Team });
     const [addUserError, setAddUserError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
@@ -191,7 +191,7 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
     }), [logs]);
 
     const handleOpenAddModal = () => {
-        setNewUser({ role: 'user', status: 'active', team: getTeams()[0] || '' });
+        setNewUser({ role: 'user', status: 'active', team: (getTeams()[0] || '') as Team });
         setAddUserError('');
         setIsAddModalOpen(true);
     };
