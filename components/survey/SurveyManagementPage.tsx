@@ -3492,7 +3492,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 <div className="p-3 bg-slate-50 rounded-xl">
                                                     <span className="text-[10px] text-slate-400 block mb-0.5">배정 부서</span>
                                                     <strong className="text-slate-800 font-bold">
-                                                        {currentSelectedItem.assignedDepartmentId || '증진팀'}
+                                                        {currentSelectedItem.assignedDepartmentId || '미지정'}
                                                     </strong>
                                                 </div>
                                                 <div className="p-3 bg-slate-50 rounded-xl">

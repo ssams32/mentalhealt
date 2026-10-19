@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { SuicideAttempterReferral, ReferralNote, Attachment, User } from '../../types';
-import { GENDER_OPTIONS, ICHEON_REGIONS, PROCESSING_STATUS_OPTIONS, DISPOSAL_REASON_OPTIONS, INTERVENTION_STATUS_OPTIONS, REGISTRATION_STATUS_OPTIONS, DIAGNOSIS_OPTIONS, INFO_TARGET_OPTIONS } from '../../constants';
+import { GENDER_OPTIONS, PROCESSING_STATUS_OPTIONS, DISPOSAL_REASON_OPTIONS, INTERVENTION_STATUS_OPTIONS, REGISTRATION_STATUS_OPTIONS, DIAGNOSIS_OPTIONS, INFO_TARGET_OPTIONS } from '../../constants';
+import { getRegions } from '../../services/orgConfig';
 import DocumentAttachmentModal from '../common/document-modal/DocumentAttachmentModal';
 
 
@@ -95,7 +96,7 @@ const SuicideAttempterFormModal: React.FC<SuicideAttempterFormModalProps> = ({
                         sn: '',
                         receiptDate: new Date().toISOString().split('T')[0],
                         gender: '기타',
-                        region: ICHEON_REGIONS[0],
+                        region: getRegions()[0],
                         processingStatus: '처리중',
                         interventionStatus: '일반상담(미등록)',
                         registrationStatus: '미등록',
@@ -439,8 +440,8 @@ const SuicideAttempterFormModal: React.FC<SuicideAttempterFormModalProps> = ({
                             </div>
                             <div className="col-span-12 md:col-span-4">
                                 <label className={labelClass}>주소(읍면동)</label>
-                                <select name="region" value={formData.region || ICHEON_REGIONS[0]} onChange={handleInputChange} className={inputClass}>
-                                    {ICHEON_REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                                <select name="region" value={formData.region || getRegions()[0]} onChange={handleInputChange} className={inputClass}>
+                                    {getRegions().map(r => <option key={r} value={r}>{r}</option>)}
                                 </select>
                             </div>
 

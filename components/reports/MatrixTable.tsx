@@ -1,7 +1,8 @@
 
 import React, { useMemo } from 'react';
 import { Referral } from '../../types';
-import { ICHEON_REGIONS, MONTH_LABELS, AGE_BRACKETS } from '../../constants';
+import { MONTH_LABELS, AGE_BRACKETS } from '../../constants';
+import { getRegions } from '../../services/orgConfig';
 
 interface MatrixTableProps {
     title: string;
@@ -11,7 +12,7 @@ interface MatrixTableProps {
 }
 
 const MatrixTable: React.FC<MatrixTableProps> = ({ title, data, rowKey, isAgeMatrix = false }) => {
-    const rowLabels = ICHEON_REGIONS;
+    const rowLabels = getRegions();
     const colLabels = isAgeMatrix ? AGE_BRACKETS : MONTH_LABELS;
 
     const colProcessor = (item: Referral) => {

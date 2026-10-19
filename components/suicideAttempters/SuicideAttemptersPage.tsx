@@ -8,7 +8,8 @@ import SuicideAttempterFormModal from './SuicideAttempterFormModal';
 import NotesModal from '../common/NotesModal';
 import DocumentAttachmentModal from '../common/document-modal/DocumentAttachmentModal';
 import { Plus, Search, Filter, Trash2, FileText, Paperclip, Calendar, UserCheck, Activity } from 'lucide-react';
-import { STAFF_LIST, INFO_TARGET_OPTIONS, ICHEON_REGIONS, PROCESSING_STATUS_OPTIONS } from '../../constants';
+import { INFO_TARGET_OPTIONS, PROCESSING_STATUS_OPTIONS } from '../../constants';
+import { getRegions } from '../../services/orgConfig';
 
 declare var _: any;
 declare const google: any;
@@ -296,7 +297,7 @@ const SuicideAttemptersPage: React.FC<SuicideAttemptersPageProps> = ({
                         <label className="text-[9px] font-black text-slate-400 uppercase ml-1">지역</label>
                         <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} className="w-full bg-slate-50/80 border border-slate-100 text-slate-700 text-[10px] font-black rounded-xl px-3 py-2 appearance-none focus:ring-4 focus:ring-indigo-50/30 outline-none font-sans">
                             <option value="all">전체</option>
-                            {ICHEON_REGIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            {getRegions().map(opt => <option key={opt} value={opt}>{opt}</option>)}
                         </select>
                     </div>
                     {/* Compact Processing Status */}

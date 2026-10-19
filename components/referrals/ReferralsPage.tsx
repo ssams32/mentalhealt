@@ -6,7 +6,8 @@ import PageContainer from '../layout/PageContainer';
 import ReferralTable from './ReferralTable';
 import ReferralFormModal from './ReferralFormModal';
 import DocumentAttachmentModal from '../common/document-modal/DocumentAttachmentModal';
-import { TEAMS_CONFIG, MAIN_TEAMS, CRI_LEVELS, REFERRAL_EXCEL_HEADERS } from '../../constants';
+import { CRI_LEVELS, REFERRAL_EXCEL_HEADERS } from '../../constants';
+import { getTeams, getTeamsConfig, getSubTeamParent } from '../../services/orgConfig';
 import * as XLSX from 'xlsx';
 import { apiClient } from '../../services/apiClient';
 
@@ -69,9 +70,9 @@ const ReferralsPage: React.FC<ReferralsPageProps> = ({
         let teamFiltered;
         if (selectedTeam === 'all') {
             teamFiltered = allReferrals;
-        } else if (MAIN_TEAMS.includes(selectedTeam)) {
+        } else if (getTeams().includes(selectedTeam)) {
             if (includeNambu) {
-                teamFiltered = allReferrals.filter(r => r.team === selectedTeam || (r.team === '남부분소' && r.subTeam === selectedTeam));
+                teamFiltered = allReferrals.filter(r => r.team === selectedTeam || (r.team === getSubTeamParent() && r.subTeam === selectedTeam));
             } else {
                 teamFiltered = allReferrals.filter(r => r.team === selectedTeam);
             }
@@ -313,7 +314,7 @@ const ReferralsPage: React.FC<ReferralsPageProps> = ({
                                 <button onClick={() => setSelectedTeam('all')} className={`px-3 py-2 md:px-4 md:py-2 rounded-xl text-[11px] md:text-xs font-black transition-all ${selectedTeam === 'all' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-white'}`}>전체 팀</button>
                                 {sortedTeamTabs.map(team => (
                                     <button key={team} onClick={() => setSelectedTeam(team)} className={`px-3 py-2 md:px-4 md:py-2 rounded-xl text-[11px] md:text-xs font-black transition-all ${selectedTeam === team ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-white'}`}>
-                                        {TEAMS_CONFIG[team]?.title || team}
+                                        {getTeamsConfig()[team]?.title || team}
                                     </button>
                                 ))}
                             </div>
@@ -395,7 +396,7 @@ const ReferralsPage: React.FC<ReferralsPageProps> = ({
                                     <option value="closed">종결</option>
                                 </select>
                             </div>
-                            {selectedTeam !== 'all' && MAIN_TEAMS.includes(selectedTeam) && (
+                            {selectedTeam !== 'all' && getTeams().includes(selectedTeam) && (
                                 <div className="mt-4 shrink-0">
                                     <label className="flex items-center gap-1.5 cursor-pointer select-none">
                                         <input type="checkbox" checked={includeNambu} onChange={(e) => setIncludeNambu(e.target.checked)} className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />

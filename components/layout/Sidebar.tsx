@@ -2,6 +2,7 @@
 import React from 'react';
 import { User, Page } from '../../types';
 import { PAGES_CONFIG } from '../../constants';
+import { getOrgShortName } from '../../services/orgConfig';
 import {
     Users,
     HeartPulse,
@@ -82,7 +83,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                                 {!isCollapsed && (
                                     <div className="animate-entrance">
                                         <h2 className="text-lg font-black text-slate-900 tracking-tight leading-none">
-                                            이천센터<br />
+                                            {getOrgShortName()}<br />
                                             <span className="text-[var(--brand-primary)]">의뢰관리</span>
                                         </h2>
                                     </div>

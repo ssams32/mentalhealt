@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { VoiceCallItem, User, Referral, Team } from '../../types';
 import { STAFF_LIST } from '../../constants';
 import { apiClient } from '../../services/apiClient';
+import { getTeams } from '../../services/orgConfig';
 import {
     PhoneCall,
     Clock,
@@ -32,6 +33,7 @@ import {
 interface CallAutomationPageProps {
     currentUser: User;
     referrals: Referral[];
+    users?: User[];
     onNavigateToReferrals?: (initialData?: any) => void;
     showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
@@ -41,6 +43,7 @@ type TabType = 'all' | 'pending' | 'administrative' | 'individual' | 'intake' | 
 export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
     currentUser,
     referrals,
+    users: usersProp,
     onNavigateToReferrals,
     showToast
 }) => {
@@ -59,7 +62,7 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
     const [selectedCallNotes, setSelectedCallNotes] = useState<string>('');
     const [selectedCallCaller, setSelectedCallCaller] = useState<string>('');
     const [selectedCallClient, setSelectedCallClient] = useState<string>('');
-    const [assignDept, setAssignDept] = useState<string>('증진팀');
+    const [assignDept, setAssignDept] = useState<string>(() => getTeams()[0] || '');
     const [assignStaff, setAssignStaff] = useState<string>('');
 
     // Audio playback state
@@ -116,7 +119,7 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
         setSelectedCallNotes(call.notes || '');
         setSelectedCallCaller(call.callerPhoneNumber || '');
         setSelectedCallClient(call.clientName || '');
-        setAssignDept(call.assignedDepartmentId || '증진팀');
+        setAssignDept(call.assignedDepartmentId || getTeams()[0] || '');
         setAssignStaff(call.assignedUserName || '');
         setIsPlaying(false);
         setAudioCurrentTime(0);
@@ -284,10 +287,22 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
         ).slice(0, 20);
     }, [referrals, referralSearchQuery]);
 
-    // Available staff for selected team
+    // Available staff for selected team: 센터 계정(users) 우선, 폴백 STAFF_LIST
+    const [fetchedUsers, setFetchedUsers] = useState<User[] | null>(null);
+    useEffect(() => {
+        if (!usersProp) {
+            apiClient.getUsers().then(setFetchedUsers).catch(() => setFetchedUsers([]));
+        }
+    }, [usersProp]);
     const availableStaffList = useMemo(() => {
+        const list = usersProp || fetchedUsers;
+        if (list && list.length > 0) {
+            return list
+                .filter(u => u.status === 'active' && u.team === assignDept)
+                .map(u => ({ name: u.name, team: u.team }));
+        }
         return STAFF_LIST.filter(s => s.team === assignDept);
-    }, [assignDept]);
+    }, [assignDept, usersProp, fetchedUsers]);
 
     return (
         <div className="flex flex-col h-full bg-slate-50 overflow-hidden">
@@ -461,11 +476,7 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
                             className="text-xs px-2 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-slate-700 focus:bg-white focus:outline-none"
                         >
                             <option value="all">전체 부서</option>
-                            <option value="증진팀">증진팀</option>
-                            <option value="회복팀">회복팀</option>
-                            <option value="자살예방센터">자살예방센터</option>
-                            <option value="아동청소년">아동청소년</option>
-                            <option value="남부분소">남부분소</option>
+                            {getTeams().map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
                     </div>
                 </div>
@@ -775,11 +786,7 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
                                             }}
                                             className="w-full mt-1 text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white"
                                         >
-                                            <option value="증진팀">증진팀</option>
-                                            <option value="회복팀">회복팀</option>
-                                            <option value="자살예방센터">자살예방센터</option>
-                                            <option value="아동청소년">아동청소년</option>
-                                            <option value="남부분소">남부분소</option>
+                                            {getTeams().map(t => <option key={t} value={t}>{t}</option>)}
                                         </select>
                                     </div>
 

@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { User, Referral, SuicideAttempterReferral, Log, Team, Page, Note, Attachment, AnyLog } from './types';
-import { initialUsers, initialReferrals, initialSuicideAttempterReferrals, ALL_TEAMS, TEAM_CODES, PAGES_CONFIG, ICHEON_REGIONS, MAIN_TEAMS } from './constants';
+import { initialUsers, initialReferrals, initialSuicideAttempterReferrals, PAGES_CONFIG } from './constants';
 import { apiClient, registerSessionExpiredHandler, notifySessionExpired, resetSessionExpiredGuard } from './services/apiClient';
 import { safeLocalStorage, safeSessionStorage } from './utils/safeLocalStorage';
 import LoginScreen from './components/auth/LoginScreen';
+import SetupWizard from './components/setup/SetupWizard';
+import { initOrgConfig, getTeams } from './services/orgConfig';
 import Sidebar from './components/layout/Sidebar';
 import ReferralDashboardV2 from './components/referrals/ReferralDashboardV2';
 
@@ -96,6 +98,21 @@ function App() {
     const [websiteReferralItems, setWebsiteReferralItems] = useState<any[]>([]);
     const [voicePendingCount, setVoicePendingCount] = useState<number>(0);
     const [surveyPendingCount, setSurveyPendingCount] = useState<number>(0);
+    // 🏢 기관 설정 (다센터 지원): 부팅 시 /api/settings 로드, 실패 시 constants 폴백
+    const [orgReady, setOrgReady] = useState(false);
+    const [needsSetup, setNeedsSetup] = useState(false);
+    useEffect(() => {
+        let cancelled = false;
+        initOrgConfig().then((cfg) => {
+            if (!cancelled) {
+                setNeedsSetup(!cfg.setupCompleted);
+                setOrgReady(true);
+            }
+        }).catch(() => {
+            if (!cancelled) { setNeedsSetup(false); setOrgReady(true); }
+        });
+        return () => { cancelled = true; };
+    }, []);
     // ref로 referrals 최신값 유지 (폴링 의존성 배열에 referrals 포함 시 연쇄 재시작 방지)
     const referralsRef = useRef(referrals);
     useEffect(() => { referralsRef.current = referrals; }, [referrals]);
@@ -534,9 +551,10 @@ function App() {
     }, [performLogout]);
 
     const sortedTeamTabs = useMemo(() => {
-        if (!currentUser || !currentUser.team) return ALL_TEAMS;
+        const teams = getTeams();
+        if (!currentUser || !currentUser.team) return teams as Team[];
         const userTeam = currentUser.team;
-        return [userTeam, ...ALL_TEAMS.filter(t => t !== userTeam)];
+        return [userTeam, ...teams.filter(t => t !== userTeam)] as Team[];
     }, [currentUser]);
 
     const handleAddNewReferral = useCallback(async (newReferral: Omit<Referral, 'refNo' | 'clientId'>): Promise<Referral> => {
@@ -795,7 +813,7 @@ function App() {
             requestAgency: sa.requestAgency || '',
             region: sa.region || '',
             assignee: sa.assignee || '',
-            team: currentUser?.team || '증진팀',
+            team: currentUser?.team || getTeams()[0] || '',
             closureStatus: '미종결',
             criLevel: 'c',
             referralPath: '직접의뢰',
@@ -863,6 +881,22 @@ function App() {
                 </div>
             </div>
         );
+    }
+
+    if (!orgReady) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <div className="text-center">
+                    <div className="inline-block animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mb-4"></div>
+                    <p className="text-xl font-bold text-slate-700">시스템 준비 중...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // 🏢 초기 설정 미완료(신규 설치) → 설정 마법사 표시
+    if (needsSetup) {
+        return <SetupWizard onComplete={() => window.location.reload()} />;
     }
 
     if (!currentUser) {
@@ -971,6 +1005,7 @@ function App() {
                 return <CallAutomationPage
                     currentUser={currentUser}
                     referrals={referrals}
+                    users={users}
                     onNavigateToReferrals={(initialData) => {
                         setPendingTransfer(initialData);
                         setActivePage('referrals');

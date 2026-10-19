@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { User as UserType } from '../../types';
+import { getTeams } from '../../services/orgConfig';
 import { AlertTriangle, Bell, User, Phone, Building2, ChevronRight, FileInput, Trash2, X } from 'lucide-react';
 
 interface PendingReferral {
@@ -26,11 +27,10 @@ interface ReferralInboxProps {
     users: { name: string; team: any }[];
 }
 
-const TEAMS = ['증진팀', '자살예방팀', '아동청소년팀', '중독관리팀', '남부분소'];
 
 const ReferralInbox: React.FC<ReferralInboxProps> = ({ pendingReferrals, onAccept, onDismiss, onImport, users }) => {
     const [expandedId, setExpandedId] = useState<string | null>(null);
-    const [selectedTeam, setSelectedTeam] = useState('증진팀');
+    const [selectedTeam, setSelectedTeam] = useState<string>(() => getTeams()[0] || '');
     const [selectedAssignee, setSelectedAssignee] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
 

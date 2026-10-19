@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Referral, SuicideAttempterReferral, Team, User } from '../../types';
-import { TEAM_CODES, DIAGNOSIS_OPTIONS, NAMBU_SUB_TEAMS } from '../../constants';
+import { DIAGNOSIS_OPTIONS } from '../../constants';
+import { getSubTeamParent } from '../../services/orgConfig';
 import {
     PieChart, Pie, Cell, Tooltip, Legend,
     BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -769,7 +770,7 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
         if (activeTab === 'team' && selectedTeam !== '전체') {
             data = data.filter(r =>
                 r.team === selectedTeam ||
-                (r.team === '남부분소' && r.subTeam === selectedTeam)
+                (r.team === getSubTeamParent() && r.subTeam === selectedTeam)
             );
         }
 
@@ -1397,7 +1398,7 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
                 {[
                     { id: 'all', label: '일반 의뢰', icon: '📊' },
                     { id: 'suicide', label: '자살시도자', icon: '🚨' },
-                    { id: 'nambu', label: '남부분소', icon: '📍' },
+                    ...(getSubTeamParent() ? [{ id: 'nambu', label: getSubTeamParent(), icon: '📍' }] : []),
                     { id: 'team', label: '팀별 분석', icon: '👥' }
                 ].map((tab) => (
                     <button
@@ -1444,7 +1445,7 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
                         {/* Interactive Chart Grid */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
                             {activeTab === 'nambu' && (
-                                <ReportPieChart title="남부분소 세부 분류 현황" data={filteredReferrals} dataKey="subTeam" type="pie" downloadImage={downloadImage} downloadExcel={downloadExcel} />
+                                <ReportPieChart title={`${getSubTeamParent()} 세부 분류 현황`} data={filteredReferrals} dataKey="subTeam" type="pie" downloadImage={downloadImage} downloadExcel={downloadExcel} />
                             )}
                             <ReportPieChart title="의뢰 사유/경로 분석" data={pathData} colorIndexOffset={0} downloadImage={downloadImage} downloadExcel={downloadExcel} />
                             <ReportPieChart title="진단명 분포 (전문가용)" data={diagnosisData} downloadImage={downloadImage} downloadExcel={downloadExcel} />

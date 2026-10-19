@@ -3,7 +3,7 @@ import _ from 'lodash';
 import { SuicideAttempterReferral, User, ReferralNote } from '../../types';
 import {
     PROCESSING_STATUS_OPTIONS, REGISTRATION_STATUS_OPTIONS,
-    INFO_TARGET_OPTIONS, DISPOSAL_REASON_OPTIONS, STAFF_LIST, INTERVENTION_STATUS_OPTIONS
+    INFO_TARGET_OPTIONS, DISPOSAL_REASON_OPTIONS, INTERVENTION_STATUS_OPTIONS
 } from '../../constants';
 import {
     Phone, Building2, User as UserIcon, MapPin, Tag, FileText, Edit2, Trash2,

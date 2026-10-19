@@ -2,7 +2,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Referral, SuicideAttempterReferral, User, Team } from '../../types';
 import { apiClient } from '../../services/apiClient';
-import { MAIN_TEAMS } from '../../constants';
+import { getOrgShortName } from '../../services/orgConfig';
 import {
     FileText, Users, AlertTriangle, Trash2, Monitor, Bell,
     ArrowRight, TrendingUp, Clock, CheckCircle2, AlertCircle, BarChart3
@@ -234,7 +234,7 @@ const HomePage: React.FC<HomePageProps> = ({
                 <StatCard
                     title="이번 달 신규"
                     value={stats.thisMonth}
-                    subValue="이천센터 당월 접수"
+                    subValue={`${getOrgShortName()} 당월 접수`}
                     icon={TrendingUp}
                     color="indigo"
                     onClick={() => onNavigate('referrals')}

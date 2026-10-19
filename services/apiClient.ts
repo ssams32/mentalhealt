@@ -163,6 +163,18 @@ class ApiClient {
 
     // Users
     async getUsers(): Promise<User[]> { return this.request<User[]>('/users'); }
+
+    // --- Org Settings (다센터 지원) ---
+    async getSettingsStatus(): Promise<{ setupCompleted: boolean }> {
+        return this.request<{ setupCompleted: boolean }>('/settings');
+    }
+    async getSettings(): Promise<any> { return this.request<any>('/settings'); }
+    async updateSettings(settings: any): Promise<{ success: boolean; settings: any }> {
+        return this.request<{ success: boolean; settings: any }>('/settings', { method: 'PUT', body: JSON.stringify(settings) });
+    }
+    async completeSetup(payload: any): Promise<{ success: boolean }> {
+        return this.request<{ success: boolean }>('/setup', { method: 'POST', body: JSON.stringify(payload) });
+    }
     async createUser(user: User): Promise<any> { return this.request('/users', { method: 'POST', body: JSON.stringify(user) }); }
     async updateUser(user: User): Promise<any> { return this.request('/users', { method: 'PUT', body: JSON.stringify(user) }); }
     async deleteUser(userId: string): Promise<any> { return this.request(`/users/${encodeURIComponent(userId)}`, { method: 'DELETE' }); }

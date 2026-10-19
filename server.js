@@ -1018,6 +1018,156 @@ const normalizeSavedAnalysisList = (raw) => {
 // API ENDPOINTS
 // ==========================================
 
+// ==========================================
+// 🏢 ORG SETTINGS (다센터 지원: 기관별 설정 외부화)
+// - Settings.json이 없으면 아래 기본값으로 시드 (constants.ts의 현재 하드코딩 값과 100% 동일)
+// - 기존 데이터 행은 절대 수정하지 않음 (additive only)
+// - 설정이 비어있거나 조회 실패 시 클라이언트는 constants.ts 값으로 폴백
+// ==========================================
+const DEFAULT_ORG_SETTINGS = {
+    orgName: '이천시정신건강복지센터',
+    orgShortName: '이천센터',
+    region: '이천',
+    setupCompleted: true, // 시드 시점에 데이터 존재 여부로 재결정됨
+    teams: [
+        { name: '증진팀', code: 'JJ' },
+        { name: '회복팀', code: 'HB' },
+        { name: '자살예방센터', code: 'JY' },
+        { name: '아동청소년', code: 'AC' },
+        { name: '남부분소', code: 'NB' },
+    ],
+    subTeams: ['회복', '아청', '자살', '청년'],
+    subTeamParent: '남부분소', // 세부팀을 사용하는 팀 (해당 팀 선택 시 세부 분류 드롭다운 표시)
+    regions: ["장호원읍", "부발읍", "신둔면", "백사면", "호법면", "마장면", "대월면", "모가면", "설성면", "율면", "창전동", "증포동", "중리동", "관고동", "기타"],
+    referralPaths: ['가족', '경찰서', '소방', '의료기관', '기타', '본인', '읍면동 행정복지센터', '의뢰기관', '이천시청', '정신보건기관', '보건소', '지역사회복지관', '지인', '게이트키퍼'],
+};
+
+// 신규 설치 vs 기존 운영 판단: 데이터 파일이 하나라도 있으면 기존 운영으로 간주
+const hasExistingOrgData = () => {
+    try {
+        for (const f of ['Referrals', 'Users', 'SuicideAttempters', 'BudgetPlans']) {
+            const p = path.join(DATA_DIR, `${f}.json`);
+            if (fs.existsSync(p)) {
+                const c = fs.readFileSync(p, 'utf8').trim();
+                if (c && c !== '[]' && c !== '{}') return true;
+            }
+        }
+    } catch (e) { /* 폴백: 기존 운영으로 간주하지 않음 */ }
+    return false;
+};
+
+const getOrgSettings = () => {
+    const existing = getData('Settings', null);
+    if (existing && typeof existing === 'object' && !Array.isArray(existing)) return existing;
+    // 깊은 복사로 기본값 공유 참조 방지. 값은 constants.ts와 100% 동일해야 함.
+    const copy = JSON.parse(JSON.stringify(DEFAULT_ORG_SETTINGS));
+    copy.setupCompleted = hasExistingOrgData();
+    saveData('Settings', copy);
+    console.log(`🏢 [SETTINGS] 기본 기관 설정 시드 완료 (setupCompleted=${copy.setupCompleted})`);
+    return copy;
+};
+
+// refNo용 팀 코드 조회: 설정 → 레거시 TEAM_CODES 맵 → 'ET'
+// (시드된 설정의 팀/코드가 기존 TEAM_CODES와 동일하므로 기존 동작과 100% 동일)
+const getTeamCodeForRefNo = (teamName) => {
+    try {
+        const s = getOrgSettings();
+        const t = (s.teams || []).find(t => t && t.name === teamName);
+        if (t && t.code) return t.code;
+    } catch (e) { /* 폴백 */ }
+    return (typeof TEAM_CODES !== 'undefined' && TEAM_CODES[teamName]) || 'ET';
+};
+
+// 설정 조회: 미인증 시 setupCompleted 플래그만 반환 (초기 마법사 표시 판단용)
+app.get('/api/settings', optionalAuth, (req, res) => {
+    try {
+        const s = getOrgSettings();
+        if (!req.auth || !req.auth.id) {
+            return res.json({ setupCompleted: !!s.setupCompleted });
+        }
+        res.json(s);
+    } catch (e) {
+        console.error('GET /api/settings error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// 설정 수정: 관리자 전용. teams가 비게 되는 변경은 거부 (드롭다운 붕괴 방지)
+app.put('/api/settings', requireAdmin, (req, res) => {
+    try {
+        const body = req.body || {};
+        const current = getOrgSettings();
+        if (body.teams !== undefined) {
+            if (!Array.isArray(body.teams) || body.teams.length === 0) {
+                return res.status(400).json({ success: false, error: '팀은 최소 1개 이상이어야 합니다.' });
+            }
+            for (const t of body.teams) {
+                if (!t || typeof t.name !== 'string' || !t.name.trim() || typeof t.code !== 'string' || !t.code.trim()) {
+                    return res.status(400).json({ success: false, error: '팀 이름과 코드는 필수입니다.' });
+                }
+            }
+        }
+        const merged = { ...current, ...body, setupCompleted: true };
+        saveData('Settings', merged);
+        res.json({ success: true, settings: merged });
+    } catch (e) {
+        console.error('PUT /api/settings error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// 초기 설정 마법사 완료: 인증 불필요, setupCompleted=false일 때만 1회 실행 가능
+app.post('/api/setup', (req, res) => {
+    try {
+        const current = getOrgSettings();
+        if (current.setupCompleted) {
+            return res.status(403).json({ success: false, error: '이미 초기 설정이 완료되었습니다.' });
+        }
+        const { orgName, orgShortName, region, teams, subTeams, subTeamParent, regions, referralPaths, admin } = req.body || {};
+        if (!orgName || !String(orgName).trim()) {
+            return res.status(400).json({ success: false, error: '기관명은 필수입니다.' });
+        }
+        if (!Array.isArray(teams) || teams.length === 0 || teams.some(t => !t || !t.name || !t.code)) {
+            return res.status(400).json({ success: false, error: '팀 목록( 이름+코드 )은 최소 1개 이상 필수입니다.' });
+        }
+        if (!admin || !admin.username || !admin.password || String(admin.password).length < 4) {
+            return res.status(400).json({ success: false, error: '관리자 계정(ID/4자 이상 비밀번호)은 필수입니다.' });
+        }
+        const settings = {
+            orgName: String(orgName).trim(),
+            orgShortName: String(orgShortName || orgName).trim(),
+            region: String(region || '').trim(),
+            setupCompleted: true,
+            teams: teams.map(t => ({ name: String(t.name).trim(), code: String(t.code).trim().toUpperCase() })),
+            subTeams: Array.isArray(subTeams) ? subTeams.map(String) : [],
+            subTeamParent: typeof subTeamParent === 'string' ? subTeamParent.trim() : '',
+            regions: Array.isArray(regions) ? regions.map(String) : [],
+            referralPaths: Array.isArray(referralPaths) ? referralPaths.map(String) : [],
+        };
+        saveData('Settings', settings);
+        // 관리자 계정 생성 (멱등: 동일 ID가 있으면 생성 스킵)
+        const users = getData('Users', []);
+        if (!users.find(u => u.id === admin.username || u.username === admin.username)) {
+            users.push({
+                id: admin.username,
+                username: admin.username,
+                password: String(admin.password),
+                name: String(admin.name || '시스템관리자'),
+                role: 'admin',
+                team: settings.teams[0].name,
+                status: 'active',
+                createdDate: new Date().toISOString().split('T')[0],
+            });
+            saveData('Users', users);
+        }
+        console.log(`🏢 [SETUP] 초기 설정 완료: ${settings.orgName}`);
+        res.json({ success: true });
+    } catch (e) {
+        console.error('POST /api/setup error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // [P0-D2] 최초 관리자 bootstrap은 POST /api/auth/login 내부로 이관됨.
 // 이 라우트는 순수 조회만 수행한다.
 app.get('/api/users', requireAuth, (req, res) => {
@@ -1880,7 +2030,8 @@ app.post('/api/referrals', requireAuth, async (req, res) => {
                 }
 
                 // Server-Side Atomic Numbering (inside the critical section)
-                const teamCode = TEAM_CODES[req.body.team] || 'ET';
+                // 팀 코드: 기관 설정 → 레거시 TEAM_CODES 맵 → 'ET' (기존 동작과 동일)
+                const teamCode = getTeamCodeForRefNo(req.body.team);
                 const now = new Date();
                 const yearYY = now.getFullYear().toString().slice(-2);
                 const prefix = `${teamCode}-${yearYY}-`;

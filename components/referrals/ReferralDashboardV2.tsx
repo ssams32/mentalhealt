@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Referral, User, Team, Attachment } from '../../types';
-import { CRI_LEVELS, MAIN_TEAMS, TEAMS_CONFIG, INTERVENTION_GUIDE_TEXT, REFERRAL_PATH_OPTIONS, TEAM_CODES } from '../../constants';
+import { CRI_LEVELS } from '../../constants';
+import { getTeams, getTeamCode, getSubTeamParent } from '../../services/orgConfig';
 import * as XLSX from 'xlsx-js-style';
 import { Phone, MapPin, Building2, Calendar, Search, Star, MessageSquare, Clock, Paperclip, CheckCircle2, AlertCircle, PhoneCall, ChevronDown, Filter, LayoutGrid, List, User as UserIcon, Plus, FileUp, Save, FileText, Pencil, MoreHorizontal, X, Sparkles, Eye, Download, Trash2, ArrowRightCircle, RotateCcw, Monitor, UserCheck, Check, ChevronLeft, Printer } from 'lucide-react';
 import { apiClient } from '../../services/apiClient';
@@ -177,11 +178,11 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
         return activeDataset
             .filter(r => {
                 // Team Filter
-                const isNambu = r.team === '남부분소';
+                const isNambu = r.team === getSubTeamParent();
                 let teamMatch = true;
 
                 if (selectedTeam !== 'all') {
-                    if (MAIN_TEAMS.includes(selectedTeam)) {
+                    if (getTeams().includes(selectedTeam)) {
                         if (showNambu) {
                             teamMatch = r.team === selectedTeam || (isNambu && r.subTeam === selectedTeam);
                         } else {
@@ -301,7 +302,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
             let isIdGenerated = false;
 
             if (!finalRefNo || finalRefNo === 'NO ID') {
-                const teamCode = TEAM_CODES[referral.team] || 'ET';
+                const teamCode = getTeamCode(referral.team);
                 const now = new Date();
                 const yearYY = now.getFullYear().toString().slice(-2);
                 const currentYearPrefix = `${teamCode}-${yearYY}-`;
@@ -693,7 +694,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                         className={`px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 focus:border-indigo-500 outline-none shadow-sm min-w-[80px] ${!canSelectTeam ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' : ''}`}
                     >
                         {canSelectTeam && <option value="all">전체 팀</option>}
-                        {MAIN_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+                        {getTeams().map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
 
                     <select

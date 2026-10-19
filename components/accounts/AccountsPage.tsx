@@ -2,7 +2,8 @@
 import React, { useState, useMemo } from 'react';
 import { User, Log, Permission, AnyLog } from '../../types';
 import PageContainer from '../layout/PageContainer';
-import { ALL_TEAMS, TEAMS_CONFIG } from '../../constants';
+import { getTeams, getTeamsConfig } from '../../services/orgConfig';
+import OrgSettingsPanel from '../setup/OrgSettingsPanel';
 import { apiClient } from '../../services/apiClient';
 import * as XLSX from 'xlsx';
 
@@ -28,11 +29,11 @@ const USER_EXCEL_HEADERS: Record<string, string> = {
 };
 
 const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, currentUser, onForceLogout, showToast }) => {
-    const [activeTab, setActiveTab] = useState<'users' | 'activity'>('users');
+    const [activeTab, setActiveTab] = useState<'users' | 'activity' | 'org'>('users');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
-    const [newUser, setNewUser] = useState<Partial<User>>({ role: 'user', status: 'active', team: '증진팀' });
+    const [newUser, setNewUser] = useState<Partial<User>>({ role: 'user', status: 'active', team: getTeams()[0] || '' });
     const [addUserError, setAddUserError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
@@ -190,7 +191,7 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
     }), [logs]);
 
     const handleOpenAddModal = () => {
-        setNewUser({ role: 'user', status: 'active', team: '증진팀' });
+        setNewUser({ role: 'user', status: 'active', team: getTeams()[0] || '' });
         setAddUserError('');
         setIsAddModalOpen(true);
     };
@@ -514,6 +515,14 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                 >
                     활동 로그
                 </button>
+                {currentUser.role === 'admin' && (
+                    <button
+                        onClick={() => setActiveTab('org')}
+                        className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'org' ? 'bg-white text-indigo-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                        기관 설정
+                    </button>
+                )}
             </div>
 
             {currentUser.role === 'user' ? (
@@ -598,7 +607,7 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                                         <tr key={u.id} className="hover:bg-slate-50/80 transition">
                                             <td className="px-6 py-4 font-bold text-slate-900 whitespace-nowrap">{u.id}</td>
                                             <td className="px-6 py-4 font-medium whitespace-nowrap">{u.name}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap">{TEAMS_CONFIG[u.team]?.title || u.team}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap">{getTeamsConfig()[u.team]?.title || u.team}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <span className={`px-2.5 py-1 text-xs font-bold rounded-lg ${u.role === 'admin' ? 'bg-red-100 text-red-700' : u.role === 'manager' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
                                                     {u.role}
@@ -730,7 +739,7 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                                                     <span className="text-xs text-slate-400 font-mono">({u.id})</span>
                                                 </div>
                                                 <div className="text-xs text-slate-500 mt-0.5">
-                                                    {TEAMS_CONFIG[u.team]?.title || u.team}
+                                                    {getTeamsConfig()[u.team]?.title || u.team}
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -854,7 +863,7 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                         </div>
                     </div>
                 </>
-            ) : (
+            ) : activeTab === 'activity' ? (
                 <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
                     <table className="w-full text-sm text-left text-slate-600">
                         <thead className="bg-slate-50/50 text-xs text-slate-400 font-extrabold uppercase tracking-wider border-b border-slate-100">
@@ -891,11 +900,13 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                         </tbody>
                     </table>
                 </div>
+            ) : (
+                <OrgSettingsPanel showToast={showToast} />
             )}
 
-            {isAddModalOpen && <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"><div className="bg-white rounded-[2rem] shadow-2xl p-8 space-y-6 w-full max-w-md animate-scale-in"><h2 className="text-2xl font-extrabold text-slate-900">사용자 추가</h2><form onSubmit={handleAddNewUser} className="space-y-4">{addUserError && <p className="text-red-500 text-sm bg-red-50 p-3 rounded-xl font-bold">{addUserError}</p>}<div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">아이디</label><input type="text" value={newUser.id || ''} onChange={(e) => setNewUser({ ...newUser, id: e.target.value })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none" required /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">이름</label><input type="text" value={newUser.name || ''} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none" required /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">비밀번호</label><input type="password" value={newUser.password || ''} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none" required /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">소속팀</label><select value={newUser.team || '증진팀'} onChange={(e) => setNewUser({ ...newUser, team: e.target.value as any })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none appearance-none">{ALL_TEAMS.map(team => <option key={team} value={team}>{TEAMS_CONFIG[team]?.title || team}</option>)}</select></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">권한</label><select value={newUser.role || 'user'} onChange={(e) => setNewUser({ ...newUser, role: e.target.value as any })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none appearance-none"><option value="user">사용자</option><option value="manager">매니저</option><option value="admin">관리자</option></select></div><div className="flex justify-end gap-3 pt-4"><button type="button" onClick={handleCloseAddModal} className="px-6 py-3 bg-slate-100 rounded-xl font-bold text-slate-500 hover:bg-slate-200 transition" disabled={isSubmitting}>취소</button><button type="submit" className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed" disabled={isSubmitting}>{isSubmitting ? '생성 중...' : '생성'}</button></div></form></div></div>}
+            {isAddModalOpen && <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"><div className="bg-white rounded-[2rem] shadow-2xl p-8 space-y-6 w-full max-w-md animate-scale-in"><h2 className="text-2xl font-extrabold text-slate-900">사용자 추가</h2><form onSubmit={handleAddNewUser} className="space-y-4">{addUserError && <p className="text-red-500 text-sm bg-red-50 p-3 rounded-xl font-bold">{addUserError}</p>}<div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">아이디</label><input type="text" value={newUser.id || ''} onChange={(e) => setNewUser({ ...newUser, id: e.target.value })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none" required /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">이름</label><input type="text" value={newUser.name || ''} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none" required /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">비밀번호</label><input type="password" value={newUser.password || ''} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none" required /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">소속팀</label><select value={newUser.team || getTeams()[0]} onChange={(e) => setNewUser({ ...newUser, team: e.target.value as any })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none appearance-none">{getTeams().map(team => <option key={team} value={team}>{getTeamsConfig()[team]?.title || team}</option>)}</select></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">권한</label><select value={newUser.role || 'user'} onChange={(e) => setNewUser({ ...newUser, role: e.target.value as any })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none appearance-none"><option value="user">사용자</option><option value="manager">매니저</option><option value="admin">관리자</option></select></div><div className="flex justify-end gap-3 pt-4"><button type="button" onClick={handleCloseAddModal} className="px-6 py-3 bg-slate-100 rounded-xl font-bold text-slate-500 hover:bg-slate-200 transition" disabled={isSubmitting}>취소</button><button type="submit" className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed" disabled={isSubmitting}>{isSubmitting ? '생성 중...' : '생성'}</button></div></form></div></div>}
 
-            {isEditModalOpen && editingUser && <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"><div className="bg-white rounded-[2rem] shadow-2xl p-8 space-y-6 w-full max-w-md animate-scale-in"><h2 className="text-2xl font-extrabold text-slate-900">계정 수정</h2><form onSubmit={handleUpdateUser} className="space-y-4"><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">이름</label><input type="text" value={editingUser.name || ''} onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 outline-none" required /></div>                            <div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">소속팀</label><select value={editingUser.team || '증진팀'} onChange={(e) => setEditingUser({ ...editingUser, team: e.target.value as any })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 outline-none">{ALL_TEAMS.map(team => <option key={team} value={team}>{TEAMS_CONFIG[team]?.title || team}</option>)}</select></div>
+            {isEditModalOpen && editingUser && <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"><div className="bg-white rounded-[2rem] shadow-2xl p-8 space-y-6 w-full max-w-md animate-scale-in"><h2 className="text-2xl font-extrabold text-slate-900">계정 수정</h2><form onSubmit={handleUpdateUser} className="space-y-4"><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">이름</label><input type="text" value={editingUser.name || ''} onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 outline-none" required /></div>                            <div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">소속팀</label><select value={editingUser.team || getTeams()[0]} onChange={(e) => setEditingUser({ ...editingUser, team: e.target.value as any })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 outline-none">{getTeams().map(team => <option key={team} value={team}>{getTeamsConfig()[team]?.title || team}</option>)}</select></div>
 
                 {/* Permission Editor - Improved Compact Grid UI */}
                 <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">

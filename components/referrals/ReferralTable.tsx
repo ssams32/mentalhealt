@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
 import { Referral, User } from '../../types';
-import { CRI_LEVELS, ACTION_RESULT_OPTIONS, TEAMS_CONFIG } from '../../constants';
+import { CRI_LEVELS, ACTION_RESULT_OPTIONS } from '../../constants';
+import { getTeamsConfig } from '../../services/orgConfig';
 import {
     Phone, Calendar, User as UserIcon, MapPin, Tag, ClipboardList,
     FileText, Edit2, Trash2, CheckCircle2, AlertCircle, Building2,
@@ -186,7 +187,7 @@ const ReferralTable: React.FC<ReferralTableProps> = React.memo(({
                                                                 <span className="p-1.5 bg-blue-500 rounded-lg text-white"><Briefcase size={14} /></span>
                                                                 <span className="text-[10px] font-black text-blue-900">관리 부서 및 팀</span>
                                                             </div>
-                                                            <p className="text-sm md:text-lg font-black text-slate-800 tracking-tight">{TEAMS_CONFIG[item.team]?.title || item.team}</p>
+                                                            <p className="text-sm md:text-lg font-black text-slate-800 tracking-tight">{getTeamsConfig()[item.team]?.title || item.team}</p>
                                                         </div>
                                                         <p className="text-[11px] font-bold text-blue-600 mt-2">{item.subTeam || '일반 사례'}</p>
                                                     </div>

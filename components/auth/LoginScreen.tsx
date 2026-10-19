@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { User } from '../../types';
 
 import { apiClient } from '../../services/apiClient';
+import { getOrgShortName, getOrgName } from '../../services/orgConfig';
 
 interface LoginScreenProps {
     onLogin: (user: User) => void;
@@ -52,10 +53,10 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, users }) => {
                 <div className="glass rounded-[2.5rem] shadow-2xl p-10 text-center relative overflow-hidden border border-white/60">
                     <div className="mb-12">
                         <h1 className="text-3xl font-extrabold tracking-tight mb-2 text-slate-800">
-                            이천센터 의뢰관리 대장
+                            {getOrgShortName()} 의뢰관리 대장
                         </h1>
                         <p className="text-slate-500 text-sm font-medium">
-                            Icheon City Mental Health Center
+                            {getOrgName()}
                         </p>
                     </div>
 

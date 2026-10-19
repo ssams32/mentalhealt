@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Referral, User, Attachment, Note, ReferralNote } from '../../types';
-import { GENDER_OPTIONS, ICHEON_REGIONS, DIAGNOSIS_OPTIONS, REFERRAL_PATH_OPTIONS, CRI_LEVELS, INTERVENTION_GUIDE_TEXT, MAIN_TEAMS, ALL_TEAMS, ACTION_RESULT_OPTIONS, NAMBU_SUB_TEAMS } from '../../constants';
+import { Referral, User, Attachment, Note, ReferralNote, Team } from '../../types';
+import { GENDER_OPTIONS, DIAGNOSIS_OPTIONS, CRI_LEVELS, INTERVENTION_GUIDE_TEXT, ACTION_RESULT_OPTIONS } from '../../constants';
+import { getTeams, getRegions, getReferralPaths, getSubTeamsFor } from '../../services/orgConfig';
 import {
     X, Check, Save, Share2, Printer, AlertCircle, FileText, Download, Trash2,
     MessageSquare, Clock, User as UserIcon, Phone, MapPin, Building2, Calendar,
@@ -190,8 +191,9 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
         if (referralData) {
             // Auto-detect region from address
             let detectedRegion = referralData.region;
-            if (referralData.address && (!detectedRegion || detectedRegion === ICHEON_REGIONS[ICHEON_REGIONS.length - 1] || detectedRegion === ICHEON_REGIONS[0])) {
-                const found = ICHEON_REGIONS.find(r => r !== '기타' && referralData.address?.includes(r));
+            const _regions = getRegions();
+            if (referralData.address && (!detectedRegion || detectedRegion === _regions[_regions.length - 1] || detectedRegion === _regions[0])) {
+                const found = _regions.find(r => r !== '기타' && referralData.address?.includes(r));
                 if (found) detectedRegion = found;
             }
 
@@ -231,7 +233,7 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
 
             setFormData({
                 requestDate: referralData.requestDate || (referralData.externalReceivedAt ? String(referralData.externalReceivedAt).split('T')[0].split(' ')[0] : new Date().toISOString().split('T')[0]),
-                team: currentUser?.team || '증진팀',
+                team: (currentUser?.team || getTeams()[0]) as Team,
                 closureStatus: '미종결',
                 diagnosisProtectionRequest: false,
                 writtenRequest: false,
@@ -249,7 +251,7 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                 requestAgency: referralData.agency || referralData.requestAgency || '',
                 requesterName: referralData.requesterName || (referralData as any).requestorName || '',
                 requestorName: referralData.requesterName || (referralData as any).requestorName || '',
-                region: detectedRegion || referralData.region || ICHEON_REGIONS[0]
+                region: detectedRegion || referralData.region || getRegions()[0]
             });
 
             setPreviewFile(null);
@@ -263,9 +265,9 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
         } else if (!isEditing) {
             setFormData({
                 requestDate: new Date().toISOString().split('T')[0],
-                team: currentUser?.team || '증진팀',
+                team: (currentUser?.team || getTeams()[0]) as Team,
                 gender: '',
-                region: ICHEON_REGIONS[0],
+                region: getRegions()[0],
                 closureStatus: '미종결',
                 diagnosisProtectionRequest: false,
                 writtenRequest: false,
@@ -566,8 +568,8 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                 updated.requestAgency = value;
             }
 
-            // [NEW] Clear subTeam if team is changed away from 남부분소
-            if (name === 'team' && value !== '남부분소') {
+            // [NEW] Clear subTeam if team is changed away from the sub-team parent team
+            if (name === 'team' && getSubTeamsFor(value).length === 0) {
                 updated.subTeam = '';
             }
 
@@ -945,8 +947,8 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                     </div>
                     <div className="col-span-2 lg:col-span-2">
                         <label className={`${labelClass} text-rose-800`}>거주 지역 <span className="text-rose-500">*</span></label>
-                        <select name="region" value={formData.region || ICHEON_REGIONS[0]} onChange={handleInputChange} className={`${inputClass} border-rose-200 focus:ring-rose-500/20 shadow-sm`}>
-                            {ICHEON_REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                        <select name="region" value={formData.region || getRegions()[0]} onChange={handleInputChange} className={`${inputClass} border-rose-200 focus:ring-rose-500/20 shadow-sm`}>
+                            {getRegions().map(r => <option key={r} value={r}>{r}</option>)}
                         </select>
                     </div>
 
@@ -1012,7 +1014,7 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                             <div>
                                 <label className={labelClass}>의뢰 경로</label>
                                 <select name="referralPath" value={formData.referralPath || '기타'} onChange={handleInputChange} className={inputClass}>
-                                    {REFERRAL_PATH_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                                    {getReferralPaths().map(o => <option key={o} value={o}>{o}</option>)}
                                 </select>
                             </div>
                         </div>
@@ -1056,16 +1058,16 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className={labelClass}>담당팀 <span className="text-red-500">*</span></label>
-                                <select name="team" value={formData.team || '증진팀'} onChange={handleInputChange} className={inputClass}>
-                                    {ALL_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+                                <select name="team" value={formData.team || getTeams()[0]} onChange={handleInputChange} className={inputClass}>
+                                    {getTeams().map(t => <option key={t} value={t}>{t}</option>)}
                                 </select>
                             </div>
-                            {formData.team === '남부분소' && (
+                            {getSubTeamsFor(formData.team).length > 0 && (
                                 <div className="animate-in slide-in-from-top-1 duration-300">
-                                    <label className={labelClass}>남부분소 세부 분류 <span className="text-red-500">*</span></label>
+                                    <label className={labelClass}>{formData.team} 세부 분류 <span className="text-red-500">*</span></label>
                                     <select name="subTeam" value={formData.subTeam || ''} onChange={handleInputChange} className={`${inputClass} border-indigo-200 bg-indigo-50/30`}>
                                         <option value="">분류 선택</option>
-                                        {NAMBU_SUB_TEAMS.map(st => <option key={st} value={st}>{st}</option>)}
+                                        {getSubTeamsFor(formData.team).map(st => <option key={st} value={st}>{st}</option>)}
                                     </select>
                                 </div>
                             )}
