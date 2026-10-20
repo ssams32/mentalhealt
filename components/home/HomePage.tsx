@@ -161,10 +161,10 @@ const HomePage: React.FC<HomePageProps> = ({
             <div className="mb-8 pl-1">
                 <div className="flex items-center gap-3 mb-6">
                     <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg text-white font-black text-xl">
-                        IC
+                        {(getOrgShortName() || 'IC').slice(0, 2)}
                     </div>
                     <div>
-                        <h2 className="text-sm font-bold text-indigo-600 uppercase tracking-widest">Icheon Center</h2>
+                        <h2 className="text-sm font-bold text-indigo-600 uppercase tracking-widest">{getOrgShortName()}</h2>
                         <h1 className="text-3xl font-black text-slate-900 tracking-tight">의뢰관리 시스템 대시보드</h1>
                     </div>
                 </div>

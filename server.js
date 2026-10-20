@@ -1078,12 +1078,16 @@ const getTeamCodeForRefNo = (teamName) => {
     return (typeof TEAM_CODES !== 'undefined' && TEAM_CODES[teamName]) || 'ET';
 };
 
-// 설정 조회: 미인증 시 setupCompleted 플래그만 반환 (초기 마법사 표시 판단용)
+// 설정 조회: 미인증 시 setupCompleted 플래그 + 공개 기관명만 반환 (로그인 화면 표시용, 민감정보 없음)
 app.get('/api/settings', optionalAuth, (req, res) => {
     try {
         const s = getOrgSettings();
         if (!req.auth || !req.auth.id) {
-            return res.json({ setupCompleted: !!s.setupCompleted });
+            return res.json({
+                setupCompleted: !!s.setupCompleted,
+                orgName: s.orgName || DEFAULT_ORG_SETTINGS.orgName,
+                orgShortName: s.orgShortName || DEFAULT_ORG_SETTINGS.orgShortName,
+            });
         }
         res.json(s);
     } catch (e) {

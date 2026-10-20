@@ -55,22 +55,28 @@ let initPromise: Promise<OrgSettings> | null = null;
 
 function sanitize(raw: any): OrgSettings | null {
     if (!raw || typeof raw !== 'object') return null;
-    // 신규 설치(미인증): GET /api/settings는 {setupCompleted:false}만 반환한다.
-    // teams가 없어도 마법사가 표시되도록 플래그를 살린 기본값을 반환 (chicken-and-egg 방지).
-    if (raw.setupCompleted === false && !(Array.isArray(raw.teams) && raw.teams.length > 0)) {
+    // 공개 기관명 (미인증 응답에도 포함됨 — 로그인 화면 표시용)
+    const pubName = typeof raw.orgName === 'string' && raw.orgName.trim()
+        ? raw.orgName.trim() : DEFAULT_SETTINGS.orgName;
+    const pubShort = typeof raw.orgShortName === 'string' && raw.orgShortName.trim()
+        ? raw.orgShortName.trim() : DEFAULT_SETTINGS.orgShortName;
+    const teams = Array.isArray(raw.teams) && raw.teams.length > 0
+        ? raw.teams.filter((t: any) => t && t.name).map((t: any) => ({ name: String(t.name), code: String(t.code || 'ET') }))
+        : null;
+    if (!teams) {
+        // teams 없는 최소 응답: setupCompleted가 명시적 false일 때만 마법사 표시.
+        // 그 외(에러 응답 등)는 기존 동작 유지(완료로 간주) + 공개 기관명은 반영.
         return {
             ...DEFAULT_SETTINGS,
+            orgName: pubName,
+            orgShortName: pubShort,
             teams: DEFAULT_SETTINGS.teams.map((t) => ({ ...t })),
             subTeams: [...DEFAULT_SETTINGS.subTeams],
             regions: [...DEFAULT_SETTINGS.regions],
             referralPaths: [...DEFAULT_SETTINGS.referralPaths],
-            setupCompleted: false,
+            setupCompleted: raw.setupCompleted !== false,
         };
     }
-    const teams = Array.isArray(raw.teams) && raw.teams.length > 0
-        ? raw.teams.filter((t: any) => t && t.name).map((t: any) => ({ name: String(t.name), code: String(t.code || 'ET') }))
-        : null;
-    if (!teams) return null; // teams가 비어있으면 폴백 (드롭다운 붕괴 방지)
     return {
         orgName: String(raw.orgName || DEFAULT_SETTINGS.orgName),
         orgShortName: String(raw.orgShortName || DEFAULT_SETTINGS.orgShortName),

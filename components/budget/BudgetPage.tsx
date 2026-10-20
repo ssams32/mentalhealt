@@ -6,6 +6,7 @@ import {
     CreditCard, PieChart, TrendingUp, DollarSign, Settings
 } from 'lucide-react';
 import { apiClient } from '../../services/apiClient';
+import { getOrgShortName } from '../../services/orgConfig';
 import { safeLocalStorage } from '../../utils/safeLocalStorage';
 import sampleBudgetHierarchy from './sampleBudgetHierarchy.json';
 
@@ -2325,7 +2326,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                 예산관리
                             </h1>
                             <p className="text-[10px] md:text-xs font-bold text-gray-400 tracking-widest mt-1 uppercase">
-                                Icheon Center Management
+                                {getOrgShortName()} Management
                             </p>
                         </div>
                     </div>

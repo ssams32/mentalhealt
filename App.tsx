@@ -5,7 +5,7 @@ import { apiClient, registerSessionExpiredHandler, notifySessionExpired, resetSe
 import { safeLocalStorage, safeSessionStorage } from './utils/safeLocalStorage';
 import LoginScreen from './components/auth/LoginScreen';
 import SetupWizard from './components/setup/SetupWizard';
-import { initOrgConfig, refreshOrgConfig, getTeams } from './services/orgConfig';
+import { initOrgConfig, refreshOrgConfig, getTeams, getOrgShortName } from './services/orgConfig';
 import Sidebar from './components/layout/Sidebar';
 import ReferralDashboardV2 from './components/referrals/ReferralDashboardV2';
 
@@ -107,6 +107,7 @@ function App() {
             if (!cancelled) {
                 setNeedsSetup(!cfg.setupCompleted);
                 setOrgReady(true);
+                try { document.title = `${getOrgShortName()} 의뢰관리 시스템`; } catch { /* 무시 */ }
             }
         }).catch(() => {
             if (!cancelled) { setNeedsSetup(false); setOrgReady(true); }

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { apiClient } from '../../services/apiClient';
 import { OrgTeam } from '../../services/orgConfig';
+import KOREAN_REGIONS from './koreanRegions.json';
 
 interface SetupWizardProps {
     onComplete: () => void;
@@ -38,6 +39,22 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
     const [adminName, setAdminName] = useState('시스템관리자');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    // 🏢 전국 읍면동 자동 입력 (3단계): 시도→시군구 선택 시 읍면동 칩 표시
+    const [selSido, setSelSido] = useState('');
+    const [selSgg, setSelSgg] = useState('');
+    const sggList: string[] = selSido && (KOREAN_REGIONS as any)[selSido] ? Object.keys((KOREAN_REGIONS as any)[selSido]) : [];
+    const emdList: string[] = selSido && selSgg && (KOREAN_REGIONS as any)[selSido]?.[selSgg] ? (KOREAN_REGIONS as any)[selSido][selSgg] : [];
+    const toggleEmd = (emd: string) => {
+        const cur = regionsText.split('\n').map(s => s.trim()).filter(Boolean);
+        const next = cur.includes(emd) ? cur.filter(x => x !== emd) : [...cur, emd];
+        setRegionsText(next.join('\n'));
+    };
+    const addAllEmd = () => {
+        const cur = regionsText.split('\n').map(s => s.trim()).filter(Boolean);
+        const next = [...cur];
+        for (const e of emdList) if (!next.includes(e)) next.push(e);
+        setRegionsText(next.join('\n'));
+    };
 
     const steps = ['기관 정보', '팀 / 부서', '지역 · 의뢰경로', '관리자 계정'];
 
@@ -149,11 +166,46 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
                     )}
 
                     {step === 2 && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div><label className={labelCls}>지역 목록 (줄바꿈으로 구분) *</label>
-                                <textarea className={inputCls + " h-48 resize-none"} value={regionsText} onChange={e => setRegionsText(e.target.value)} /></div>
-                            <div><label className={labelCls}>의뢰경로 목록 (줄바꿈으로 구분)</label>
-                                <textarea className={inputCls + " h-48 resize-none"} value={pathsText} onChange={e => setPathsText(e.target.value)} /></div>
+                        <div className="space-y-4">
+                            {/* 전국 읍면동 자동 입력 */}
+                            <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-4">
+                                <label className={labelCls}>🏢 시군구로 읍면동 자동 입력 (선택사항)</label>
+                                <div className="grid grid-cols-2 gap-3 mb-3">
+                                    <select className={inputCls} value={selSido} onChange={e => { setSelSido(e.target.value); setSelSgg(''); }}>
+                                        <option value="">시도 선택</option>
+                                        {Object.keys(KOREAN_REGIONS as any).map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                    <select className={inputCls} value={selSgg} onChange={e => setSelSgg(e.target.value)} disabled={!selSido}>
+                                        <option value="">시군구 선택</option>
+                                        {sggList.map(g => <option key={g} value={g}>{g}</option>)}
+                                    </select>
+                                </div>
+                                {emdList.length > 0 && (
+                                    <div>
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-xs font-bold text-slate-500">{selSgg} · {emdList.length}개 (클릭해서 추가/제외)</span>
+                                            <button type="button" onClick={addAllEmd} className="text-xs font-bold text-blue-600 hover:underline">전체 추가</button>
+                                        </div>
+                                        <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                                            {emdList.map(e => {
+                                                const active = regionsText.split('\n').map(s => s.trim()).includes(e);
+                                                return (
+                                                    <button key={e} type="button" onClick={() => toggleEmd(e)}
+                                                        className={`px-2.5 py-1 rounded-full text-xs font-bold transition-all ${active ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:border-blue-400'}`}>
+                                                        {e}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div><label className={labelCls}>지역 목록 (줄바꿈으로 구분) *</label>
+                                    <textarea className={inputCls + " h-48 resize-none"} value={regionsText} onChange={e => setRegionsText(e.target.value)} /></div>
+                                <div><label className={labelCls}>의뢰경로 목록 (줄바꿈으로 구분)</label>
+                                    <textarea className={inputCls + " h-48 resize-none"} value={pathsText} onChange={e => setPathsText(e.target.value)} /></div>
+                            </div>
                         </div>
                     )}
 
