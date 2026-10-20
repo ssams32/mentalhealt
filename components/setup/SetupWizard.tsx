@@ -55,6 +55,16 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
         for (const e of emdList) if (!next.includes(e)) next.push(e);
         setRegionsText(next.join('\n'));
     };
+    // 🏢 1단계: 시군구 선택 시 기관명·약칭 자동 입력 (시/군/구 접미사 포함, 이후 직접 수정 가능)
+    // selSido/selSgg 상태는 3단계와 공유되므로, 여기서 고른 시군구가 3단계 지역 기본값이 됨
+    const handleSggSelectStep0 = (sgg: string) => {
+        setSelSgg(sgg);
+        if (sgg) {
+            setOrgName(`${sgg}정신건강복지센터`);
+            setOrgShortName(sgg);
+            setRegion(sgg);
+        }
+    };
 
     const steps = ['기관 정보', '팀 / 부서', '지역 · 의뢰경로', '관리자 계정'];
 
@@ -129,11 +139,26 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
 
                     {step === 0 && (
                         <div className="space-y-4">
+                            {/* 시군구 선택으로 기관명 자동 입력 */}
+                            <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-4">
+                                <label className={labelCls}>🏢 시군구 선택 (기관명 자동 입력)</label>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <select className={inputCls} value={selSido} onChange={e => { setSelSido(e.target.value); setSelSgg(''); }}>
+                                        <option value="">시도 선택</option>
+                                        {Object.keys(KOREAN_REGIONS as any).map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                    <select className={inputCls} value={selSgg} onChange={e => handleSggSelectStep0(e.target.value)} disabled={!selSido}>
+                                        <option value="">시군구 선택</option>
+                                        {sggList.map(g => <option key={g} value={g}>{g}</option>)}
+                                    </select>
+                                </div>
+                                <p className="text-[11px] text-slate-400 font-bold mt-2">선택하면 아래 기관명·약칭이 자동으로 채워집니다. 직접 수정도 가능합니다.</p>
+                            </div>
                             <div><label className={labelCls}>기관명 *</label>
                                 <input className={inputCls} value={orgName} onChange={e => setOrgName(e.target.value)} placeholder="예: ○○시정신건강복지센터" autoFocus /></div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className={labelCls}>약칭 (화면 표시용)</label>
-                                    <input className={inputCls} value={orgShortName} onChange={e => setOrgShortName(e.target.value)} placeholder="예: ○○센터" /></div>
+                                    <input className={inputCls} value={orgShortName} onChange={e => setOrgShortName(e.target.value)} placeholder="예: 춘천시" /></div>
                                 <div><label className={labelCls}>지역</label>
                                     <input className={inputCls} value={region} onChange={e => setRegion(e.target.value)} placeholder="예: ○○시" /></div>
                             </div>
