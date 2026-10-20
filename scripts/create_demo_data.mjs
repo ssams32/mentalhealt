@@ -413,6 +413,17 @@ const counselorPerformance = allStaff.map((s, si) => {
 const ISP_MEMBER_COUNT = 20;
 const ispCategoryFor = (i) => (i % 5 < 3 ? '집중관리' : '일시관리'); // 60% 집중 / 40% 일시
 const ISP_WEAK = new Set([2, 7, 13, 17]); // 20%: 과거월 대부분 미달(FAIL)로 보이게
+// 자살 사례(자살예방센터 팀) ISP 회원은 위험도 구분 적용 (MHIS 기준: 고위험 월 4회↑ / 중위험 월 2회↑ / 저위험 월 1회↑)
+const RISK_CYCLE = ['고위험군', '중위험군', '저위험군', '고위험군'];
+const ispCategoryByIndex = new Map();
+{
+  let r = 0;
+  for (let i = 0; i < ISP_MEMBER_COUNT; i++) {
+    ispCategoryByIndex.set(i, clients[i].team === '자살예방센터' ? RISK_CYCLE[r++ % RISK_CYCLE.length] : ispCategoryFor(i));
+  }
+}
+const ispCategoryOf = (i) => ispCategoryByIndex.get(i);
+const isRiskCategory = (c) => c === '고위험군' || c === '중위험군' || c === '저위험군';
 
 const memberPerformance = clients.map((client, ci) => {
   const mainCounselor = allStaff[(ci * 3) % allStaff.length].name;
@@ -427,17 +438,19 @@ const memberPerformance = clients.map((client, ci) => {
   if (ci < ISP_MEMBER_COUNT) {
     // ISP 회원: 1~10월 월별 실적. 과거월(1~9월)은 달성 위주 + 20% 미달, 10월(현재월)은 진행중
     // 달성 판정은 totalIntervention = 개별상담(individual) + 자원조정(resource) 합산 기준
-    const intensive = ispCategoryFor(ci) === '집중관리';
-    const weak = ISP_WEAK.has(ci);
+    const category = ispCategoryOf(ci);
+    const intensive = category === '집중관리' || category === '고위험군';
+    const weak = ISP_WEAK.has(ci) && !isRiskCategory(category); // 위험도 회원은 기준 충족 예시로 유지
     for (let m = 1; m <= 10; m++) {
       let total;
       let split = null; // { ind, res } 명시 분할 (합산 달성 시연월)
       if (m === 10) {
-        total = intensive ? int(1, 4) : int(0, 1); // 현재월: 부분 실적 (IN_PROGRESS)
+        total = intensive ? int(1, 4) : category === '중위험군' ? int(0, 2) : int(0, 1); // 현재월: 부분 실적 (IN_PROGRESS)
       } else if (weak) {
         total = intensive ? int(0, 3) : 0; // 집중 목표(4~5)·일시 목표(1) 미만 → FAIL
       } else {
-        total = intensive ? int(5, 7) : int(1, 3); // 서버 목표(집중 4~5 / 일시 1) 이상 → SUCCESS
+        // 카테고리별 서버 목표 이상 → SUCCESS (집중·고위험 4~5 / 중위험 2~3 / 일시·저위험 1)
+        total = intensive ? int(5, 7) : category === '중위험군' ? int(3, 4) : int(1, 3);
         // 합산 달성 시연월 (3·6·9월): 개별상담만·자원조정만으로는 목표 미달, 합산해야 달성
         if (m % 3 === 0) {
           if (intensive) {
@@ -446,8 +459,11 @@ const memberPerformance = clients.map((client, ci) => {
             if (ind + res < 5) res += 5 - (ind + res); // 합산은 목표(5) 이상
             split = { ind, res };
             total = ind + res;
+          } else if (category === '중위험군') {
+            const ind = int(1, 2);
+            split = { ind, res: total - ind };
           } else if (total >= 2) {
-            split = { ind: 1, res: total - 1 }; // 일시: 양쪽 카테고리 모두 실적
+            split = { ind: 1, res: total - 1 }; // 일시·저위험: 양쪽 카테고리 모두 실적
           }
         }
       }
@@ -491,13 +507,14 @@ const ispExpiringMembers = memberPerformance.slice(0, 6).map((m, i) => ({
 }));
 
 // ISP 계획 20건 — managementCategory는 ISPAnalysisTab 기준값 (집중관리 60% / 일시관리 40%)
-// ※ 서버 isp-achievement-yearly는 이 값에서 월 목표를 계산함 (집중: ceil(일수/7)≈4~5, 일시: 1)
+// 단, 자살예방센터 팀 회원은 위험도 구분(고위험군/중위험군/저위험군) 적용
+// ※ 서버 isp-achievement-yearly는 이 값에서 월 목표를 계산함 (집중·고위험: ceil(일수/7)≈4~5, 중위험: ceil(일수/15)≈2~3, 일시·저위험: 1)
 //   '중증정신질환'/'일반정신건강' 같은 값을 넣으면 목표 0 → 미평가(미평가) 되므로 사용 금지
 const ispPlans = memberPerformance.slice(0, ISP_MEMBER_COUNT).map((m, i) => {
   const birthYear = today.getFullYear() - clients[i].age;
   const p = (n) => String(n).padStart(2, '0');
   const establishedDate = new Date(today.getTime() - (300 + i * 20) * dayMs); // 전원 2025년 수립 → 2026년 전월 커버
-  const managementCategory = ispCategoryFor(i);
+  const managementCategory = ispCategoryOf(i);
   const demoYear = today.getFullYear();
   const currentMonth = today.getMonth() + 1;
 
@@ -511,7 +528,8 @@ const ispPlans = memberPerformance.slice(0, ISP_MEMBER_COUNT).map((m, i) => {
   const monthly = [];
   for (let mo = 1; mo <= 12; mo++) {
     const days = new Date(demoYear, mo, 0).getDate();
-    const targetCount = managementCategory === '집중관리' ? Math.ceil(days / 7) : 1;
+    const targetCount = managementCategory === '집중관리' || managementCategory === '고위험군' ? Math.ceil(days / 7)
+      : managementCategory === '중위험군' ? Math.ceil(days / 15) : 1;
     const actualCount = actualByMonth[mo - 1];
     let evaluationResult;
     if (mo > currentMonth) evaluationResult = 'FUTURE_NOT_DUE';

@@ -2835,7 +2835,10 @@ app.get('/api/analysis/isp-achievement-yearly', requireAuth, (req, res) => {
                 const { days } = data;
                 let segTarget = 0;
                 const catShort = type.substring(0, 2);
-                if (type.includes('집중')) segTarget = Math.ceil(days / 7);
+                if (type.includes('고위험')) segTarget = Math.ceil(days / 7);
+                else if (type.includes('중위험')) segTarget = Math.ceil(days / 15);
+                else if (type.includes('저위험')) segTarget = days >= 1 ? 1 : 0;
+                else if (type.includes('집중')) segTarget = Math.ceil(days / 7);
                 // 일시관리(월 1회 이상 달성 기준)도 유지/단기와 동일하게 월 1회 목표로 인식
                 else if (type.includes('유지') || type.includes('단기') || type.includes('일시')) segTarget = days >= 1 ? 1 : 0;
 
@@ -3979,9 +3982,12 @@ app.get('/api/analysis/isp-achievement', requireAuth, (req, res) => {
 
         segments.forEach(seg => {
             let divisor = 30.0;
-            if (seg.category === '집중관리') divisor = 7.0;
-            else if (seg.category === '일시관리') divisor = 90.0;
-            else if (seg.category === '유지관리') divisor = 30.0;
+            const cat = seg.category || '';
+            // 자살 사례 위험도 (MHIS): 고위험=주 1회(7일), 중위험=격주(15일), 저위험=월 1회(30일)
+            if (cat === '집중관리' || cat.includes('고위험')) divisor = 7.0;
+            else if (cat.includes('중위험')) divisor = 15.0;
+            else if (cat === '일시관리') divisor = 90.0;
+            else if (cat === '유지관리' || cat.includes('저위험')) divisor = 30.0;
 
             const segmentTarget = Math.ceil(seg.duration / divisor);
             totalTarget += segmentTarget;

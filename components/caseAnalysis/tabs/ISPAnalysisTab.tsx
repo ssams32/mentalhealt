@@ -290,6 +290,40 @@ const ISPAnalysisTab: React.FC = () => {
                         </p>
                     </div>
                 </div>
+                <div className="mt-8 pt-6 border-t border-slate-200">
+                    <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm text-xs mb-5">
+                        자살 사례 위험도 기준 (MHIS)
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-xs text-slate-600">
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm">
+                                <span className="w-5 h-5 rounded-full bg-rose-100 text-rose-500 flex items-center justify-center text-[10px]">고</span>
+                                고위험군 기준
+                            </div>
+                            <p className="leading-relaxed pl-2 border-l-2 border-rose-300 ml-3">
+                                급성위기·자살시도 직후 대상자는 <span className="text-rose-600 font-bold">월 4회 이상</span>(주 1회)의 개입이 이루어져야 달성으로 평가됩니다.
+                            </p>
+                        </div>
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm">
+                                <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-[10px]">중</span>
+                                중위험군 기준
+                            </div>
+                            <p className="leading-relaxed pl-2 border-l-2 border-amber-300 ml-3">
+                                집중관리·지속적 자살사고 대상자는 <span className="text-amber-600 font-bold">월 2회 이상</span>(격주 1회)의 개입이 이루어져야 달성으로 평가됩니다.
+                            </p>
+                        </div>
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm">
+                                <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px]">저</span>
+                                저위험군 기준
+                            </div>
+                            <p className="leading-relaxed pl-2 border-l-2 border-emerald-300 ml-3">
+                                유지관리·증상 완화 대상자는 <span className="text-emerald-600 font-bold">월 1회 이상</span>의 개입이 이루어져야 달성으로 평가됩니다.
+                            </p>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     );
