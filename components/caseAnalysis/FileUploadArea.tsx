@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
-import { Upload, FileUp, FileSpreadsheet, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Upload, FileUp, FileSpreadsheet, AlertCircle, CheckCircle2, Download } from 'lucide-react';
+import { downloadSampleExcelFiles } from '../../services/excelSampleService';
 
 interface FileUploadAreaProps {
     onFilesUpload: (files: File[]) => void;
@@ -75,6 +76,18 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({ onFilesUpload, isLoadin
                                 {tag}
                             </span>
                         ))}
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-1">
+                        <button
+                            type="button"
+                            onClick={downloadSampleExcelFiles}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-300 text-slate-600 text-xs font-bold rounded-full hover:border-indigo-400 hover:text-indigo-600 transition-all"
+                        >
+                            <Download size={14} />
+                            샘플 양식 다운로드
+                        </button>
+                        <span className="text-[11px] text-slate-400 font-medium">처음 사용하시면 샘플 파일 6종을 내려받아 양식을 확인하세요.</span>
                     </div>
                 </div>
 
