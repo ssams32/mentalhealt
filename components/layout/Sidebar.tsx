@@ -78,7 +78,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-3">
                                 <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg text-white font-black text-lg shrink-0">
-                                    IC
+                                    {(getOrgShortName() || 'IC').slice(0, 2)}
                                 </div>
                                 {!isCollapsed && (
                                     <div className="animate-entrance">
