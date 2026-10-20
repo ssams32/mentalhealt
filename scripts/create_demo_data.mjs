@@ -479,7 +479,80 @@ const savedAnalyses = [
 ];
 
 // ---------------------------------------------------------------------------
-// 7. 파일 쓰기
+// 7. SuicideAttempters.json — 자살시도자 대장 20건
+// ---------------------------------------------------------------------------
+const SA_AGENCIES = ['이천경찰서', '이천시보건소', '이천의료원 응급실', '이천소방서', '이천시자살예방센터', '경기도자살예방센터'];
+const SA_NOTE_TEMPLATES = [
+  '의뢰 접수, 위기 상황 기초 평가 실시 (시연용 샘플)',
+  '전화 상담으로 안전 확인, 다음 내소 상담 예약 (시연용 샘플)',
+  '응급실 동행 및 진료 연계 완료 (시연용 샘플)',
+  '가정 방문 상담 진행, 보호자 면담 실시 (시연용 샘플)',
+  '자살위기지원서비스 안내 및 서비스 동의 확인 (시연용 샘플)',
+  '경과 확인 전화 상담, 현재 상태 안정적 (시연용 샘플)',
+];
+// 처리상태/개입상태/등록상태 조합 (20건에 고른 분포)
+const SA_PACKS = [
+  { processingStatus: '서비스동의', disposalReason: '', registrationStatus: '등록', interventionStatus: '자살위기지원서비스(등록_미등록)' },
+  { processingStatus: '서비스동의', disposalReason: '', registrationStatus: '기등록', interventionStatus: '연계(등록)' },
+  { processingStatus: '처리중', disposalReason: '', registrationStatus: '확인중', interventionStatus: '일반상담(미등록)' },
+  { processingStatus: '처리중', disposalReason: '', registrationStatus: '미등록', interventionStatus: '' },
+  { processingStatus: '거부', disposalReason: '서비스거부', registrationStatus: '미등록', interventionStatus: '' },
+  { processingStatus: '개인정보파기', disposalReason: '개인정보파기요청', registrationStatus: '종결', interventionStatus: '' },
+  { processingStatus: '서비스동의', disposalReason: '', registrationStatus: '종결', interventionStatus: '퇴록(등록)' },
+];
+const suicideAttempters = [];
+for (let i = 0; i < 20; i++) {
+  const name = CLIENT_NAMES[(i * 3 + 7) % CLIENT_NAMES.length];
+  const receipt = recentDate();
+  const receiptDate = fmtDate(receipt);
+  const age = int(19, 68);
+  const birthYear = today.getFullYear() - age;
+  const bp = (n) => String(n).padStart(2, '0');
+  const staff = pick(STAFF_BY_TEAM['자살예방센터']);
+  const pack = SA_PACKS[i % SA_PACKS.length];
+  const region = pick(REGIONS);
+
+  const notes = [];
+  const noteCount = int(1, 2);
+  for (let n = 0; n < noteCount; n++) {
+    const noteDate = new Date(receipt.getTime() + (n + 1) * 3 * dayMs);
+    notes.push({
+      id: `note-sa-${pad3(i + 1)}-${n + 1}`,
+      content: pick(SA_NOTE_TEMPLATES),
+      createdAt: fmtISO(noteDate),
+      author: staff.name,
+    });
+  }
+
+  suicideAttempters.push({
+    uid: `sa-demo-${pad3(i + 1)}`,
+    sn: `SA-${yearYY}-${pad3(i + 1)}`,
+    requestAgency: pick(SA_AGENCIES),
+    pic: staff.name,
+    name,
+    receiptDate,
+    gender: pick(['남성', '여성']),
+    birthDate: `${birthYear}-${bp(int(1, 12))}-${bp(int(1, 28))}`,
+    age,
+    notes,
+    infoTarget: pick(['본인', '본인', '본인', '가족']),
+    processingStatus: pack.processingStatus,
+    disposalReason: pack.disposalReason,
+    interventionStatus: pack.interventionStatus,
+    registrationStatus: pack.registrationStatus,
+    region,
+    assignee: staff.name,
+    attachments: [],
+    phoneNumber: `010-0000-${String(3000 + i).slice(-4)}`,
+    address: `${region} ${int(1, 200)}번지`,
+    privacyAcquisitionDate: fmtDate(new Date(receipt.getTime() + int(0, 2) * dayMs)),
+  });
+}
+// 접수일 오름차순 정렬
+suicideAttempters.sort((a, b) => a.receiptDate.localeCompare(b.receiptDate));
+
+// ---------------------------------------------------------------------------
+// 8. 파일 쓰기
 // ---------------------------------------------------------------------------
 const outputs = {
   'Users.json': users,
@@ -488,6 +561,7 @@ const outputs = {
   'BudgetPlans.json': budgetPlans,
   'GlobalCaseAnalysis.json': globalCaseAnalysis,
   'CaseAnalysisSavedResults.json': savedAnalyses,
+  'SuicideAttempters.json': suicideAttempters,
 };
 
 let totalBytes = 0;
@@ -507,6 +581,7 @@ console.log(`   - 의뢰: ${referrals.length}건 / 내담자: ${clients.length}�
 console.log(`   - 예산안: ${Object.keys(budgetPlans).length}건`);
 console.log(`   - 상담실적: ${counselorPerformance.length}명 / 회원실적: ${memberPerformance.length}명`);
 console.log(`   - ISP 계획: ${ispPlans.length}건 / 만기회원: ${ispExpiringMembers.length}명`);
+console.log(`   - 자살시도자: ${suicideAttempters.length}건`);
 console.log(`   - 전체 ${(totalBytes / 1024).toFixed(1)} KB`);
 console.log(`   - 로그인: admin / ${DEMO_PASSWORD} (전 계정 동일)`);
 console.log('──────────────────────────────────────────');
