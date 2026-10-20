@@ -374,7 +374,7 @@ BUDGET_SPECS.forEach((spec, i) => {
 
 // ---------------------------------------------------------------------------
 // 6. GlobalCaseAnalysis.json — 사례관리 분석 원천 데이터
-//    (상담실적 20명 · 회원실적 40명 · ISP 만기회원 6명 · ISP 계획 10건)
+//    (상담실적 20명 · 회원실적 40명 · ISP 만기회원 6명 · ISP 계획 20건)
 // ---------------------------------------------------------------------------
 const SESSION_TYPES = ['inOffice', 'visit', 'online', 'emergency', 'phone'];
 const SESSION_CATEGORIES = ['individual', 'resource', 'general'];
@@ -408,24 +408,74 @@ const counselorPerformance = allStaff.map((s, si) => {
   };
 });
 
+// ISP 회원 (앞 20명) — 관리구분은 ISPAnalysisTab 기준값:
+//   집중관리 = 월 4회 이상 달성, 일시관리 = 월 1회 이상 달성 (서버 yearly 엔드포인트와 동일 규칙)
+const ISP_MEMBER_COUNT = 20;
+const ispCategoryFor = (i) => (i % 5 < 3 ? '집중관리' : '일시관리'); // 60% 집중 / 40% 일시
+const ISP_WEAK = new Set([2, 7, 13, 17]); // 20%: 과거월 대부분 미달(FAIL)로 보이게
+
 const memberPerformance = clients.map((client, ci) => {
   const mainCounselor = allStaff[(ci * 3) % allStaff.length].name;
-  const sessCount = int(3, 10);
   const detailedSessions = [];
-  for (let i = 0; i < sessCount; i++) {
-    detailedSessions.push({
-      month: int(7, 10), // 2026년 7~10월
-      category: pick(['individual', 'resource']),
-      type: pick(SESSION_TYPES),
-    });
+  // 실적 집계(서버·프론트 공통)에서 인정되는 조합만 사용
+  const newSession = (month, category) => ({
+    month,
+    category,
+    type: pick(['inOffice', 'visit', 'phone', 'online']),
+  });
+
+  if (ci < ISP_MEMBER_COUNT) {
+    // ISP 회원: 1~10월 월별 실적. 과거월(1~9월)은 달성 위주 + 20% 미달, 10월(현재월)은 진행중
+    // 달성 판정은 totalIntervention = 개별상담(individual) + 자원조정(resource) 합산 기준
+    const intensive = ispCategoryFor(ci) === '집중관리';
+    const weak = ISP_WEAK.has(ci);
+    for (let m = 1; m <= 10; m++) {
+      let total;
+      let split = null; // { ind, res } 명시 분할 (합산 달성 시연월)
+      if (m === 10) {
+        total = intensive ? int(1, 4) : int(0, 1); // 현재월: 부분 실적 (IN_PROGRESS)
+      } else if (weak) {
+        total = intensive ? int(0, 3) : 0; // 집중 목표(4~5)·일시 목표(1) 미만 → FAIL
+      } else {
+        total = intensive ? int(5, 7) : int(1, 3); // 서버 목표(집중 4~5 / 일시 1) 이상 → SUCCESS
+        // 합산 달성 시연월 (3·6·9월): 개별상담만·자원조정만으로는 목표 미달, 합산해야 달성
+        if (m % 3 === 0) {
+          if (intensive) {
+            const ind = int(2, 3); // < 목표 5
+            let res = int(2, 3); // < 목표 5
+            if (ind + res < 5) res += 5 - (ind + res); // 합산은 목표(5) 이상
+            split = { ind, res };
+            total = ind + res;
+          } else if (total >= 2) {
+            split = { ind: 1, res: total - 1 }; // 일시: 양쪽 카테고리 모두 실적
+          }
+        }
+      }
+      if (split) {
+        for (let s = 0; s < split.ind; s++) detailedSessions.push(newSession(m, 'individual'));
+        for (let s = 0; s < split.res; s++) detailedSessions.push(newSession(m, 'resource'));
+      } else {
+        // 일반 월: 두 카테고리를 무작위로 섞음 (전체가 한쪽에만 몰리지 않게)
+        for (let s = 0; s < total; s++) {
+          detailedSessions.push(newSession(m, rand() < 0.6 ? 'individual' : 'resource'));
+        }
+      }
+    }
+  } else {
+    // ISP 없는 회원: 회원실적 화면용 가벼운 실적 (개별상담/자원조정 혼합)
+    const sessCount = int(3, 10);
+    for (let i = 0; i < sessCount; i++) {
+      detailedSessions.push(newSession(int(1, 10), pick(['individual', 'resource'])));
+    }
   }
+
   const registrationNo = `REG-26${pad3(ci + 1)}`;
   return {
     memberName: client.name,
     registrationNo,
     department: client.team,
     mainCounselor,
-    totalSessions: sessCount,
+    totalSessions: detailedSessions.length,
     detailedSessions,
   };
 });
@@ -440,18 +490,51 @@ const ispExpiringMembers = memberPerformance.slice(0, 6).map((m, i) => ({
   rowNum: i + 1,
 }));
 
-// ISP 계획 10건 (회원실적과 registrationNo/이름 일치 — 달성도 분석 매칭용)
-const ispPlans = memberPerformance.slice(0, 10).map((m, i) => {
+// ISP 계획 20건 — managementCategory는 ISPAnalysisTab 기준값 (집중관리 60% / 일시관리 40%)
+// ※ 서버 isp-achievement-yearly는 이 값에서 월 목표를 계산함 (집중: ceil(일수/7)≈4~5, 일시: 1)
+//   '중증정신질환'/'일반정신건강' 같은 값을 넣으면 목표 0 → 미평가(미평가) 되므로 사용 금지
+const ispPlans = memberPerformance.slice(0, ISP_MEMBER_COUNT).map((m, i) => {
   const birthYear = today.getFullYear() - clients[i].age;
   const p = (n) => String(n).padStart(2, '0');
-  const establishedDate = new Date(today.getTime() - (300 + i * 30) * dayMs);
+  const establishedDate = new Date(today.getTime() - (300 + i * 20) * dayMs); // 전원 2025년 수립 → 2026년 전월 커버
+  const managementCategory = ispCategoryFor(i);
+  const demoYear = today.getFullYear();
+  const currentMonth = today.getMonth() + 1;
+
+  // monthly: normalizeIspMonthlyData가 기대하는 12개월 형태 — 서버와 동일 규칙으로 계산한 목표/실적/평가
+  const actualByMonth = Array(12).fill(0);
+  (m.detailedSessions || []).forEach((s) => {
+    const mo = Number(s.month);
+    if (mo >= 1 && mo <= 12) actualByMonth[mo - 1] += 1;
+  });
+  const EVAL_LABEL = { SUCCESS: '달성', FAIL: '미달', IN_PROGRESS: '진행중', FUTURE_NOT_DUE: '평가전' };
+  const monthly = [];
+  for (let mo = 1; mo <= 12; mo++) {
+    const days = new Date(demoYear, mo, 0).getDate();
+    const targetCount = managementCategory === '집중관리' ? Math.ceil(days / 7) : 1;
+    const actualCount = actualByMonth[mo - 1];
+    let evaluationResult;
+    if (mo > currentMonth) evaluationResult = 'FUTURE_NOT_DUE';
+    else if (mo === currentMonth) evaluationResult = 'IN_PROGRESS';
+    else evaluationResult = actualCount >= targetCount ? 'SUCCESS' : 'FAIL';
+    monthly.push({
+      month: mo,
+      managementTypeSummary: managementCategory,
+      targetCount,
+      actualCount,
+      evaluationResult,
+      evaluationLabel: EVAL_LABEL[evaluationResult],
+    });
+  }
+
   return {
     registrationNo: m.registrationNo,
     normalizedRegistrationNo: m.registrationNo,
     memberName: m.memberName,
     normalizedName: m.memberName,
-    managementCategory: pick(['중증정신질환', '일반정신건강']),
+    managementCategory,
     establishedDate: fmtDate(establishedDate),
+    monthly,
     gender: clients[i].gender,
     birthDate: `${birthYear}-${p(int(1, 12))}-${p(int(1, 28))}`,
     excelRowNumber: i + 2,
