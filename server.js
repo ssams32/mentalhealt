@@ -2832,7 +2832,7 @@ app.get('/api/analysis/isp-achievement-yearly', requireAuth, (req, res) => {
                 let segTarget = 0;
                 const catShort = type.substring(0, 2);
                 if (type.includes('집중')) segTarget = Math.ceil(days / 7);
-                else if (type.includes('유지') || type.includes('단기')) segTarget = days >= 1 ? 1 : 0;
+                else if (type.includes('유지') || type.includes('단기') || type.includes('일시')) segTarget = days >= 1 ? 1 : 0;
 
                 totalTarget += segTarget;
                 managementTypeSummary += (managementTypeSummary ? ' / ' : '') + `${catShort} ${Math.round(days)}일`;
