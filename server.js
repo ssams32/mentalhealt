@@ -3958,6 +3958,9 @@ app.delete('/api/deleteFile/:folder/:fileId', requireAuth, async (req, res) => {
     }
 });
 
+// 과잉 개입 판정 여유분: 월 실제 횟수가 목표 + OVER_THRESHOLD를 초과하면 '과잉 개입(ISP 점검 요망)'
+const OVER_THRESHOLD = 2;
+
 app.get('/api/analysis/isp-achievement', requireAuth, (req, res) => {
     const { month } = req.query; // YYYY-MM
     if (!month) return res.status(400).json({ success: false, error: "Month is required (YYYY-MM)" });
