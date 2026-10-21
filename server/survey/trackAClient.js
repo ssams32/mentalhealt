@@ -150,7 +150,7 @@ export class TrackAClient {
      * - Content-Type application/json
      * - encryptedCounselingSubmissionAvailable === true
      * - storageStatus === 'READY'
-     * - vercelEnv === 'preview'
+     * - vercelEnv === 'preview' or 'production' (연동 대상 배포 환경)
      */
     async checkCapabilities() {
         const data = await this._request('/api/v1/capabilities', { method: 'GET' });
@@ -159,7 +159,7 @@ export class TrackAClient {
             data &&
             data.encryptedCounselingSubmissionAvailable === true &&
             data.storageStatus === 'READY' &&
-            vercelEnv === 'preview'
+            (vercelEnv === 'preview' || vercelEnv === 'production')
         );
         return {
             valid,
