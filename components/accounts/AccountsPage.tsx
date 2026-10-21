@@ -41,10 +41,22 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
     const [permissionFilter, setPermissionFilter] = useState<'all' | 'survey' | 'voice' | 'unassigned' | 'inactive'>('all');
     const [searchQuery, setSearchQuery] = useState('');
 
+    // 서버 판정(server/permissions/voiceCapabilities.js의 isPermissionFlagGranted)과 동일한 규칙.
+    // boolean true 외에 'true'/'TRUE'/'1'/1 같은 명시적 true 표현만 ON으로 인정하고,
+    // 'false' 문자열처럼 truthy이지만 실제로는 미부여인 값을 ON으로 잘못 표시하지 않는다.
+    const isPermissionFlagGranted = (value: any): boolean => {
+        if (value === true || value === 1) return true;
+        if (typeof value === 'string') {
+            const normalized = value.trim().toLowerCase();
+            return normalized === 'true' || normalized === '1';
+        }
+        return false;
+    };
+
     const checkHasSurveyAccess = (u: User) => {
         return Array.isArray(u.permissions)
             ? u.permissions.includes('ONLINE_SURVEY_ACCESS')
-            : Boolean((u.permissions as any)?.ONLINE_SURVEY_ACCESS);
+            : isPermissionFlagGranted((u.permissions as any)?.ONLINE_SURVEY_ACCESS);
     };
 
     const checkHasVoiceAccess = (u: User) => {
@@ -57,7 +69,7 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
         if (!u.permissions) return false;
         return Array.isArray(u.permissions)
             ? (u.permissions as any).includes('SURVEY_ASSIGNMENT_ACCESS')
-            : Boolean((u.permissions as any)?.SURVEY_ASSIGNMENT_ACCESS);
+            : isPermissionFlagGranted((u.permissions as any)?.SURVEY_ASSIGNMENT_ACCESS);
     };
 
     const handleToggleOnlineSurveyAccess = async (user: User) => {
@@ -71,8 +83,8 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
         const currentAccess = checkHasSurveyAccess(user);
         const nextGranted = !currentAccess;
         const confirmMessage = nextGranted
-            ? `'${user.name}'(${user.id}) 사용자에게 온라인 설문 조회 및 처리 권한을 부여할까요?`
-            : `'${user.name}'(${user.id}) 사용자의 온라인 설문 조회 및 처리 권한을 회수할까요?`;
+            ? `'${user.name}'(${user.id}) 사용자에게 온라인 설문 조회 및 처리 권한을 부여할까요?\n부여하면 온라인 설문 담당자 배정 대상에도 포함됩니다.`
+            : `'${user.name}'(${user.id}) 사용자의 온라인 설문 조회 및 처리 권한을 회수할까요?\n회수하면 온라인 설문 담당자 배정 대상에서도 제외됩니다.`;
 
         if (!window.confirm(confirmMessage)) return;
 
@@ -980,8 +992,8 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                             className="mt-0.5 w-4 h-4 rounded text-blue-600 focus:ring-0 border-slate-300"
                         />
                         <div className="flex flex-col">
-                            <span className="text-xs font-bold text-slate-800">설문 담당자 배정</span>
-                            <span className="text-[11px] text-slate-500">개별 설문의 담당자 배정·재배정 가능</span>
+                            <span className="text-xs font-bold text-slate-800">설문 담당자 배정 (실행 권한)</span>
+                            <span className="text-[11px] text-slate-500">본인이 개별 설문의 담당자를 배정·재배정할 수 있는 권한입니다. 배정받는 대상 자격은 직원 목록의 '온라인 설문' 허용 여부로 결정됩니다.</span>
                         </div>
                     </label>
                 </div>

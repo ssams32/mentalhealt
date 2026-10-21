@@ -62,6 +62,16 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     }
 }
 
+// 서버 판정(hasOnlineSurveyAccess)과 동일한 규칙: 명시적 true 표현만 권한 있음으로 인정
+const isPermissionFlagGranted = (value: any): boolean => {
+    if (value === true || value === 1) return true;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        return normalized === 'true' || normalized === '1';
+    }
+    return false;
+};
+
 function App() {
     const [currentUser, setCurrentUser] = useState<User | null>(() => {
         try {
@@ -1021,7 +1031,7 @@ function App() {
                     currentUser.role === 'admin' ||
                     (Array.isArray(currentUser.permissions)
                         ? currentUser.permissions.includes('ONLINE_SURVEY_ACCESS')
-                        : Boolean((currentUser.permissions as any)?.ONLINE_SURVEY_ACCESS))
+                        : isPermissionFlagGranted((currentUser.permissions as any)?.ONLINE_SURVEY_ACCESS))
                 );
 
                 if (!isSurveyPermitted) {

@@ -62,6 +62,20 @@ import {
 import { formatKstDateTime, getKstPresetDateStrings } from '../../server/survey/kstUtils.js';
 
 /**
+ * Tolerant reader for a stored permission flag value.
+ * Mirrors the server rule (server/permissions/voiceCapabilities.js):
+ * only explicit true-forms (true, 1, 'true', '1') count as granted.
+ */
+function isPermissionFlagGrantedValue(value: any): boolean {
+    if (value === true || value === 1) return true;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        return normalized === 'true' || normalized === '1';
+    }
+    return false;
+}
+
+/**
  * Check if user has access to Online Survey management.
  * Admin or active users with ONLINE_SURVEY_ACCESS permission.
  */
@@ -75,11 +89,11 @@ export function hasOnlineSurveyAccess(user?: User | null): boolean {
     }
     if (typeof user.permissions === 'object' && user.permissions !== null) {
         const perms = user.permissions as Record<string, any>;
-        if (typeof perms.ONLINE_SURVEY_ACCESS === 'boolean') {
-            return perms.ONLINE_SURVEY_ACCESS;
+        if (perms.ONLINE_SURVEY_ACCESS !== undefined) {
+            return isPermissionFlagGrantedValue(perms.ONLINE_SURVEY_ACCESS);
         }
-        if (typeof perms.onlineSurveyAccess === 'boolean') {
-            return perms.onlineSurveyAccess;
+        if (perms.onlineSurveyAccess !== undefined) {
+            return isPermissionFlagGrantedValue(perms.onlineSurveyAccess);
         }
     }
     return false;
@@ -99,11 +113,11 @@ export function hasSurveyAssignmentAccess(user?: User | null): boolean {
     }
     if (typeof user.permissions === 'object' && user.permissions !== null) {
         const perms = user.permissions as Record<string, any>;
-        if (typeof perms.SURVEY_ASSIGNMENT_ACCESS === 'boolean') {
-            return perms.SURVEY_ASSIGNMENT_ACCESS;
+        if (perms.SURVEY_ASSIGNMENT_ACCESS !== undefined) {
+            return isPermissionFlagGrantedValue(perms.SURVEY_ASSIGNMENT_ACCESS);
         }
-        if (typeof perms.surveyAssignmentAccess === 'boolean') {
-            return perms.surveyAssignmentAccess;
+        if (perms.surveyAssignmentAccess !== undefined) {
+            return isPermissionFlagGrantedValue(perms.surveyAssignmentAccess);
         }
     }
     return false;

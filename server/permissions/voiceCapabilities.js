@@ -25,6 +25,30 @@ export const ONLINE_SURVEY_ACCESS = 'ONLINE_SURVEY_ACCESS';
 export const SURVEY_ASSIGNMENT_ACCESS = 'SURVEY_ASSIGNMENT_ACCESS';
 
 /**
+ * Tolerant reader for a stored permission flag value.
+ *
+ * Canonical writes (직원관리 토글·계정 수정) store boolean true, but records that
+ * round-tripped through spreadsheet import/export or legacy tooling may carry
+ * 'true' / 'TRUE' / '1' / 1 instead of a boolean. The AccountsPage display rule
+ * treats those as ON (허용됨), so the server must agree — otherwise a staff member
+ * shows as ON in 직원관리 yet is rejected as a survey assignee.
+ *
+ * Only explicit true-forms count as granted. 'false', 0, and any other value deny,
+ * so this never widens who can be granted a permission — it only stops
+ * already-granted records from being misread because of their stored type.
+ */
+export function isPermissionFlagGranted(value) {
+    if (value === true || value === 1) {
+        return true;
+    }
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        return normalized === 'true' || normalized === '1';
+    }
+    return false;
+}
+
+/**
  * Check Survey Assignment feature access:
  * isAdministrator === true OR (authenticatedUser.status === 'active' AND permissions includes SURVEY_ASSIGNMENT_ACCESS)
  */
@@ -42,14 +66,11 @@ export function hasSurveyAssignmentAccess(user) {
         return user.permissions.includes(SURVEY_ASSIGNMENT_ACCESS);
     }
     if (typeof user.permissions === 'object' && user.permissions !== null) {
-        if (typeof user.permissions[SURVEY_ASSIGNMENT_ACCESS] === 'boolean') {
-            return user.permissions[SURVEY_ASSIGNMENT_ACCESS];
+        if (isPermissionFlagGranted(user.permissions[SURVEY_ASSIGNMENT_ACCESS])) {
+            return true;
         }
-        if (typeof user.permissions.SURVEY_ASSIGNMENT_ACCESS === 'boolean') {
-            return user.permissions.SURVEY_ASSIGNMENT_ACCESS;
-        }
-        if (typeof user.permissions.surveyAssignmentAccess === 'boolean') {
-            return user.permissions.surveyAssignmentAccess;
+        if (isPermissionFlagGranted(user.permissions.surveyAssignmentAccess)) {
+            return true;
         }
         return false;
     }
@@ -74,13 +95,7 @@ export function hasOnlineSurveyAccess(user) {
         return user.permissions.includes(ONLINE_SURVEY_ACCESS);
     }
     if (typeof user.permissions === 'object' && user.permissions !== null) {
-        if (typeof user.permissions[ONLINE_SURVEY_ACCESS] === 'boolean') {
-            return user.permissions[ONLINE_SURVEY_ACCESS];
-        }
-        if (typeof user.permissions.ONLINE_SURVEY_ACCESS === 'boolean') {
-            return user.permissions.ONLINE_SURVEY_ACCESS;
-        }
-        return false;
+        return isPermissionFlagGranted(user.permissions[ONLINE_SURVEY_ACCESS]);
     }
     return false;
 }
@@ -103,11 +118,9 @@ export function hasVoiceAiAccess(user) {
         return user.permissions.includes(VOICE_RECORDING_AI_ACCESS);
     }
     if (typeof user.permissions === 'object' && user.permissions !== null) {
-        if (typeof user.permissions[VOICE_RECORDING_AI_ACCESS] === 'boolean') {
-            return user.permissions[VOICE_RECORDING_AI_ACCESS];
-        }
-        if (typeof user.permissions.VOICE_RECORDING_AI_ACCESS === 'boolean') {
-            return user.permissions.VOICE_RECORDING_AI_ACCESS;
+        const voiceFlag = user.permissions[VOICE_RECORDING_AI_ACCESS];
+        if (voiceFlag !== undefined) {
+            return isPermissionFlagGranted(voiceFlag);
         }
         return Boolean(user.permissions.voiceCalls);
     }
@@ -146,11 +159,9 @@ export function getEffectiveVoiceCapabilities(user, options = {}) {
         }
         const hasPerm = Array.isArray(user.permissions)
             ? (user.permissions.includes(VOICE_RECORDING_AI_ACCESS) || user.permissions.includes('voiceCalls'))
-            : (typeof user.permissions[VOICE_RECORDING_AI_ACCESS] === 'boolean'
-                ? user.permissions[VOICE_RECORDING_AI_ACCESS]
-                : (typeof user.permissions.VOICE_RECORDING_AI_ACCESS === 'boolean'
-                    ? user.permissions.VOICE_RECORDING_AI_ACCESS
-                    : Boolean(user.permissions.voiceCalls)));
+            : (user.permissions[VOICE_RECORDING_AI_ACCESS] !== undefined
+                ? isPermissionFlagGranted(user.permissions[VOICE_RECORDING_AI_ACCESS])
+                : Boolean(user.permissions.voiceCalls));
         if (!hasPerm) {
             return [];
         }

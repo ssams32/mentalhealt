@@ -26,6 +26,16 @@ import {
 
 import { NotificationBell } from '../notifications/NotificationBell';
 
+// 서버 판정(hasOnlineSurveyAccess)과 동일한 규칙: 명시적 true 표현만 권한 있음으로 인정
+const isPermissionFlagGranted = (value: any): boolean => {
+    if (value === true || value === 1) return true;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        return normalized === 'true' || normalized === '1';
+    }
+    return false;
+};
+
 interface SidebarProps {
     currentUser: User;
     activePage: Page;
@@ -115,7 +125,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                                 if (currentUser.role === 'admin') return true;
                                 return Array.isArray(currentUser.permissions)
                                     ? currentUser.permissions.includes('ONLINE_SURVEY_ACCESS')
-                                    : Boolean((currentUser.permissions as any)?.ONLINE_SURVEY_ACCESS);
+                                    : isPermissionFlagGranted((currentUser.permissions as any)?.ONLINE_SURVEY_ACCESS);
                             }
                             if (p === 'data') return currentUser.role === 'admin';
                             return true;
