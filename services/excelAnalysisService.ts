@@ -3,7 +3,7 @@ import { AnalysisResult, CounselorPerformance, MemberPerformance, ISPExpiringMem
 declare var XLSX: any;
 declare var _: any;
 
-const readExcelFile = (file: File, options = {}): Promise<any[]> => {
+const readExcelFile = (file: File, options = {}, preferSheetIncludes?: string): Promise<any[]> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -14,7 +14,12 @@ const readExcelFile = (file: File, options = {}): Promise<any[]> => {
                 }
                 const data = new Uint8Array(e.target.result as ArrayBuffer);
                 const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-                const sheetName = workbook.SheetNames[0];
+                // MHIS 내보내기는 '리스트' 시트가 첫 번째지만, 순서가 바뀐 파일에서도 데이터 시트를 우선 선택한다.
+                let sheetName = workbook.SheetNames[0];
+                if (preferSheetIncludes) {
+                    const preferred = workbook.SheetNames.find((name: string) => name.includes(preferSheetIncludes));
+                    if (preferred) sheetName = preferred;
+                }
                 const worksheet = workbook.Sheets[sheetName];
                 const json = XLSX.utils.sheet_to_json(worksheet, options);
                 resolve(json);
@@ -117,7 +122,21 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
 
         const dateStr = String(dateRaw).trim();
 
-        // 2. Aggressive Regex Parse (Common Korean Formats)
+        // 2. YYYYMMDD 8자리 숫자 형식 (MHIS 1·2번 파일 D열 '상담일자')
+        const compactMatch = dateStr.match(/^(\d{4})(\d{2})(\d{2})$/);
+        if (compactMatch) {
+            const year = parseInt(compactMatch[1]);
+            const month = parseInt(compactMatch[2]) - 1;
+            const day = parseInt(compactMatch[3]);
+            const date = new Date(year, month, day);
+            if (!isNaN(date.getTime()) && date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
+                const offset = date.getTimezoneOffset() * 60000;
+                return new Date(date.getTime() - offset);
+            }
+            return null;
+        }
+
+        // 3. Aggressive Regex Parse (Common Korean Formats)
         // Matches: 2024.05.01, 2024-5-1, 2024년 5월 1일, 2024/05/01
         const regex = /(\d{4})[\.\-\/\s년]*(\d{1,2})[\.\-\/\s월]*(\d{1,2})/;
         const match = dateStr.match(regex);
@@ -148,7 +167,10 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
         const counselorName = row[0] ? String(row[0]).trim() : null;
         const departmentName = row[1] ? String(row[1]).trim() : '부서정보없음';
 
-        if (counselorName && counselorName !== '상담사') {
+        // 헤더 행(A=상담자, B=부서별 — 구 양식의 상담사/부서 포함)을 상담사로 오등록하지 않는다.
+        const isHeaderRow = counselorName === '상담자' || counselorName === '상담사'
+            || departmentName === '부서별' || departmentName === '부서';
+        if (counselorName && !isHeaderRow) {
             acc[counselorName] = departmentName;
         }
         return acc;
@@ -157,8 +179,8 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
     const validCounselors = Object.keys(counselorMap);
     if (validCounselors.length === 0) throw new Error("'6.팀구별' 파일에서 상담사 정보를 찾을 수 없거나 형식이 올바르지 않습니다.");
 
-    const individualData = await readExcelFile(fileMap['1.개별상담'], { header: 'A', defval: '' });
-    const resourceData = await readExcelFile(fileMap['2.자원조정'], { header: 'A', defval: '' });
+    const individualData = await readExcelFile(fileMap['1.개별상담'], { header: 'A', defval: '' }, '리스트');
+    const resourceData = await readExcelFile(fileMap['2.자원조정'], { header: 'A', defval: '' }, '리스트');
     // Read General Counseling using 'A', 'B', 'C' column headers
     const generalData = await readExcelFile(fileMap['3.일반상담'], { header: 'A', defval: '' });
 
@@ -183,23 +205,24 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
 
     allSessionsData.forEach((row: any) => {
         // Enforce Column C for Counselor if available (User specified C column)
-        const counselorName = findValue(row, ['C', 'c', '상담자', '등록자', '담당자', '수행인력', '실시자', '진행자', '서비스제공자', 'c열', 'C열']);
+        const counselorName = findValue(row, ['C', 'c', '상담자', '등록자', '담당자', '수행인력', '실시자', '진행자', '서비스제공자', 'c열', 'C열'], 2);
         const counselor = counselorName ? String(counselorName).trim() : null;
 
         // Valid Counselor Check & Header Row Skip
         if (!counselor || !validCounselors.includes(counselor)) return;
 
-        // Date (L column)
-        const date = parseDate(findValue(row, ['L', 'l', '상담일', '상담일자', '일자', '일시', '상담일시', '날짜', '서비스일자', '제공일자', '실시일자', 'l열', 'L열']));
+        // Date (L column). L이 비었거나 파싱 실패 시 D열 '상담일자'(YYYYMMDD)로 폴백한다.
+        let date = parseDate(findValue(row, ['L', 'l', '상담일', '상담일자', '일자', '일시', '상담일시', '날짜', '서비스일자', '제공일자', '실시일자', 'l열', 'L열'], 11));
+        if (!date) date = parseDate(row['D']);
         const isoDate = date && !isNaN(date.getTime()) ? date.toISOString().split('T')[0] : null;
 
         const perf = counselorPerformance[counselor];
         perf.totalSessions++;
 
         // Type (K column)
-        const type = String(findValue(row, ['K', 'k', '상담유형', '유형', '상담 방법', 'k열', 'K열']) || '').toLowerCase();
+        const type = String(findValue(row, ['K', 'k', '상담유형', '유형', '상담 방법', 'k열', 'K열'], 10) || '').toLowerCase();
         // Emergency (J column)
-        const emergencyValue = String(findValue(row, ['J', 'j', '응급개입', 'j열', 'J열']) || '').trim().toLowerCase();
+        const emergencyValue = String(findValue(row, ['J', 'j', '응급개입', 'j열', 'J열'], 9) || '').trim().toLowerCase();
         const isEmergency = emergencyValue === 'y';
 
         const isInOffice = type.includes('내소');
@@ -247,8 +270,9 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
         }
 
         // Member Analysis Population - Enforce Column G (User specified G column)
-        const memberName = findValue(row, ['G', 'g', '성명', '대상자성명', '이름', '회원명', '대상자', '이용자명']);
-        const registrationNoRaw = findValue(row, ['회원번호', '등록번호', 'registrationNo', 'membershipNo', 'A', 'a']);
+        const memberName = findValue(row, ['G', 'g', '성명', '대상자성명', '이름', '회원명', '대상자', '이용자명'], 6);
+        // 실제 MHIS 양식에서 회원등록번호는 F열이다. A열은 순번(No)이므로 등록번호로 쓰면 안 된다.
+        const registrationNoRaw = findValue(row, ['회원등록번호', '등록번호', 'registrationNo', 'membershipNo'], 5);
         const registrationNo = normalizeMemberRegistrationNo(registrationNoRaw);
 
         if (memberName && date) {
@@ -366,6 +390,8 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
     const ispExpiringMembers: ISPExpiringMember[] = [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    // ISP 재평가(재수립) 주기 — 실제 파일에 수립예정일이 없어 수립일 기준으로 만기를 산정한다.
+    const ISP_REVIEW_CYCLE_DAYS = 180;
 
     ispData.forEach((row: any, index: number) => {
         const rawName = findValue(row, ['성명', '이름', '회원명'], 3); // D Column Fallback
@@ -375,7 +401,8 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
         const registrationNoRaw = findValue(row, ['회원등록번호', '회원번호', '등록번호']);
         const registrationNo = normalizeMemberRegistrationNo(registrationNoRaw);
         
-        const managementCategory = findValue(row, ['관리구분', '서비스종류']) ? String(findValue(row, ['관리구분', '서비스종력'])).trim() : '미분류';
+        const managementCategoryRaw = findValue(row, ['관리구분', '서비스종류']);
+        const managementCategory = managementCategoryRaw ? String(managementCategoryRaw).trim() : '미분류';
         
         const establishedDateRaw = findValue(row, ['수립일', '등록일', '수립일자'], 6); // G Column Fallback
         const establishedDate = parseDate(establishedDateRaw);
@@ -396,18 +423,21 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
             });
         }
 
-        // 2. Track Expiring Members (Legacy logic maintenance)
-        const estDate = parseDate(findValue(row, ['수립예정일']));
+        // 2. Track Expiring Members
+        // 실제 MHIS ISP 파일에는 '수립예정일' 열이 없어, 재수립 도래일을 '수립일 + ISP 재평가 주기(180일)'로 산정한다.
+        // 도래일이 30일 이내이거나 이미 지난 건을 만기 임박으로 본다 (기존 수립예정일 기준 로직과 동일한 판정 방식).
         const registrant = findValue(row, ['등록자', '담당자']) ? String(findValue(row, ['등록자', '담당자'])).trim() : null;
 
-        if (estDate && registrant && counselorMap[registrant]) {
-            estDate.setHours(0, 0, 0, 0);
-            const timeDiff = estDate.getTime() - today.getTime();
+        if (establishedDate && registrant && counselorMap[registrant]) {
+            const dueDate = new Date(establishedDate);
+            dueDate.setHours(0, 0, 0, 0);
+            dueDate.setDate(dueDate.getDate() + ISP_REVIEW_CYCLE_DAYS);
+            const timeDiff = dueDate.getTime() - today.getTime();
             const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
             if (daysDiff <= 30) {
                 ispExpiringMembers.push({
                     id: registrationNo || `N/A-${index + 1}`, name: memberName,
-                    registrant: registrant, date: estDate.toISOString().split('T')[0],
+                    registrant: registrant, date: dueDate.toISOString().split('T')[0],
                     daysPassed: -daysDiff, rowNum: index + 1
                 });
             }
