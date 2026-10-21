@@ -915,6 +915,59 @@ class ApiClient {
         });
     }
 
+    // 접수 건 1건/복수 건의 캠페인 지정·변경 (관리자 전용). campaignCode=null이면 미지정(일반접수)으로 해제
+    async bulkAssignSurveyCampaign(payload: {
+        submissionIds: string[];
+        campaignCode: string | null;
+    }): Promise<{
+        success: boolean;
+        requested: number;
+        updated: number;
+        unchanged: number;
+        skipped: number;
+        notFound: number;
+        campaignCode: string | null;
+        campaign: { code: string; companyName: string | null } | null;
+        results: Array<{
+            submissionId: string;
+            status: 'UPDATED' | 'UNCHANGED' | 'SKIPPED_DELETED' | 'NOT_FOUND';
+            previousCampaignCode?: string | null;
+            campaignCode?: string | null;
+        }>;
+    }> {
+        return this.request('/surveys/bulk-campaign', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+    }
+
+    // 접수 건 간편 일괄 삭제 (관리자 전용, 2단계 확인 — confirmText에 '삭제' 필수)
+    // 의뢰로 전환된 건은 서버에서 자동 제외되어 skipped로 보고됨
+    async bulkDeleteSurveySubmissions(payload: {
+        submissionIds: string[];
+        confirmText: string;
+        reason?: string;
+    }): Promise<{
+        success: boolean;
+        requested: number;
+        deleted: number;
+        skipped: number;
+        failed: number;
+        deletedFileCount: number;
+        results: Array<{
+            submissionId: string;
+            status: 'DELETED' | 'SKIPPED_REFERRAL_LINKED' | 'ALREADY_DELETED' | 'NOT_FOUND' | 'FAILED';
+            referralId?: string | null;
+            refNo?: string | null;
+            reasonCode?: string;
+        }>;
+    }> {
+        return this.request('/surveys/bulk-delete', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+    }
+
     // ──────────────────────────────────────────────────────────
     // [Track B: Notifications] 사내 인앱 알림 API
     // ──────────────────────────────────────────────────────────

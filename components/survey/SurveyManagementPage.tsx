@@ -266,6 +266,19 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     const [bulkResult, setBulkResult] = useState<any | null>(null);
     const [isBulkResultModalOpen, setIsBulkResultModalOpen] = useState<boolean>(false);
 
+    // --- State: Bulk Campaign Assignment & Simplified Bulk Deletion (Admin) ---
+    const [isBulkCampaignModalOpen, setIsBulkCampaignModalOpen] = useState<boolean>(false);
+    const [bulkCampaignTargetCode, setBulkCampaignTargetCode] = useState<string>(''); // '' = 미선택, '__UNSPECIFIED__' = 미지정으로 해제
+    const [isBulkCampaignApplying, setIsBulkCampaignApplying] = useState<boolean>(false);
+    const [bulkCampaignResult, setBulkCampaignResult] = useState<any | null>(null);
+    const [isBulkCampaignResultModalOpen, setIsBulkCampaignResultModalOpen] = useState<boolean>(false);
+    const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState<boolean>(false);
+    const [bulkDeleteStep, setBulkDeleteStep] = useState<1 | 2>(1);
+    const [bulkDeleteConfirmText, setBulkDeleteConfirmText] = useState<string>('');
+    const [isBulkDeleting, setIsBulkDeleting] = useState<boolean>(false);
+    const [bulkDeleteResult, setBulkDeleteResult] = useState<any | null>(null);
+    const [isBulkDeleteResultModalOpen, setIsBulkDeleteResultModalOpen] = useState<boolean>(false);
+
     // --- State: Selection (Master-Detail) ---
     const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
     const [submissionDetail, setSubmissionDetail] = useState<any | null>(null);
@@ -995,6 +1008,108 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             if (showToast) showToast(`일괄 배정 실패: ${err.message}`, 'error');
         } finally {
             setIsBulkAssigning(false);
+        }
+    };
+
+    // --- Action: Bulk Campaign Assignment Execution ---
+    const getVisibleSelectedIds = () => {
+        const visibleIds = new Set(filteredImports.map((i: any) => i.submissionId));
+        return Array.from(selectedSubmissionIds).filter(id => visibleIds.has(id));
+    };
+
+    const handleExecuteBulkCampaign = async () => {
+        if (!bulkCampaignTargetCode) {
+            if (showToast) showToast('지정할 캠페인을 선택해 주세요.', 'error');
+            return;
+        }
+        const ids = getVisibleSelectedIds();
+        if (ids.length === 0) {
+            if (showToast) showToast('현재 필터 조건에 해당하는 선택 항목이 없습니다.', 'error');
+            return;
+        }
+
+        try {
+            setIsBulkCampaignApplying(true);
+            const resp = await apiClient.bulkAssignSurveyCampaign({
+                submissionIds: ids,
+                campaignCode: bulkCampaignTargetCode === '__UNSPECIFIED__' ? null : bulkCampaignTargetCode
+            });
+
+            setBulkCampaignResult(resp);
+            setIsBulkCampaignModalOpen(false);
+            setIsBulkCampaignResultModalOpen(true);
+
+            if (resp.results) {
+                const doneIds = new Set(
+                    resp.results
+                        .filter(r => r.status === 'UPDATED' || r.status === 'UNCHANGED')
+                        .map(r => r.submissionId)
+                );
+                setSelectedSubmissionIds(prev => {
+                    const next = new Set(prev);
+                    doneIds.forEach(id => next.delete(id));
+                    return next;
+                });
+            }
+
+            if (showToast) {
+                showToast(`캠페인 지정 완료: 변경 ${resp.updated}건, 유지 ${resp.unchanged}건, 제외 ${resp.skipped + resp.notFound}건`, 'success');
+            }
+
+            await loadData(selectedSubmissionId);
+        } catch (err: any) {
+            if (showToast) showToast(`캠페인 지정 실패: ${err.message}`, 'error');
+        } finally {
+            setIsBulkCampaignApplying(false);
+        }
+    };
+
+    // --- Action: Simplified Bulk Deletion Execution (2-step confirm completed in modal) ---
+    const handleExecuteBulkDelete = async () => {
+        const ids = getVisibleSelectedIds();
+        if (ids.length === 0) {
+            if (showToast) showToast('현재 필터 조건에 해당하는 선택 항목이 없습니다.', 'error');
+            return;
+        }
+        if (bulkDeleteConfirmText.trim() !== '삭제') {
+            if (showToast) showToast('최종 확인 문구 "삭제"를 입력해 주세요.', 'error');
+            return;
+        }
+
+        try {
+            setIsBulkDeleting(true);
+            const resp = await apiClient.bulkDeleteSurveySubmissions({
+                submissionIds: ids,
+                confirmText: bulkDeleteConfirmText.trim()
+            });
+
+            setBulkDeleteResult(resp);
+            setIsBulkDeleteModalOpen(false);
+            setBulkDeleteStep(1);
+            setBulkDeleteConfirmText('');
+            setIsBulkDeleteResultModalOpen(true);
+
+            if (resp.results) {
+                const deletedIds = new Set(
+                    resp.results.filter(r => r.status === 'DELETED').map(r => r.submissionId)
+                );
+                setSelectedSubmissionIds(prev => {
+                    const next = new Set(prev);
+                    deletedIds.forEach(id => next.delete(id));
+                    return next;
+                });
+            }
+
+            if (showToast) {
+                const skippedLinked = resp.results?.filter(r => r.status === 'SKIPPED_REFERRAL_LINKED').length || 0;
+                showToast(`일괄 삭제 완료: 삭제 ${resp.deleted}건, 제외 ${resp.skipped}건(의뢰 전환 ${skippedLinked}건 포함), 실패 ${resp.failed}건`, resp.failed > 0 ? 'error' : 'success');
+            }
+
+            await loadData(selectedSubmissionId);
+        } catch (err: any) {
+            if (showToast) showToast(`일괄 삭제 실패: ${err.message}`, 'error');
+        } finally {
+            setIsBulkDeleting(false);
         }
     };
 
@@ -1959,7 +2074,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     return (
         <div className="flex-1 flex flex-col h-full bg-slate-100 overflow-hidden text-slate-800">
             {/* 1. Header Bar */}
-            <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-wrap items-center justify-between gap-4 shadow-sm z-10 shrink-0">
+            <header className="bg-white border-b border-slate-200 px-4 py-4 flex flex-wrap items-center justify-between gap-4 shadow-sm z-10 shrink-0">
                 <div className="flex items-center gap-3.5">
                     <div className="p-3 bg-gradient-to-br from-teal-500 to-emerald-600 text-white rounded-2xl shadow-md shadow-emerald-500/20">
                         <ClipboardList className="w-6 h-6" />
@@ -2046,7 +2161,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             </header>
 
             {/* 2. Business Summary Cards (7개 표준 지표) */}
-            <div className="px-6 pt-5 pb-3 shrink-0">
+            <div className="px-4 pt-5 pb-3 shrink-0">
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
                     {/* Card 1: 전체 검사 완료자 */}
                     <div
@@ -2146,7 +2261,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             </div>
 
             {/* 2-1. Statistics Charts (접이식 통계 차트) */}
-            <div className="px-6 py-2 shrink-0">
+            <div className="px-4 py-2 shrink-0">
                 <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 transition-all">
                     <div className="flex items-center justify-between">
                         <button
@@ -2173,7 +2288,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             </div>
 
             {/* 3. Main Navigation Tabs */}
-            <div className="px-6 shrink-0">
+            <div className="px-4 shrink-0">
                 <div className="flex items-center justify-between border-b border-slate-200">
                     <div className="flex items-center gap-2">
                         <button
@@ -2206,7 +2321,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                 /* ========================================================================= */
                 /* TAB 1: Master-Detail Applicant Dashboard                                  */
                 /* ========================================================================= */
-                <div className="flex-1 overflow-hidden px-6 py-4 flex flex-col min-h-0">
+                <div className="flex-1 overflow-hidden px-4 py-3 flex flex-col min-h-0">
                     {/* Filter Tabs, Staff Workload & Date Range Bar */}
                     <div className="bg-white rounded-2xl border border-slate-200/90 px-3 py-2.5 mb-3 shadow-xs space-y-2 shrink-0">
                         {/* Row 1: Quick Status Filter Tabs + Staff Workload Inline + Sort Dropdown */}
@@ -2435,9 +2550,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     </div>
 
                     {/* Master-Detail Container */}
-                    <div className="flex-1 flex gap-4 overflow-hidden min-h-0">
+                    <div className="flex-1 flex gap-3 overflow-hidden min-h-0">
                         {/* LEFT: Applicant List (Master) */}
-                        <div className={`w-full lg:w-[480px] xl:w-[540px] 2xl:w-[560px] flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden shrink-0 ${isMobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
+                        <div className={`w-full lg:w-[clamp(500px,45%,780px)] flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden shrink-0 ${isMobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
                             {/* Selection & Quick Select Header */}
                             <div className="p-3 border-b border-slate-100 bg-slate-50/70 space-y-2 shrink-0">
                                 <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -2587,11 +2702,41 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 기존 담당자 포함 재배정
                                             </button>
                                         </div>
+
+                                        {/* Campaign Assign & Simplified Bulk Delete Actions */}
+                                        <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-slate-100">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setBulkCampaignTargetCode('');
+                                                    setIsBulkCampaignModalOpen(true);
+                                                }}
+                                                className="flex-1 min-h-[44px] px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                                                title="선택한 접수 건에 캠페인을 지정하거나 변경합니다"
+                                            >
+                                                <Tag className="w-4 h-4" />
+                                                캠페인 지정
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setBulkDeleteStep(1);
+                                                    setBulkDeleteConfirmText('');
+                                                    setIsBulkDeleteModalOpen(true);
+                                                }}
+                                                className="flex-1 min-h-[44px] px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                                                title="선택한 접수 건을 삭제합니다 (2단계 확인 필수, 의뢰 전환 건은 제외)"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                                선택 삭제
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
                             </div>
 
-                            <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2.5 custom-scrollbar">
+                            <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2 custom-scrollbar">
                                 {loading && imports.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center h-64 text-slate-400 gap-2">
                                         <RefreshCw className="w-6 h-6 animate-spin text-teal-600" />
@@ -2621,7 +2766,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                         setIsLargeDetailModalOpen(true);
                                                     }
                                                 }}
-                                                className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-left relative min-h-[132px] space-y-2 ${
+                                                className={`p-3 rounded-2xl border transition-all cursor-pointer text-left relative min-h-[108px] space-y-1.5 ${
                                                     isSelected
                                                         ? 'bg-teal-50/60 border-teal-400 shadow-md ring-2 ring-teal-500/20'
                                                         : (isChecked ? 'bg-indigo-50/40 border-indigo-200' : 'bg-white border-slate-200/80 hover:border-slate-300 hover:bg-slate-50/50')
@@ -3003,7 +3148,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                     </div>
 
                                     {/* Detail Scrollable Body */}
-                                    <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar text-left">
+                                    <div className="flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar text-left">
                                         {/* SECTION A: 상담신청 기본 정보 */}
                                         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
                                             <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
@@ -5122,6 +5267,346 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                             <button
                                 type="button"
                                 onClick={() => setIsBulkResultModalOpen(false)}
+                                className="px-4 py-2 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-xl shadow-md transition cursor-pointer"
+                            >
+                                결과 닫기
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 9-2. Bulk Campaign Assignment Modal */}
+            {isBulkCampaignModalOpen && (
+                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                            <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                                <Tag className="w-5 h-5 text-teal-600" />
+                                캠페인 지정
+                            </h3>
+                            <button
+                                onClick={() => setIsBulkCampaignModalOpen(false)}
+                                disabled={isBulkCampaignApplying}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <div className="mt-4 space-y-3.5 text-xs text-slate-700">
+                            <p className="font-bold text-slate-800 text-sm leading-snug">
+                                선택한 접수 {selectedSubmissionIds.size}건에 캠페인을 지정합니다.
+                            </p>
+
+                            <div>
+                                <label className="block font-bold text-slate-700 mb-1.5">지정할 캠페인 선택 *</label>
+                                <div className="relative">
+                                    <select
+                                        value={bulkCampaignTargetCode}
+                                        onChange={e => setBulkCampaignTargetCode(e.target.value)}
+                                        className="w-full min-h-[44px] px-3 pr-8 rounded-xl text-xs font-bold border border-slate-300 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none appearance-none cursor-pointer"
+                                        aria-label="지정할 캠페인 선택"
+                                    >
+                                        <option value="">[ 캠페인 선택 ▼ ]</option>
+                                        {campaignsList.filter(c => c.isRegistered).map(camp => (
+                                            <option key={camp.code} value={camp.code}>
+                                                {camp.companyName || camp.code} [{camp.code}]{!camp.isActive ? ' (비활성)' : ''}
+                                            </option>
+                                        ))}
+                                        <option value="__UNSPECIFIED__">미지정 (일반 접수)으로 변경</option>
+                                    </select>
+                                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-500">
+                                        <ChevronDown className="w-4 h-4" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium space-y-1">
+                                <div>• 이미 다른 캠페인이 지정된 건도 선택한 캠페인으로 <strong>변경</strong>됩니다.</div>
+                                <div>• 미지정(일반접수) 건도 동일하게 지정할 수 있습니다.</div>
+                                <div>• 적용 즉시 목록의 캠페인 표시와 캠페인별 건수가 갱신됩니다.</div>
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                            <button
+                                type="button"
+                                onClick={() => setIsBulkCampaignModalOpen(false)}
+                                disabled={isBulkCampaignApplying}
+                                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                            >
+                                취소
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleExecuteBulkCampaign}
+                                disabled={isBulkCampaignApplying || !bulkCampaignTargetCode}
+                                className="px-4 py-2 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-xl shadow-md transition disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                            >
+                                {isBulkCampaignApplying ? (
+                                    <>
+                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                        적용 중...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Tag className="w-3.5 h-3.5" />
+                                        캠페인 지정 적용
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 9-3. Bulk Campaign Assignment Result Modal */}
+            {isBulkCampaignResultModalOpen && bulkCampaignResult && (
+                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                            <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                                <CheckCircle2 className="w-5 h-5 text-teal-600" />
+                                캠페인 지정 완료
+                            </h3>
+                            <button
+                                onClick={() => setIsBulkCampaignResultModalOpen(false)}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <div className="mt-4 space-y-3 text-xs text-slate-700" aria-live="polite">
+                            <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl font-bold text-teal-900">
+                                {bulkCampaignResult.campaignCode
+                                    ? `캠페인 [${bulkCampaignResult.campaign?.companyName || bulkCampaignResult.campaignCode}] 으로 지정되었습니다.`
+                                    : '캠페인이 해제되어 미지정(일반접수)으로 변경되었습니다.'}
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-center">
+                                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                                    <div className="text-[11px] text-slate-500 font-bold">요청 건수</div>
+                                    <div className="text-base font-black text-slate-900">{bulkCampaignResult.requested}건</div>
+                                </div>
+                                <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl">
+                                    <div className="text-[11px] text-emerald-700 font-bold">변경 완료</div>
+                                    <div className="text-base font-black text-emerald-800">{bulkCampaignResult.updated}건</div>
+                                </div>
+                                <div className="p-2.5 bg-indigo-50 border border-indigo-200 rounded-xl">
+                                    <div className="text-[11px] text-indigo-700 font-bold">동일 캠페인 유지</div>
+                                    <div className="text-base font-black text-indigo-800">{bulkCampaignResult.unchanged}건</div>
+                                </div>
+                                <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl">
+                                    <div className="text-[11px] text-amber-700 font-bold">제외 / 없음</div>
+                                    <div className="text-base font-black text-amber-800">{(bulkCampaignResult.skipped || 0) + (bulkCampaignResult.notFound || 0)}건</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                            <button
+                                type="button"
+                                onClick={() => setIsBulkCampaignResultModalOpen(false)}
+                                className="px-4 py-2 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-xl shadow-md transition cursor-pointer"
+                            >
+                                결과 닫기
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 9-4. Simplified Bulk Deletion Modal (2-Step Confirmation) */}
+            {isBulkDeleteModalOpen && (
+                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                            <h3 className="text-base font-black text-rose-700 flex items-center gap-2">
+                                <Trash2 className="w-5 h-5 text-rose-600" />
+                                선택 접수 삭제 {bulkDeleteStep === 1 ? '(1/2 확인)' : '(2/2 최종 확인)'}
+                            </h3>
+                            <button
+                                onClick={() => { setIsBulkDeleteModalOpen(false); setBulkDeleteStep(1); setBulkDeleteConfirmText(''); }}
+                                disabled={isBulkDeleting}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        {bulkDeleteStep === 1 ? (
+                            <>
+                                <div className="mt-4 space-y-3.5 text-xs text-slate-700">
+                                    <p className="font-bold text-slate-800 text-sm leading-snug">
+                                        선택한 접수 {selectedSubmissionIds.size}건을 삭제할까요?
+                                    </p>
+
+                                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 font-medium max-h-44 overflow-y-auto custom-scrollbar">
+                                        {imports.filter(i => selectedSubmissionIds.has(i.submissionId)).slice(0, 8).map(item => (
+                                            <div key={item.submissionId} className="flex items-center justify-between gap-2">
+                                                <span className="font-bold text-slate-800">{item.maskedClientName || '이름없음'} <span className="text-slate-400 font-medium">{item.maskedPhone}</span></span>
+                                                {item.referralId
+                                                    ? <span className="text-amber-700 font-black shrink-0">의뢰 전환됨</span>
+                                                    : <span className="text-rose-600 font-bold shrink-0">삭제 대상</span>}
+                                            </div>
+                                        ))}
+                                        {selectedSubmissionIds.size > 8 && (
+                                            <div className="text-slate-400 font-bold">외 {selectedSubmissionIds.size - 8}건…</div>
+                                        )}
+                                    </div>
+
+                                    {selectionSummary.registeredCount > 0 && (
+                                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-[11px] leading-relaxed flex items-start gap-2" role="alert">
+                                            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                            <div>
+                                                <strong>주의 — 의뢰 전환 건 {selectionSummary.registeredCount}건 포함:</strong>
+                                                <div className="mt-0.5">이미 의뢰대장으로 등록된 건은 삭제되지 않고 제외됩니다. 의뢰대장 기록은 그대로 유지됩니다.</div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-[11px] leading-relaxed">
+                                        삭제되는 건의 접수 기록과 리포트 PDF 파일이 함께 정리됩니다. <strong>이 작업은 되돌릴 수 없습니다.</strong>
+                                    </div>
+                                </div>
+
+                                <div className="mt-6 flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                                    <button
+                                        type="button"
+                                        onClick={() => { setIsBulkDeleteModalOpen(false); setBulkDeleteStep(1); }}
+                                        className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                                    >
+                                        취소
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setBulkDeleteStep(2)}
+                                        disabled={selectedSubmissionIds.size - selectionSummary.registeredCount <= 0}
+                                        className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md transition disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                                        title={selectedSubmissionIds.size - selectionSummary.registeredCount <= 0 ? '삭제 가능한 건이 없습니다 (전부 의뢰 전환 건)' : ''}
+                                    >
+                                        다음 — 최종 확인
+                                        <ArrowRight className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="mt-4 space-y-3.5 text-xs text-slate-700">
+                                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 leading-relaxed">
+                                        <strong>최종 확인:</strong> 삭제 대상 {selectedSubmissionIds.size - selectionSummary.registeredCount}건이 영구 삭제됩니다.
+                                        {selectionSummary.registeredCount > 0 && ` 의뢰 전환 ${selectionSummary.registeredCount}건은 제외됩니다.`}
+                                    </div>
+
+                                    <div>
+                                        <label className="block font-bold text-slate-700 mb-1">
+                                            확인 문구 입력 * (아래에 <span className="text-rose-600">삭제</span> 라고 입력하세요)
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={bulkDeleteConfirmText}
+                                            onChange={e => setBulkDeleteConfirmText(e.target.value)}
+                                            placeholder="삭제"
+                                            autoFocus
+                                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:border-rose-500 focus:outline-none"
+                                            aria-label="삭제 확인 문구 입력"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="mt-6 flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                                    <button
+                                        type="button"
+                                        onClick={() => setBulkDeleteStep(1)}
+                                        disabled={isBulkDeleting}
+                                        className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                                    >
+                                        이전
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleExecuteBulkDelete}
+                                        disabled={isBulkDeleting || bulkDeleteConfirmText.trim() !== '삭제'}
+                                        className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md transition disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                                    >
+                                        {isBulkDeleting ? (
+                                            <>
+                                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                                삭제 중...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                                영구 삭제 실행
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* 9-5. Bulk Deletion Result Modal */}
+            {isBulkDeleteResultModalOpen && bulkDeleteResult && (
+                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                            <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                                <CheckCircle2 className="w-5 h-5 text-teal-600" />
+                                일괄 삭제 완료
+                            </h3>
+                            <button
+                                onClick={() => setIsBulkDeleteResultModalOpen(false)}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <div className="mt-4 space-y-3 text-xs text-slate-700" aria-live="polite">
+                            <div className="grid grid-cols-2 gap-2 text-center">
+                                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                                    <div className="text-[11px] text-slate-500 font-bold">요청 건수</div>
+                                    <div className="text-base font-black text-slate-900">{bulkDeleteResult.requested}건</div>
+                                </div>
+                                <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl">
+                                    <div className="text-[11px] text-rose-700 font-bold">삭제 완료</div>
+                                    <div className="text-base font-black text-rose-800">{bulkDeleteResult.deleted}건</div>
+                                </div>
+                                <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl">
+                                    <div className="text-[11px] text-amber-700 font-bold">제외 (의뢰 전환 등)</div>
+                                    <div className="text-base font-black text-amber-800">{bulkDeleteResult.skipped}건</div>
+                                </div>
+                                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                                    <div className="text-[11px] text-slate-500 font-bold">실패</div>
+                                    <div className="text-base font-black text-slate-900">{bulkDeleteResult.failed}건</div>
+                                </div>
+                            </div>
+
+                            {bulkDeleteResult.results && bulkDeleteResult.results.some(r => r.status !== 'DELETED') && (
+                                <div className="mt-2 pt-2 border-t border-slate-100">
+                                    <div className="text-[11px] font-bold text-slate-600 mb-1">제외·실패 내역:</div>
+                                    <div className="max-h-36 overflow-y-auto space-y-1 custom-scrollbar text-[10px]">
+                                        {bulkDeleteResult.results.filter(r => r.status !== 'DELETED').map((r, idx) => (
+                                            <div key={idx} className="p-1.5 bg-slate-50 border border-slate-200 rounded flex items-center justify-between gap-2">
+                                                <span className="font-mono text-slate-700 truncate">{r.submissionId}</span>
+                                                <span className="font-bold text-slate-500 shrink-0">
+                                                    {r.status === 'SKIPPED_REFERRAL_LINKED' ? `의뢰 전환됨${r.refNo ? ` (${r.refNo})` : ''}` : r.status}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="mt-6 flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                            <button
+                                type="button"
+                                onClick={() => setIsBulkDeleteResultModalOpen(false)}
                                 className="px-4 py-2 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-xl shadow-md transition cursor-pointer"
                             >
                                 결과 닫기

@@ -1064,6 +1064,132 @@ export function createSurveyImportRouter(deps = {}) {
         }
     });
 
+    // 5-2. POST /api/surveys/bulk-campaign - Assign/change campaign for multiple submissions (Admin only)
+    //      campaignCode: registered campaign code string, or null to clear back to unspecified (일반접수)
+    router.post('/bulk-campaign', requireAuth, requireSurveyImportPermission, requireAdmin, async (req, res) => {
+        try {
+            const { submissionIds, campaignCode } = req.body || {};
+            const actorId = req.auth?.id || req.auth?.userId || req.auth?.username || 'admin';
+
+            if (!Array.isArray(submissionIds) || submissionIds.length === 0) {
+                return res.status(400).json({
+                    error: { code: 'INVALID_PARAM', message: '캠페인을 지정할 설문 목록(submissionIds)이 비어있습니다.' }
+                });
+            }
+
+            if (submissionIds.length > 50) {
+                return res.status(400).json({
+                    error: { code: 'BULK_CAMPAIGN_LIMIT_EXCEEDED', message: '캠페인 일괄 지정은 한 번에 최대 50건까지만 가능합니다.' }
+                });
+            }
+
+            if (!submissionIds.every(id => typeof id === 'string' && id.trim())) {
+                return res.status(400).json({
+                    error: { code: 'INVALID_PARAM', message: '설문 ID(submissionIds)는 문자열 배열이어야 합니다.' }
+                });
+            }
+
+            let canonicalCode = null;
+            if (campaignCode !== null && campaignCode !== undefined && campaignCode !== '') {
+                if (typeof campaignCode !== 'string') {
+                    return res.status(400).json({
+                        error: { code: 'INVALID_CAMPAIGN_CODE', message: '캠페인 코드 형식이 올바르지 않습니다.' }
+                    });
+                }
+                canonicalCode = campaignCode.trim().toUpperCase();
+                if (!CAMPAIGN_CODE_PATTERN.test(canonicalCode)) {
+                    return res.status(400).json({
+                        error: {
+                            code: 'INVALID_CAMPAIGN_CODE',
+                            message: '캠페인 코드 형식이 올바르지 않습니다 (2~32자, 영문 대문자/숫자로 시작, 영문대문자·숫자·하이픈만 허용).'
+                        }
+                    });
+                }
+            }
+
+            const result = await surveyRepository.updateSubmissionsCampaign({
+                ids: [...new Set(submissionIds)],
+                campaignCode: canonicalCode,
+                actorId
+            });
+
+            return res.json({ success: true, ...result });
+        } catch (err) {
+            if (err.status === 404 || err.code === 'CAMPAIGN_NOT_FOUND' || err.code === 'RECORD_NOT_FOUND') {
+                return res.status(404).json({
+                    error: { code: err.code || 'CAMPAIGN_NOT_FOUND', message: err.message }
+                });
+            }
+            if (err.status === 400 || err.code === 'INVALID_PARAM') {
+                return res.status(400).json({
+                    error: { code: err.code || 'INVALID_PARAM', message: err.message }
+                });
+            }
+            console.error('❌ POST /api/surveys/bulk-campaign error:', err.message);
+            return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: err.message } });
+        }
+    });
+
+    // 5-3. POST /api/surveys/bulk-delete - Simplified bulk deletion with server-enforced final confirmation (Admin only)
+    //      Two-step confirmation: the client must send confirmText === '삭제' (typed in the 2nd confirm dialog).
+    //      Referral-converted submissions are always excluded and reported as skipped.
+    router.post('/bulk-delete', requireAuth, requireSurveyImportPermission, requireAdmin, async (req, res) => {
+        try {
+            const { submissionIds, confirmText, reason } = req.body || {};
+            const actorId = req.auth?.id || req.auth?.userId || req.auth?.username || 'admin';
+
+            if (!Array.isArray(submissionIds) || submissionIds.length === 0) {
+                return res.status(400).json({
+                    error: { code: 'INVALID_PARAM', message: '삭제할 설문 목록(submissionIds)이 비어있습니다.' }
+                });
+            }
+
+            if (submissionIds.length > 50) {
+                return res.status(400).json({
+                    error: { code: 'BULK_DELETE_LIMIT_EXCEEDED', message: '일괄 삭제는 한 번에 최대 50건까지만 가능합니다.' }
+                });
+            }
+
+            if (!submissionIds.every(id => typeof id === 'string' && id.trim())) {
+                return res.status(400).json({
+                    error: { code: 'INVALID_PARAM', message: '설문 ID(submissionIds)는 문자열 배열이어야 합니다.' }
+                });
+            }
+
+            // Final (2nd-step) confirmation is enforced on the server as well
+            if (confirmText !== '삭제') {
+                return res.status(400).json({
+                    error: { code: 'CONFIRMATION_REQUIRED', message: '최종 확인 문구(삭제)가 입력되지 않았습니다.' }
+                });
+            }
+
+            if (reason !== undefined && reason !== null) {
+                if (typeof reason !== 'string' || reason.length > 200) {
+                    return res.status(400).json({
+                        error: { code: 'INVALID_PARAM', message: '삭제 사유는 200자 이하의 문자열이어야 합니다.' }
+                    });
+                }
+            }
+
+            if (surveyImportService.getStatusSummary().isImportRunning) {
+                return res.status(409).json({
+                    error: { code: 'PROCESSING_IN_PROGRESS', message: '설문 가져오기 작업 진행 중에는 삭제할 수 없습니다.' }
+                });
+            }
+
+            const result = await surveyRepository.bulkDeleteSubmissions({
+                submissionIds: [...new Set(submissionIds)],
+                actorId,
+                reason: typeof reason === 'string' ? reason : ''
+            });
+
+            return res.json({ success: true, ...result });
+        } catch (err) {
+            console.error('❌ POST /api/surveys/bulk-delete error:', err.message);
+            return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: err.message } });
+        }
+    });
+
     // 6. POST /api/surveys/:id/assign and /api/surveys/:id/reassign (Admin only)
     const handleAssignment = async (req, res) => {
         try {

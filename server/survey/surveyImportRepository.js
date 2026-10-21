@@ -390,6 +390,234 @@ export class SurveyImportRepository {
     }
 
     /**
+     * Assign or change the campaign of one or more imported survey submissions.
+     * - campaignCode: canonical registered campaign code, or null to clear back to
+     *   "unspecified" (일반접수).
+     * - Targets may currently be unspecified (null) or already assigned — both are
+     *   updated. Soft-deleted submissions are skipped.
+     * - Runs inside the campaign mutex so validation + mutation stay atomic.
+     * - Per-item audit events are recorded for every actual change.
+     */
+    async updateSubmissionsCampaign({ ids, campaignCode = null, actorId = 'system' } = {}) {
+        if (!Array.isArray(ids) || ids.length === 0) {
+            const err = new Error('캠페인을 지정할 설문 목록(ids)이 비어있습니다.');
+            err.code = 'INVALID_PARAM';
+            err.status = 400;
+            throw err;
+        }
+
+        const canonicalCode = (campaignCode === null || campaignCode === undefined || campaignCode === '')
+            ? null
+            : String(campaignCode).trim().toUpperCase();
+
+        return await this._withCampaignLock(async () => {
+            // 1. Target campaign must actually exist (fail before touching any record)
+            let campaign = null;
+            if (canonicalCode) {
+                campaign = this.findCampaignByCode(canonicalCode);
+                if (!campaign) {
+                    const err = new Error(`캠페인을 찾을 수 없습니다: ${canonicalCode}`);
+                    err.code = SURVEY_ERROR_CODES.CAMPAIGN_NOT_FOUND;
+                    err.status = 404;
+                    throw err;
+                }
+            }
+
+            // 2. Mutate matching submissions
+            const list = this.getSurveySubmissions();
+            const now = this._nowIso();
+            const results = [];
+            let updatedCount = 0;
+            let unchangedCount = 0;
+            let skippedCount = 0;
+            let notFoundCount = 0;
+            const auditTargets = [];
+
+            for (const rawId of ids) {
+                const id = String(rawId);
+                const index = list.findIndex(s => s && (s.submissionId === id || s.internalSurveyId === id));
+                if (index === -1) {
+                    notFoundCount++;
+                    results.push({ submissionId: id, status: 'NOT_FOUND' });
+                    continue;
+                }
+
+                const sub = list[index];
+                if (sub.deletionStatus === 'deleted' || sub.status === 'deleted') {
+                    skippedCount++;
+                    results.push({ submissionId: sub.submissionId, status: 'SKIPPED_DELETED' });
+                    continue;
+                }
+
+                const previousCode = (typeof sub.campaignCode === 'string' && sub.campaignCode.trim())
+                    ? sub.campaignCode.trim().toUpperCase()
+                    : null;
+
+                if (previousCode === canonicalCode) {
+                    unchangedCount++;
+                    results.push({ submissionId: sub.submissionId, status: 'UNCHANGED', previousCampaignCode: previousCode, campaignCode: canonicalCode });
+                    continue;
+                }
+
+                list[index] = {
+                    ...sub,
+                    campaignCode: canonicalCode,
+                    version: (Number(sub.version) || 1) + 1,
+                    updatedAt: now
+                };
+                updatedCount++;
+                auditTargets.push({
+                    submissionId: sub.submissionId,
+                    internalSurveyId: sub.internalSurveyId || null,
+                    previousCampaignCode: previousCode
+                });
+                results.push({ submissionId: sub.submissionId, status: 'UPDATED', previousCampaignCode: previousCode, campaignCode: canonicalCode });
+            }
+
+            if (updatedCount > 0) {
+                await this.saveSurveySubmissions(list);
+            }
+
+            // 3. Per-item audit events (same pattern as assignStaff)
+            for (const target of auditTargets) {
+                await this.recordAuditEvent({
+                    actorId: actorId || 'system',
+                    action: SURVEY_CAMPAIGN_AUDIT_ACTIONS.SUBMISSION_CAMPAIGN_CHANGED,
+                    submissionId: target.submissionId,
+                    internalSurveyId: target.internalSurveyId,
+                    result: 'SUCCESS',
+                    details: {
+                        previousCampaignCode: target.previousCampaignCode,
+                        newCampaignCode: canonicalCode,
+                        campaignCompanyName: campaign ? (campaign.companyName || null) : null
+                    }
+                });
+            }
+
+            return {
+                requested: ids.length,
+                updated: updatedCount,
+                unchanged: unchangedCount,
+                skipped: skippedCount,
+                notFound: notFoundCount,
+                campaignCode: canonicalCode,
+                campaign: campaign ? { code: campaign.code, companyName: campaign.companyName || null } : null,
+                results
+            };
+        });
+    }
+
+    /**
+     * Bulk-delete imported survey submissions (admin simplified deletion).
+     * Safety rules:
+     * - Submissions already converted to a Referral are NEVER deleted here
+     *   (skipped with SKIPPED_REFERRAL_LINKED so the caller can warn the admin);
+     *   the linked Referral itself is never touched either.
+     * - Physical deletion reuses deleteSubmissionCascading, which removes the
+     *   submission, ledger entry, consent evidence, pending records, workflow
+     *   journal and orphan report attachment files (files shared with a
+     *   Referral are retained by that routine).
+     */
+    async bulkDeleteSubmissions({ submissionIds, actorId = 'admin', reason = '' } = {}) {
+        if (!Array.isArray(submissionIds) || submissionIds.length === 0) {
+            const err = new Error('삭제할 설문 목록(submissionIds)이 비어있습니다.');
+            err.code = 'INVALID_PARAM';
+            err.status = 400;
+            throw err;
+        }
+
+        const effectiveReason = (typeof reason === 'string' && reason.trim())
+            ? reason.trim().substring(0, 200)
+            : '관리자 일괄 삭제';
+
+        const subs = this.getSurveySubmissions();
+        const referrals = this.getData('Referrals', []);
+        const results = [];
+        let deletedCount = 0;
+        let skippedCount = 0;
+        let failedCount = 0;
+        let deletedFileCount = 0;
+
+        for (const rawId of submissionIds) {
+            const id = String(rawId);
+            const sub = subs.find(s => s && (s.submissionId === id || s.internalSurveyId === id));
+
+            if (!sub) {
+                failedCount++;
+                results.push({ submissionId: id, status: 'NOT_FOUND' });
+                continue;
+            }
+
+            if (sub.deletionStatus === 'deleted' || sub.status === 'deleted') {
+                skippedCount++;
+                results.push({ submissionId: sub.submissionId, status: 'ALREADY_DELETED' });
+                continue;
+            }
+
+            // Referral-converted submissions are excluded from deletion (safety first)
+            const linkedReferral = referrals.find(r =>
+                r && (
+                    (sub.referralId && (r.referralId === sub.referralId || r.id === sub.referralId)) ||
+                    r.sourceSubmissionId === sub.submissionId ||
+                    (sub.internalSurveyId && r.linkedSurveyId === sub.internalSurveyId)
+                )
+            ) || null;
+
+            if (sub.referralId || linkedReferral) {
+                skippedCount++;
+                results.push({
+                    submissionId: sub.submissionId,
+                    status: 'SKIPPED_REFERRAL_LINKED',
+                    referralId: (linkedReferral && (linkedReferral.referralId || linkedReferral.id)) || sub.referralId || null,
+                    refNo: (linkedReferral && linkedReferral.refNo) || sub.refNo || null
+                });
+                continue;
+            }
+
+            try {
+                const delResult = await this.deleteSubmissionCascading({
+                    submissionId: sub.submissionId,
+                    actorId,
+                    reason: effectiveReason
+                });
+                deletedFileCount += Number(delResult?.deletedFileCount || 0);
+                deletedCount++;
+                results.push({ submissionId: sub.submissionId, status: 'DELETED' });
+            } catch (delErr) {
+                failedCount++;
+                results.push({ submissionId: sub.submissionId, status: 'FAILED', reasonCode: delErr.code || 'DELETE_FAILED' });
+            }
+        }
+
+        // Summary audit event (no submissionId so it survives cascade audit sanitization)
+        await this.recordAuditEvent({
+            actorId: actorId || 'admin',
+            action: SURVEY_CAMPAIGN_AUDIT_ACTIONS.BULK_SUBMISSIONS_DELETED,
+            result: failedCount > 0 ? 'PARTIAL' : 'SUCCESS',
+            details: {
+                requested: submissionIds.length,
+                deleted: deletedCount,
+                skipped: skippedCount,
+                failed: failedCount,
+                deletedFileCount,
+                reason: effectiveReason,
+                skippedBreakdown: results
+                    .filter(r => r.status === 'SKIPPED_REFERRAL_LINKED' || r.status === 'ALREADY_DELETED')
+                    .map(r => ({ submissionId: r.submissionId, status: r.status }))
+            }
+        });
+
+        return {
+            requested: submissionIds.length,
+            deleted: deletedCount,
+            skipped: skippedCount,
+            failed: failedCount,
+            deletedFileCount,
+            results
+        };
+    }
+
+    /**
      * Assign or reassign a staff member to an imported survey.
      * Enforces optimistic concurrency and appends to assignment history.
      */
