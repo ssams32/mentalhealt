@@ -32,8 +32,7 @@ services:
       - TZ=Asia/Seoul
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_SCHEDULE="0 0 0 * * *"
-      - REPO_USER=ssams32
-      - REPO_PASS=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
+      # GHCR 이미지가 공개(public)라 인증 없이 pull 가능 — REPO_USER/REPO_PASS 불필요 (2026-10-21 제거)
     restart: always
 
 networks:

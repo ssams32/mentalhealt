@@ -1,0 +1,36 @@
+# 의뢰대장 보급용 docker-compose 파일 (Watchtower 포함)
+# 사용법: 1) 아래 ADMIN_INIT_PASSWORD 값을 원하는 초기 관리자 비밀번호로 바꾸세요.
+#         2) 이 파일이 있는 폴더에서  docker compose up -d  실행
+#         3) 브라우저에서 http://서버IP:3000 접속 → 초기 설정 마법사 진행
+
+services:
+  referral:
+    image: ghcr.io/ssams32/mentalhealt:latest
+    container_name: referral-system
+    restart: unless-stopped
+    ports:
+      - "3000:3001"          # 왼쪽 숫자가 접속 포트 (http://서버IP:3000)
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATA_DIR=/app/data
+      - ATTACHMENTS_DIR=/app/attachments
+      - TZ=Asia/Seoul
+      # ★ 필수: 초기 관리자 비밀번호를 정해서 넣으세요. 이 값이 없으면 관리자 계정이 만들어지지 않습니다.
+      #   첫 로그인 후에는 이 값을 지워도 됩니다.
+      - ADMIN_INIT_PASSWORD=여기에_초기관리자_비밀번호_입력
+    volumes:
+      - ./data:/app/data               # 모든 자료가 여기 저장됩니다 (백업은 이 폴더)
+      - ./attachments:/app/attachments # 첨부파일 저장 폴더
+
+  # 자동 업데이트: 매일 자정(00:00)에 새 이미지가 있으면 알아서 교체합니다.
+  # 데이터(data 폴더)는 그대로 유지됩니다. referral-system 컨테이너만 감시합니다.
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Seoul
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --schedule "0 0 0 * * *" --cleanup referral-system
