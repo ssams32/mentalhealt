@@ -2555,7 +2555,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     {/* Master-Detail Container */}
                     <div className="flex-1 flex gap-3 overflow-hidden min-h-0">
                         {/* LEFT: Applicant List (Master) */}
-                        <div className={`w-full lg:w-[clamp(500px,45%,780px)] flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden shrink-0 ${isMobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
+                        <div className={`w-full lg:w-[clamp(520px,48%,820px)] flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden shrink-0 ${isMobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
                             {/* Selection & Quick Select Header */}
                             <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70 space-y-2 shrink-0">
                                 <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -3048,7 +3048,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                             ) : (
                                 <>
                                     {/* Detail Top Action Header */}
-                                    <div className="p-4 border-b border-slate-200/80 bg-slate-50/60 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                                    <div className="px-3.5 py-2.5 border-b border-slate-200/80 bg-slate-50/60 flex flex-wrap items-center justify-between gap-2 shrink-0">
                                         <div className="flex items-center gap-3">
                                             {/* Mobile Back Button */}
                                             <button
@@ -3060,7 +3060,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
                                             <div>
                                                 <div className="flex items-center gap-2">
-                                                    <h2 className="text-lg font-black text-slate-900">
+                                                    <h2 className="text-base font-black text-slate-900">
                                                         {submissionDetail?.submission?.contact?.clientName || currentSelectedItem.maskedClientName} 님 상세 검토
                                                     </h2>
                                                     {renderPriorityBadge(currentSelectedItem.assignmentPriority)}
@@ -3079,24 +3079,24 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         </div>
 
                                         {/* Action Buttons Bar */}
-                                        <div className="flex items-center gap-2 flex-wrap">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
                                             <button
                                                 type="button"
                                                 onClick={() => setIsLargeDetailModalOpen(true)}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm hover:shadow transition"
+                                                className="flex items-center gap-1 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-lg shadow-sm hover:shadow transition"
                                                 title="대형 모달 창으로 전체 상세 정보와 담당자 배정 인터페이스 열기"
                                             >
-                                                <Maximize2 className="w-3.5 h-3.5" />
+                                                <Maximize2 className="w-3 h-3" />
                                                 대형 화면 검토·배정
                                             </button>
                                             {/* Staff Soft Delete Button (Online survey access required, admin or staff) */}
                                             {hasOnlineSurveyAccess(currentUser) && (
                                                 <button
                                                     onClick={() => handleOpenStaffDeleteModal(currentSelectedItem)}
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl border border-slate-300 shadow-sm transition"
+                                                    className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg border border-slate-300 shadow-sm transition"
                                                     title="직원용 안전 삭제: 온라인 설문 결과 삭제 (기본 목록에서 제외, 관리자 복구 가능)"
                                                 >
-                                                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                                    <Trash2 className="w-3 h-3 text-rose-600" />
                                                     삭제
                                                 </button>
                                             )}
@@ -3104,10 +3104,10 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                             {currentUser.role === 'admin' && (
                                                 <button
                                                     onClick={() => handleOpenDeleteSubjectModal(currentSelectedItem)}
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl border border-rose-200 shadow-sm transition"
+                                                    className="flex items-center gap-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-bold rounded-lg border border-rose-200 shadow-sm transition"
                                                     title="관리자 전용: 대상자 및 관련 자료 완전 삭제"
                                                 >
-                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                    <Trash2 className="w-3 h-3" />
                                                     대상자 삭제
                                                 </button>
                                             )}
@@ -3115,18 +3115,18 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                             {hasSurveyAssignmentAccess(currentUser) && (
                                                 <button
                                                     onClick={() => handleOpenAssignModal(currentSelectedItem)}
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200 shadow-sm transition"
+                                                    className="flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[11px] font-bold rounded-lg border border-indigo-200 shadow-sm transition"
                                                 >
-                                                    <UserPlus className="w-3.5 h-3.5" />
+                                                    <UserPlus className="w-3 h-3" />
                                                     담당자 배정/변경
                                                 </button>
                                             )}
 
                                             <button
                                                 onClick={() => handleOpenStatusModal(currentSelectedItem)}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl border border-slate-200 shadow-sm transition"
+                                                className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-bold rounded-lg border border-slate-200 shadow-sm transition"
                                             >
-                                                <Activity className="w-3.5 h-3.5 text-slate-600" />
+                                                <Activity className="w-3 h-3 text-slate-600" />
                                                 진행상태 변경
                                             </button>
 
@@ -3134,10 +3134,10 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 onNavigateToReferrals && (
                                                     <button
                                                         onClick={() => onNavigateToReferrals({ targetReferralId: currentSelectedItem.referralId || currentSelectedItem.refNo })}
-                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl shadow-sm hover:shadow transition"
+                                                        className="flex items-center gap-1 px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-bold rounded-lg shadow-sm hover:shadow transition"
                                                         title="이미 등록된 의뢰대장 상세로 이동합니다"
                                                     >
-                                                        <ExternalLink className="w-3.5 h-3.5" />
+                                                        <ExternalLink className="w-3 h-3" />
                                                         등록된 의뢰대장 열기
                                                     </button>
                                                 )
@@ -3145,14 +3145,14 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 hasSurveyAssignmentAccess(currentUser) ? (
                                                     <button
                                                         onClick={() => handleOpenAssignModal(currentSelectedItem)}
-                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold rounded-xl border border-amber-300 shadow-sm transition"
+                                                        className="flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 text-[11px] font-bold rounded-lg border border-amber-300 shadow-sm transition"
                                                         title="의뢰대장 등록 전 담당자 배정이 필요합니다"
                                                     >
-                                                        <UserPlus className="w-3.5 h-3.5" />
+                                                        <UserPlus className="w-3 h-3" />
                                                         담당자 배정 필요
                                                     </button>
                                                 ) : (
-                                                    <span className="text-xs text-slate-400 font-medium px-2.5 py-1.5 bg-slate-100 rounded-xl border border-slate-200">
+                                                    <span className="text-[11px] text-slate-400 font-medium px-2 py-1 bg-slate-100 rounded-lg border border-slate-200">
                                                         담당자 배정 대기
                                                     </span>
                                                 )
@@ -3161,13 +3161,13 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     <button
                                                         onClick={() => handleOpenReferralRegister(currentSelectedItem)}
                                                         disabled={loadingDraftId === currentSelectedItem.submissionId}
-                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl shadow-sm hover:shadow transition disabled:opacity-50"
+                                                        className="flex items-center gap-1 px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-bold rounded-lg shadow-sm hover:shadow transition disabled:opacity-50"
                                                         title={currentUser.role === 'admin' && currentSelectedItem.assignedUserId !== currentUser.id ? '관리자 권한으로 의뢰대장 신규 등록 폼을 엽니다' : '의뢰대장 신규 등록 폼을 엽니다'}
                                                     >
                                                         {loadingDraftId === currentSelectedItem.submissionId ? (
-                                                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                                            <RefreshCw className="w-3 h-3 animate-spin" />
                                                         ) : (
-                                                            <ExternalLink className="w-3.5 h-3.5" />
+                                                            <ExternalLink className="w-3 h-3" />
                                                         )}
                                                         의뢰대장 열기
                                                     </button>
@@ -3177,10 +3177,10 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                     </div>
 
                                     {/* Detail Scrollable Body */}
-                                    <div className="flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar text-left">
+                                    <div className="flex-1 overflow-y-auto p-3.5 space-y-3 custom-scrollbar text-left">
                                         {/* SECTION A: 상담신청 기본 정보 */}
-                                        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-                                            <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+                                        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm">
+                                            <div className="flex items-center justify-between mb-2.5 pb-1.5 border-b border-slate-100">
                                                 <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
                                                     <UserCheck className="w-4 h-4 text-teal-600" />
                                                     상담 신청자 기본 정보
@@ -3190,15 +3190,15 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 </span>
                                             </div>
 
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                                                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 mb-2.5">
+                                                <div className="p-2 bg-slate-50 rounded-xl border border-slate-100">
                                                     <span className="text-[10px] font-bold text-slate-400 block mb-0.5">성명</span>
                                                     <span className="text-sm font-black text-slate-900">
                                                         {submissionDetail?.submission?.contact?.clientName || currentSelectedItem.maskedClientName}
                                                     </span>
                                                 </div>
 
-                                                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                                <div className="p-2 bg-slate-50 rounded-xl border border-slate-100">
                                                     <span className="text-[10px] font-bold text-slate-400 block mb-0.5">연락처</span>
                                                     <span className="text-sm font-bold text-slate-800 flex items-center gap-1">
                                                         <Phone className="w-3.5 h-3.5 text-slate-400" />
@@ -3206,7 +3206,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     </span>
                                                 </div>
 
-                                                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                                <div className="p-2 bg-slate-50 rounded-xl border border-slate-100">
                                                     <span className="text-[10px] font-bold text-slate-400 block mb-0.5">지역 (거주지)</span>
                                                     <span className="text-sm font-bold text-slate-800 flex items-center gap-1">
                                                         <MapPin className="w-3.5 h-3.5 text-slate-400" />
@@ -3214,7 +3214,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     </span>
                                                 </div>
 
-                                                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                                <div className="p-2 bg-slate-50 rounded-xl border border-slate-100">
                                                     <span className="text-[10px] font-bold text-slate-400 block mb-0.5">성별 / 나이</span>
                                                     <span className="text-sm font-bold text-slate-800">
                                                         {resolveDisplayGender(submissionDetail?.submission)} / {resolveDisplayAge(submissionDetail?.submission, currentSelectedItem?.screeningCompletedAt || currentSelectedItem?.submittedAt || currentSelectedItem?.importedAt)}
@@ -3223,7 +3223,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                             </div>
 
                                             {/* Campaign Info Box */}
-                                            <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-100 mb-3 flex items-center justify-between">
+                                            <div className="p-2.5 bg-indigo-50/50 rounded-xl border border-indigo-100 mb-2.5 flex items-center justify-between">
                                                 <div className="flex items-center gap-2 min-w-0">
                                                     <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
                                                     <div className="truncate">
@@ -3242,12 +3242,12 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                             </div>
 
                                             {/* Counseling Note Text */}
-                                            <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200/80 mb-3">
-                                                <span className="text-xs font-bold text-slate-600 block mb-1.5 flex items-center gap-1.5">
+                                            <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-200/80 mb-2.5">
+                                                <span className="text-xs font-bold text-slate-600 block mb-1 flex items-center gap-1.5">
                                                     <FileText className="w-3.5 h-3.5 text-slate-400" />
                                                     상담 신청 사유 및 호소 내용
                                                 </span>
-                                                <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap font-medium">
+                                                <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap font-medium max-h-36 overflow-y-auto custom-scrollbar pr-1">
                                                     {submissionDetail?.submission?.contact?.counselingRequestText ||
                                                         currentSelectedItem.counselingRequestText ||
                                                         '작성된 상담 신청 메모가 없습니다.'}
@@ -3275,8 +3275,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         </div>
 
                                         {/* SECTION B: 검사결과 요약 카드 (도메인별) */}
-                                        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-                                            <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+                                        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm">
+                                            <div className="flex items-center justify-between mb-2.5 pb-1.5 border-b border-slate-100">
                                                 <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
                                                     <Brain className="w-4 h-4 text-indigo-600" />
                                                     선별검사 도메인별 결과 요약
@@ -3287,14 +3287,14 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                             </div>
 
                                             {currentSelectedItem.contactOnly ? (
-                                                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-slate-600 text-xs flex items-center gap-3">
+                                                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-slate-600 text-xs flex items-center gap-3">
                                                     <AlertCircle className="w-5 h-5 text-slate-400 shrink-0" />
                                                     <div>
                                                         <strong>접촉 전용 접수 건:</strong> 내담자가 민감정보 처리에 동의하지 않아 온라인 자가검사 결과가 등록되지 않았습니다. 기본 연락처 기반의 초기면접 접촉을 진행해 주세요.
                                                     </div>
                                                 </div>
                                             ) : currentSelectedItem.isSbqrQuarantined ? (
-                                                <div className="p-4 bg-purple-50 rounded-xl border border-purple-200 text-purple-900 text-xs flex items-center gap-3">
+                                                <div className="p-3 bg-purple-50 rounded-xl border border-purple-200 text-purple-900 text-xs flex items-center gap-3">
                                                     <ShieldAlert className="w-6 h-6 text-purple-600 shrink-0" />
                                                     <div>
                                                         <strong className="text-purple-800 text-sm block mb-1">SBQ-R 임상 안전 게이트 격리 보호 중</strong>
@@ -3314,23 +3314,23 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
                                                         if (has5Scales) {
                                                             return (
-                                                                <div className="space-y-4">
-                                                                    <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                                                                <div className="space-y-3">
+                                                                    <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
                                                                         <span className="text-xs font-bold text-slate-700">Track A 5대 선별검사 도메인별 종합 결과 (32문항)</span>
                                                                         <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-md">5개 도메인 완료</span>
                                                                     </div>
-                                                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
                                                                         {/* 1. PHQ-9 Card */}
-                                                                        <div className="p-3.5 rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50/60 to-white shadow-sm">
-                                                                            <div className="flex items-center justify-between mb-1.5">
+                                                                        <div className="p-3 rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50/60 to-white shadow-sm">
+                                                                            <div className="flex items-center justify-between mb-1">
                                                                                 <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
                                                                                     <Activity className="w-3.5 h-3.5 text-blue-600" />
                                                                                     우울 건강선별 (PHQ-9)
                                                                                 </span>
                                                                                 <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded">9문항</span>
                                                                             </div>
-                                                                            <div className="flex items-baseline gap-2 my-1.5">
-                                                                                <span className="text-2xl font-black text-slate-900">{phq.totalScore ?? '-'}</span>
+                                                                            <div className="flex items-baseline gap-2 my-1">
+                                                                                <span className="text-xl font-black text-slate-900">{phq.totalScore ?? '-'}</span>
                                                                                 <span className="text-xs text-slate-500 font-bold">점</span>
                                                                             </div>
                                                                             <div className="text-xs font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100">
@@ -3339,16 +3339,16 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                                         </div>
 
                                                                         {/* 2. GAD-7 Card */}
-                                                                        <div className="p-3.5 rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-white shadow-sm">
-                                                                            <div className="flex items-center justify-between mb-1.5">
+                                                                        <div className="p-3 rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-white shadow-sm">
+                                                                            <div className="flex items-center justify-between mb-1">
                                                                                 <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
                                                                                     <Activity className="w-3.5 h-3.5 text-emerald-600" />
                                                                                     불안 선별도구 (GAD-7)
                                                                                 </span>
                                                                                 <span className="text-[10px] font-bold px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded">7문항</span>
                                                                             </div>
-                                                                            <div className="flex items-baseline gap-2 my-1.5">
-                                                                                <span className="text-2xl font-black text-slate-900">{gad.totalScore ?? '-'}</span>
+                                                                            <div className="flex items-baseline gap-2 my-1">
+                                                                                <span className="text-xl font-black text-slate-900">{gad.totalScore ?? '-'}</span>
                                                                                 <span className="text-xs text-slate-500 font-bold">점</span>
                                                                             </div>
                                                                             <div className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100">
@@ -3357,16 +3357,16 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                                         </div>
 
                                                                         {/* 3. ISI-K Card */}
-                                                                        <div className="p-3.5 rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50/60 to-white shadow-sm">
-                                                                            <div className="flex items-center justify-between mb-1.5">
+                                                                        <div className="p-3 rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50/60 to-white shadow-sm">
+                                                                            <div className="flex items-center justify-between mb-1">
                                                                                 <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
                                                                                     <Moon className="w-3.5 h-3.5 text-indigo-600" />
                                                                                     불면증 심각도 (ISI-K)
                                                                                 </span>
                                                                                 <span className="text-[10px] font-bold px-1.5 py-0.5 bg-indigo-100 text-indigo-800 rounded">7문항</span>
                                                                             </div>
-                                                                            <div className="flex items-baseline gap-2 my-1.5">
-                                                                                <span className="text-2xl font-black text-slate-900">{isi.totalScore ?? '-'}</span>
+                                                                            <div className="flex items-baseline gap-2 my-1">
+                                                                                <span className="text-xl font-black text-slate-900">{isi.totalScore ?? '-'}</span>
                                                                                 <span className="text-xs text-slate-500 font-bold">점</span>
                                                                             </div>
                                                                             <div className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-lg border border-indigo-100">
@@ -3375,16 +3375,16 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                                         </div>
 
                                                                         {/* 4. BEPSI-K Card */}
-                                                                        <div className="p-3.5 rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50/60 to-white shadow-sm">
-                                                                            <div className="flex items-center justify-between mb-1.5">
+                                                                        <div className="p-3 rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50/60 to-white shadow-sm">
+                                                                            <div className="flex items-center justify-between mb-1">
                                                                                 <span className="text-xs font-black text-amber-900 flex items-center gap-1.5">
                                                                                     <Flame className="w-3.5 h-3.5 text-amber-600" />
                                                                                     스트레스 척도 (BEPSI-K)
                                                                                 </span>
                                                                                 <span className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded">5문항</span>
                                                                             </div>
-                                                                            <div className="flex items-baseline gap-2 my-1.5">
-                                                                                <span className="text-2xl font-black text-amber-700">
+                                                                            <div className="flex items-baseline gap-2 my-1">
+                                                                                <span className="text-xl font-black text-amber-700">
                                                                                     {bepsi.meanScore !== undefined ? (typeof bepsi.meanScore === 'number' ? bepsi.meanScore.toFixed(2) : bepsi.meanScore) : '-'}
                                                                                 </span>
                                                                                 <span className="text-xs text-amber-800 font-bold">점 (평균 점수)</span>
@@ -3398,16 +3398,16 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                                         </div>
 
                                                                         {/* 5. SBQ-R Card */}
-                                                                        <div className="p-3.5 rounded-xl border border-purple-200 bg-gradient-to-br from-purple-50/60 to-white shadow-sm">
-                                                                            <div className="flex items-center justify-between mb-1.5">
+                                                                        <div className="p-3 rounded-xl border border-purple-200 bg-gradient-to-br from-purple-50/60 to-white shadow-sm">
+                                                                            <div className="flex items-center justify-between mb-1">
                                                                                 <span className="text-xs font-black text-purple-900 flex items-center gap-1.5">
                                                                                     <ShieldAlert className="w-3.5 h-3.5 text-purple-600" />
                                                                                     자살행동 선별 (SBQ-R)
                                                                                 </span>
                                                                                 <span className="text-[10px] font-bold px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded">4문항</span>
                                                                             </div>
-                                                                            <div className="flex items-baseline gap-2 my-1.5">
-                                                                                <span className="text-2xl font-black text-purple-900">{sbqr.totalScore ?? '-'}</span>
+                                                                            <div className="flex items-baseline gap-2 my-1">
+                                                                                <span className="text-xl font-black text-purple-900">{sbqr.totalScore ?? '-'}</span>
                                                                                 <span className="text-xs text-purple-600 font-bold">점 (범위: 3~18)</span>
                                                                             </div>
                                                                             <div className="text-xs font-bold text-purple-700 bg-purple-50 px-2 py-1 rounded-lg border border-purple-100 flex items-center justify-between">
@@ -3424,10 +3424,10 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
                                                         // Single Scale Card Layout (Fallback)
                                                         return (
-                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                                 {/* Card: Primary Scale */}
-                                                                <div className="p-4 rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white">
-                                                                    <div className="flex items-center justify-between mb-2">
+                                                                <div className="p-3 rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white">
+                                                                    <div className="flex items-center justify-between mb-1.5">
                                                                         <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
                                                                             <Activity className="w-4 h-4 text-teal-600" />
                                                                             {getAssessmentTitle(currentSelectedItem.assessmentId).name}
@@ -3438,8 +3438,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                                     </div>
 
                                                                     {currentSelectedItem.assessmentId.toLowerCase() === 'bepsi-k' ? (
-                                                                        <div className="flex items-baseline gap-3 my-2">
-                                                                            <span className="text-3xl font-black text-amber-700">
+                                                                        <div className="flex items-baseline gap-3 my-1">
+                                                                            <span className="text-2xl font-black text-amber-700">
                                                                                 {currentSelectedItem.meanScore ?? submissionDetail?.submission?.assessment?.meanScore ?? (currentSelectedItem.totalScore ? (currentSelectedItem.totalScore / 5).toFixed(2) : '-')}
                                                                             </span>
                                                                             <span className="text-xs text-amber-800 font-bold">점 (평균 점수)</span>
@@ -3448,15 +3448,15 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                                             </span>
                                                                         </div>
                                                                     ) : (
-                                                                        <div className="flex items-baseline gap-3 my-2">
-                                                                            <span className="text-3xl font-black text-slate-900">
+                                                                        <div className="flex items-baseline gap-3 my-1">
+                                                                            <span className="text-2xl font-black text-slate-900">
                                                                                 {currentSelectedItem.totalScore ?? submissionDetail?.submission?.assessment?.totalScore ?? '-'}
                                                                             </span>
                                                                             <span className="text-xs text-slate-500 font-bold">점</span>
                                                                         </div>
                                                                     )}
 
-                                                                    <div className="mt-2 text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1.5 rounded-lg border border-teal-100 flex items-center justify-between">
+                                                                    <div className="mt-1.5 text-xs font-bold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-100 flex items-center justify-between">
                                                                         <span>
                                                                             {currentSelectedItem.assessmentId.toLowerCase() === 'sbq-r'
                                                                                 ? `선별: ${Number(currentSelectedItem.totalScore ?? submissionDetail?.submission?.assessment?.totalScore) >= 7 ? '추가 확인 권장' : '선별 기준점 미만'}`
@@ -3470,7 +3470,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
                                                                 {/* Card: BEPSI-K / Additional details if present */}
                                                                 {currentSelectedItem.assessmentId.toLowerCase() === 'bepsi-k' ? (
-                                                                    <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/40">
+                                                                    <div className="p-3 rounded-xl border border-amber-200 bg-amber-50/40">
                                                                         <span className="text-xs font-black text-amber-900 block mb-1">
                                                                             스트레스 척도 (BEPSI-K) 세부 지표
                                                                         </span>
@@ -3489,7 +3489,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                                         </div>
                                                                     </div>
                                                                 ) : (
-                                                                    <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col justify-center">
+                                                                    <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col justify-center">
                                                                         <span className="text-xs font-bold text-slate-700 block mb-1">
                                                                             문항 응답 세부 내역
                                                                         </span>
@@ -3506,11 +3506,11 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         </div>
 
                                         {/* SECTION C & D: 리포트 뷰어 & 의뢰대장 연계 */}
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                             {/* SECTION C: 리포트 바로보기 */}
-                                            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between">
+                                            <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm flex flex-col justify-between">
                                                 <div>
-                                                    <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+                                                    <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-100">
                                                         <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
                                                             <FileText className="w-4 h-4 text-emerald-600" />
                                                             공문 서식 리포트 (A4 PDF)
@@ -3535,7 +3535,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                         </span>
                                                     </div>
 
-                                                    <p className="text-xs text-slate-500 mb-3">
+                                                    <p className="text-xs text-slate-500 mb-2">
                                                         파일명: <span className="font-mono text-slate-700 font-bold">
                                                             {currentSelectedItem.reportAttachment?.name || '온라인 마음건강 검진 결과보고서'}
                                                         </span>
@@ -3560,7 +3560,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                             uploadedAt: new Date().toISOString()
                                                         });
                                                     }}
-                                                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow transition flex items-center justify-center gap-2 active:scale-95"
+                                                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow transition flex items-center justify-center gap-2 active:scale-95"
                                                 >
                                                     <Eye className="w-4 h-4" />
                                                     검사결과 리포트 바로보기 (PDF 뷰어)
@@ -3568,9 +3568,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                             </div>
 
                                             {/* SECTION D: 의뢰대장 연계 */}
-                                            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between">
+                                            <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm flex flex-col justify-between">
                                                 <div>
-                                                    <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+                                                    <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-100">
                                                         <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
                                                             <ExternalLink className="w-4 h-4 text-teal-600" />
                                                             사내 의뢰대장 연계
@@ -3580,7 +3580,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                         </span>
                                                     </div>
 
-                                                    <div className="space-y-1.5 text-xs text-slate-600 mb-3">
+                                                    <div className="space-y-1 text-xs text-slate-600 mb-2">
                                                         <div>기관 연번: <strong className="font-mono text-slate-900 font-black">{currentSelectedItem.refNo || '생성 대기'}</strong></div>
                                                         <div>의뢰 상태: <strong className="text-slate-800">{currentSelectedItem.referralStatus || (currentSelectedItem.refNo ? '등록 완료' : '미등록')}</strong></div>
                                                         <div>종결 상태: <strong className="text-slate-800">{currentSelectedItem.closureStatus || '미종결'}</strong></div>
@@ -3590,7 +3590,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 {currentSelectedItem.refNo && onNavigateToReferrals ? (
                                                     <button
                                                         onClick={() => onNavigateToReferrals({ targetReferralId: currentSelectedItem.referralId || currentSelectedItem.refNo })}
-                                                        className="w-full py-2.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-2"
+                                                        className="w-full py-2 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-2"
                                                     >
                                                         <ArrowRight className="w-4 h-4 text-teal-600" />
                                                         등록된 의뢰대장 상세 열기
@@ -3599,7 +3599,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     hasSurveyAssignmentAccess(currentUser) ? (
                                                         <button
                                                             onClick={() => handleOpenAssignModal(currentSelectedItem)}
-                                                            className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-2"
+                                                            className="w-full py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-2"
                                                         >
                                                             <UserPlus className="w-4 h-4 text-amber-600" />
                                                             담당자 배정 필요 (배정 창 열기)
@@ -3613,7 +3613,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     <button
                                                         onClick={() => handleOpenReferralRegister(currentSelectedItem)}
                                                         disabled={loadingDraftId === currentSelectedItem.submissionId}
-                                                        className="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-2 disabled:opacity-50"
+                                                        className="w-full py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-2 disabled:opacity-50"
                                                     >
                                                         {loadingDraftId === currentSelectedItem.submissionId ? (
                                                             <RefreshCw className="w-4 h-4 animate-spin" />
@@ -3631,8 +3631,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         </div>
 
                                         {/* SECTION E: 담당자 배정 정보 */}
-                                        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-                                            <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+                                        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm">
+                                            <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-100">
                                                 <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
                                                     <UserCheck className="w-4 h-4 text-indigo-600" />
                                                     담당 직원 배정 정보
@@ -3656,20 +3656,20 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 </div>
                                             </div>
 
-                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                                                <div className="p-3 bg-slate-50 rounded-xl">
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                                                <div className="p-2.5 bg-slate-50 rounded-xl">
                                                     <span className="text-[10px] text-slate-400 block mb-0.5">현재 담당자</span>
                                                     <strong className="text-slate-900 text-sm font-black">
                                                         {getStaffName(currentSelectedItem.assignedUserId)}
                                                     </strong>
                                                 </div>
-                                                <div className="p-3 bg-slate-50 rounded-xl">
+                                                <div className="p-2.5 bg-slate-50 rounded-xl">
                                                     <span className="text-[10px] text-slate-400 block mb-0.5">배정 부서</span>
                                                     <strong className="text-slate-800 font-bold">
                                                         {currentSelectedItem.assignedDepartmentId || '미지정'}
                                                     </strong>
                                                 </div>
-                                                <div className="p-3 bg-slate-50 rounded-xl">
+                                                <div className="p-2.5 bg-slate-50 rounded-xl">
                                                     <span className="text-[10px] text-slate-400 block mb-0.5">검토 우선순위</span>
                                                     <div className="mt-0.5">{renderPriorityBadge(currentSelectedItem.assignmentPriority)}</div>
                                                 </div>
@@ -3677,13 +3677,13 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         </div>
 
                                         {/* SECTION F: 업무 처리 이력 (타임라인) */}
-                                        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-                                            <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-4 pb-2 border-b border-slate-100 flex items-center gap-1.5">
+                                        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm">
+                                            <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-2.5 pb-1.5 border-b border-slate-100 flex items-center gap-1.5">
                                                 <Clock className="w-4 h-4 text-slate-600" />
                                                 업무 처리 이력
                                             </h3>
 
-                                            <div className="relative pl-6 space-y-4 before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
+                                            <div className="relative pl-6 space-y-3 before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
                                                 {/* Stage 1 */}
                                                 <div className="relative">
                                                     <div className="absolute -left-6 top-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white shadow-sm flex items-center justify-center text-white text-[8px]">✓</div>
