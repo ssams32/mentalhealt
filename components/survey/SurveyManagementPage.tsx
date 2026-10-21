@@ -1795,8 +1795,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             return true;
         }).sort((a, b) => {
             if (sortBy === 'oldest') {
-                const timeA = new Date(a.importedAt || a.submittedAt || 0).getTime();
-                const timeB = new Date(b.importedAt || b.submittedAt || 0).getTime();
+                const timeA = new Date(a.screeningCompletedAt || a.submittedAt || a.importedAt || 0).getTime();
+                const timeB = new Date(b.screeningCompletedAt || b.submittedAt || b.importedAt || 0).getTime();
                 return timeA - timeB;
             }
             if (sortBy === 'assignment_oldest') {
@@ -1838,14 +1838,14 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                 const retA = a.retentionUntil ? new Date(a.retentionUntil).getTime() : Infinity;
                 const retB = b.retentionUntil ? new Date(b.retentionUntil).getTime() : Infinity;
                 if (retA !== retB) return retA - retB;
-                // 4. Final tiebreak: canonical intake date ascending (older first)
-                const intakeA = new Date(a.importedAt || a.submittedAt || 0).getTime();
-                const intakeB = new Date(b.importedAt || b.submittedAt || 0).getTime();
+                // 4. Final tiebreak: canonical intake date ascending (older first) — 실제 검사일시 기준
+                const intakeA = new Date(a.screeningCompletedAt || a.submittedAt || a.importedAt || 0).getTime();
+                const intakeB = new Date(b.screeningCompletedAt || b.submittedAt || b.importedAt || 0).getTime();
                 return intakeA - intakeB;
             }
-            // Default: 'latest' (newest canonical date first)
-            const timeA = new Date(a.importedAt || a.submittedAt || 0).getTime();
-            const timeB = new Date(b.importedAt || b.submittedAt || 0).getTime();
+            // Default: 'latest' (newest exam/screening date first)
+            const timeA = new Date(a.screeningCompletedAt || a.submittedAt || a.importedAt || 0).getTime();
+            const timeB = new Date(b.screeningCompletedAt || b.submittedAt || b.importedAt || 0).getTime();
             return timeB - timeA;
         });
     }, [imports, filterTab, quickStatusFilter, staffFilter, searchQuery, sortBy, currentUser]);
@@ -2838,7 +2838,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 <div className="flex items-center justify-between text-[11px] text-slate-500 mb-2 font-medium">
                                                     <span className="flex items-center gap-1">
                                                         <Clock className="w-3 h-3 text-slate-400" />
-                                                        {formatKstDateTime(item.submittedAt || item.importedAt, 'list')}
+                                                        {formatKstDateTime(item.screeningCompletedAt || item.submittedAt || item.importedAt, 'list')}
                                                     </span>
                                                     <span className="text-slate-600 font-bold">
                                                         {item.region}
@@ -3157,7 +3157,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     상담 신청자 기본 정보
                                                 </h3>
                                                 <span className="text-[11px] text-slate-400">
-                                                    접수일시: {formatKstDateTime(currentSelectedItem.submittedAt || currentSelectedItem.importedAt, 'detail')}
+                                                    접수일시: {formatKstDateTime(currentSelectedItem.screeningCompletedAt || currentSelectedItem.submittedAt || currentSelectedItem.importedAt, 'detail')}
                                                 </span>
                                             </div>
 
@@ -3188,7 +3188,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                                                     <span className="text-[10px] font-bold text-slate-400 block mb-0.5">성별 / 나이</span>
                                                     <span className="text-sm font-bold text-slate-800">
-                                                        {resolveDisplayGender(submissionDetail?.submission)} / {resolveDisplayAge(submissionDetail?.submission, currentSelectedItem?.submittedAt || currentSelectedItem?.importedAt)}
+                                                        {resolveDisplayGender(submissionDetail?.submission)} / {resolveDisplayAge(submissionDetail?.submission, currentSelectedItem?.screeningCompletedAt || currentSelectedItem?.submittedAt || currentSelectedItem?.importedAt)}
                                                     </span>
                                                 </div>
                                             </div>
@@ -3883,7 +3883,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                     </div>
                                     <div className="text-xs text-slate-500 font-medium mt-0.5 flex items-center gap-2 flex-wrap">
                                         <span>접수 ID: <span className="font-mono text-slate-700 font-bold">{currentSelectedItem.submissionId}</span></span>
-                                        <span>• 접수일시: <strong>{formatKstDateTime(currentSelectedItem.submittedAt || currentSelectedItem.importedAt, 'detail')}</strong></span>
+                                        <span>• 접수일시: <strong>{formatKstDateTime(currentSelectedItem.screeningCompletedAt || currentSelectedItem.submittedAt || currentSelectedItem.importedAt, 'detail')}</strong></span>
                                         {currentSelectedItem.refNo && (
                                             <span>• 의뢰번호: <strong className="text-indigo-600 font-mono">{currentSelectedItem.refNo}</strong></span>
                                         )}
@@ -3989,7 +3989,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 <div className="text-sm font-bold text-slate-900">
                                                     <span>{resolveDisplayGender(submissionDetail?.submission)} / {submissionDetail?.submission?.contact?.birthDate || '미입력'}</span>
                                                     <span className="ml-1 text-xs text-indigo-600 font-black">
-                                                        ({resolveDisplayAge(submissionDetail?.submission, currentSelectedItem.submittedAt || currentSelectedItem.importedAt)})
+                                                        ({resolveDisplayAge(submissionDetail?.submission, currentSelectedItem.screeningCompletedAt || currentSelectedItem.submittedAt || currentSelectedItem.importedAt)})
                                                     </span>
                                                 </div>
                                             </div>

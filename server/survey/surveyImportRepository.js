@@ -1757,7 +1757,9 @@ export class SurveyImportRepository {
                     isExpired = t <= now;
                 }
             } else {
-                const rawDateStr = s.submittedAt || s.importedAt;
+                // retentionUntil이 없는 레거시 레코드의 기준일도 접수일시와 동일하게
+                // 실제 검사 완료 시각(screeningCompletedAt) 우선으로 판정한다.
+                const rawDateStr = s.screeningCompletedAt || s.submittedAt || s.importedAt;
                 if (rawDateStr) {
                     const t = new Date(rawDateStr).getTime();
                     if (!Number.isNaN(t) && t > 0) {

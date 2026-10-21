@@ -447,12 +447,14 @@ export function createSurveyImportRouter(deps = {}) {
             // Visibility is governed by requireSurveyImportPermission (hasOnlineSurveyAccess) — no assignment-based isolation.
 
             // 2. Canonical Date Range Filter
-            // DATE_FILTER_CANONICAL_FIELD: importedAt || receivedAt
-            // DATE_FILTER_FALLBACK_FIELD: submittedAt
+            // 접수일시 기준일 = 실제 검사 완료 시각(screeningCompletedAt) 우선, 없으면 동기화(import) 시각으로 폴백.
+            // 목록·상세에 표시되는 접수일시와 동일한 기준을 써야 날짜 필터 결과가 화면과 일치한다.
+            // DATE_FILTER_CANONICAL_FIELD: screeningCompletedAt
+            // DATE_FILTER_FALLBACK_FIELD: importedAt || receivedAt
             if (dateBoundaries && (dateBoundaries.startUtcMs !== null || dateBoundaries.endUtcMs !== null)) {
                 baseList = baseList.filter(item => {
                     const sub = subMap.get(item.submissionId);
-                    const canonicalDateStr = item.importedAt || sub?.importedAt || item.receivedAt || item.submittedAt || sub?.submittedAt;
+                    const canonicalDateStr = sub?.screeningCompletedAt || item.screeningCompletedAt || item.importedAt || sub?.importedAt || item.receivedAt || item.submittedAt || sub?.submittedAt;
                     if (!canonicalDateStr) return false;
                     const timeMs = new Date(canonicalDateStr).getTime();
                     if (isNaN(timeMs)) return false; // fail-closed for invalid date strings
@@ -538,7 +540,9 @@ export function createSurveyImportRouter(deps = {}) {
                     severity: sub?.assessment?.severity ?? null,
                     consultationStatus: sub?.consultationStatus || (isScreeningOnly ? '검사완료' : '신규접수대기'),
                     counselingRequestText: sub?.contact?.counselingRequestText || '',
-                    submittedAt: sub?.contact?.submittedAt || sub?.importedAt || item.importedAt,
+                    // 접수일시 = 시민의 실제 검사 완료 시각. contact.submittedAt는 실데이터에 없어
+                    // importedAt(동기화 시각)으로 떨어지던 버그 → screeningCompletedAt 우선으로 교체.
+                    submittedAt: sub?.screeningCompletedAt || sub?.importedAt || item.importedAt,
                     contactOnly: sub?.contactOnly || false,
                     // Linked referral info
                     referralId: ref?.referralId || null,
@@ -623,11 +627,11 @@ export function createSurveyImportRouter(deps = {}) {
                 );
             }
 
-            // 6. Sorting
+            // 6. Sorting (접수일시 정렬은 표시와 동일하게 실제 검사 완료 시각 기준)
             safeList.sort((a, b) => {
                 if (sortBy === 'oldest') {
-                    const timeA = new Date(a.importedAt || a.submittedAt || 0).getTime();
-                    const timeB = new Date(b.importedAt || b.submittedAt || 0).getTime();
+                    const timeA = new Date(a.screeningCompletedAt || a.submittedAt || a.importedAt || 0).getTime();
+                    const timeB = new Date(b.screeningCompletedAt || b.submittedAt || b.importedAt || 0).getTime();
                     return timeA - timeB;
                 }
                 if (sortBy === 'assignment_oldest') {
@@ -645,9 +649,9 @@ export function createSurveyImportRouter(deps = {}) {
                     const scoreB = Number(b.totalScore) || 0;
                     return scoreB - scoreA;
                 }
-                // Default 'latest': newest canonical date first
-                const timeA = new Date(a.importedAt || a.submittedAt || 0).getTime();
-                const timeB = new Date(b.importedAt || b.submittedAt || 0).getTime();
+                // Default 'latest': newest exam (screening) date first
+                const timeA = new Date(a.screeningCompletedAt || a.submittedAt || a.importedAt || 0).getTime();
+                const timeB = new Date(b.screeningCompletedAt || b.submittedAt || b.importedAt || 0).getTime();
                 return timeB - timeA;
             });
 
@@ -1704,7 +1708,7 @@ export function createSurveyImportRouter(deps = {}) {
                 gender: normalizedGender,
                 age: calculatedAge,
                 region: submission.contact?.region || '',
-                requestDate: (submission.submittedAt || submission.importedAt || new Date().toISOString()).substring(0, 10),
+                requestDate: (submission.screeningCompletedAt || submission.submittedAt || submission.importedAt || new Date().toISOString()).substring(0, 10),
                 referralPath: '온라인설문',
                 requestAgency: '온라인 자가검진',
                 problem: submission.contact?.counselingRequestText || '',
