@@ -6,7 +6,7 @@
 import express from 'express';
 import { SURVEY_ASSIGNMENT_PRIORITY, NOTIFICATION_TYPES, SURVEY_ERROR_CODES, CAMPAIGN_CODE_PATTERN } from './surveyConstants.js';
 import { hasOnlineSurveyAccess, hasSurveyAssignmentAccess } from '../permissions/voiceCapabilities.js';
-import { getKstDateRangeUtcBoundaries } from './kstUtils.js';
+import { getKstDateRangeUtcBoundaries, formatKstDateTime } from './kstUtils.js';
 
 /**
  * Validates and normalizes campaign filter inputs for import list and export endpoints (Calibration 4).
@@ -756,12 +756,15 @@ export function createSurveyImportRouter(deps = {}) {
             if (consultationStatus && consultationStatus !== 'all') {
                 records = records.filter(r => r.consultationStatus === consultationStatus);
             }
+            // 기간 필터 기준일 = 실제 검사 완료 시각(screeningCompletedAt) 우선 — 목록 필터(DATE_FILTER_CANONICAL_FIELD)와 동일 기준.
+            // 임포트 시각으로 거르면 동기화가 늦은 과거 검사 건이 현재 기간으로 잘못 포함된다.
+            const recordDateOf = (r) => r.screeningCompletedAt || r.submittedAt || r.importedAt || r.createdAt || '';
             if (startDate) {
-                records = records.filter(r => (r.createdAt || r.importedAt || '') >= startDate);
+                records = records.filter(r => recordDateOf(r) >= startDate);
             }
             if (endDate) {
                 const endDateTime = endDate.length === 10 ? `${endDate}T23:59:59.999Z` : endDate;
-                records = records.filter(r => (r.createdAt || r.importedAt || '') <= endDateTime);
+                records = records.filter(r => recordDateOf(r) <= endDateTime);
             }
             if (campaignFilterResult.type === 'UNSPECIFIED') {
                 records = records.filter(r => !r.campaignCode);
@@ -1708,7 +1711,8 @@ export function createSurveyImportRouter(deps = {}) {
                 gender: normalizedGender,
                 age: calculatedAge,
                 region: submission.contact?.region || '',
-                requestDate: (submission.screeningCompletedAt || submission.submittedAt || submission.importedAt || new Date().toISOString()).substring(0, 10),
+                // requestDate는 KST 날짜 기준 — UTC로 자르면 자정~오전 9시 검사 건이 전날로 찍힌다.
+                requestDate: formatKstDateTime(submission.screeningCompletedAt || submission.submittedAt || submission.importedAt || new Date().toISOString(), 'date'),
                 referralPath: '온라인설문',
                 requestAgency: '온라인 자가검진',
                 problem: submission.contact?.counselingRequestText || '',

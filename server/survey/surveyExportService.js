@@ -71,7 +71,8 @@ export class SurveyExportService {
                 return `row:${index}`;
             };
             const effectiveTimeOf = (item) => {
-                const t = item.importedAt || item.submittedAt || item.receivedAt;
+                // 최신 제출 선택 기준 = 실제 검사 완료 시각 우선 (동기화 순서가 아닌 검사 순서와 일치)
+                const t = item.screeningCompletedAt || item.submittedAt || item.importedAt || item.receivedAt;
                 const ms = t ? Date.parse(t) : NaN;
                 return Number.isNaN(ms) ? 0 : ms;
             };
