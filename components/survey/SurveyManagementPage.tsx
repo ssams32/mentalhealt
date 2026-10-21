@@ -30,6 +30,7 @@ import {
     Tag,
     ChevronRight,
     ChevronDown,
+    ChevronUp,
     ArrowLeft,
     ShieldCheck,
     ExternalLink,
@@ -371,6 +372,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
     // Inline assignment state
     const [assigningRowId, setAssigningRowId] = useState<string | null>(null);
+    // 카드 목록 압축: 담당자 배정 UI를 펼친 카드 ID (기본은 접힌 한 줄 표시)
+    const [expandedAssignCardId, setExpandedAssignCardId] = useState<string | null>(null);
 
     // Permissions
     const canAccessSystemTab = currentUser.role === 'admin' ||
@@ -2074,9 +2077,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     return (
         <div className="flex-1 flex flex-col h-full bg-slate-100 overflow-hidden text-slate-800">
             {/* 1. Header Bar */}
-            <header className="bg-white border-b border-slate-200 px-4 py-4 flex flex-wrap items-center justify-between gap-4 shadow-sm z-10 shrink-0">
+            <header className="bg-white border-b border-slate-200 px-4 py-2 flex flex-wrap items-center justify-between gap-4 shadow-sm z-10 shrink-0">
                 <div className="flex items-center gap-3.5">
-                    <div className="p-3 bg-gradient-to-br from-teal-500 to-emerald-600 text-white rounded-2xl shadow-md shadow-emerald-500/20">
+                    <div className="p-2 bg-gradient-to-br from-teal-500 to-emerald-600 text-white rounded-2xl shadow-md shadow-emerald-500/20">
                         <ClipboardList className="w-6 h-6" />
                     </div>
                     <div>
@@ -2161,18 +2164,18 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             </header>
 
             {/* 2. Business Summary Cards (7개 표준 지표) */}
-            <div className="px-4 pt-5 pb-3 shrink-0">
+            <div className="px-4 pt-3 pb-2 shrink-0">
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
                     {/* Card 1: 전체 검사 완료자 */}
                     <div
                         onClick={() => setFilterTab('all')}
-                        className={`p-3 rounded-2xl border transition-all cursor-pointer ${filterTab === 'all' ? 'bg-teal-50/80 border-teal-300 shadow-sm ring-2 ring-teal-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
+                        className={`px-3 py-2 rounded-2xl border transition-all cursor-pointer ${filterTab === 'all' ? 'bg-teal-50/80 border-teal-300 shadow-sm ring-2 ring-teal-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
                     >
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">전체 검사 완료자</span>
                             <ClipboardList className="w-4 h-4 text-teal-600" />
                         </div>
-                        <div className="mt-1 flex items-baseline gap-1">
+                        <div className="mt-0.5 flex items-baseline gap-1">
                             <span className="text-xl font-black text-slate-900">{metrics.totalScreeningCompleted}</span>
                             <span className="text-xs text-slate-400 font-medium">명</span>
                         </div>
@@ -2181,13 +2184,13 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     {/* Card 2: 상담 요청자 */}
                     <div
                         onClick={() => setFilterTab('consultation_requested')}
-                        className={`p-3 rounded-2xl border transition-all cursor-pointer ${filterTab === 'consultation_requested' ? 'bg-blue-50/80 border-blue-300 shadow-sm ring-2 ring-blue-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
+                        className={`px-3 py-2 rounded-2xl border transition-all cursor-pointer ${filterTab === 'consultation_requested' ? 'bg-blue-50/80 border-blue-300 shadow-sm ring-2 ring-blue-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
                     >
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">상담 요청자</span>
                             <UserCheck className="w-4 h-4 text-blue-600" />
                         </div>
-                        <div className="mt-1 flex items-baseline gap-1">
+                        <div className="mt-0.5 flex items-baseline gap-1">
                             <span className="text-xl font-black text-blue-600">{metrics.consultationRequested}</span>
                             <span className="text-xs text-slate-400 font-medium">명</span>
                         </div>
@@ -2196,25 +2199,25 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     {/* Card 3: 상담 미요청자 */}
                     <div
                         onClick={() => setFilterTab('screening_only')}
-                        className={`p-3 rounded-2xl border transition-all cursor-pointer ${filterTab === 'screening_only' ? 'bg-slate-100 border-slate-400 shadow-sm ring-2 ring-slate-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
+                        className={`px-3 py-2 rounded-2xl border transition-all cursor-pointer ${filterTab === 'screening_only' ? 'bg-slate-100 border-slate-400 shadow-sm ring-2 ring-slate-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
                     >
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">상담 미요청자</span>
                             <UserX className="w-4 h-4 text-slate-500" />
                         </div>
-                        <div className="mt-1 flex items-baseline gap-1">
+                        <div className="mt-0.5 flex items-baseline gap-1">
                             <span className="text-xl font-black text-slate-700">{metrics.consultationNotRequested}</span>
                             <span className="text-xs text-slate-400 font-medium">명</span>
                         </div>
                     </div>
 
                     {/* Card 4: 상담 전환율 */}
-                    <div className="p-3 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
+                    <div className="px-3 py-2 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">상담 전환율</span>
                             <TrendingUp className="w-4 h-4 text-emerald-600" />
                         </div>
-                        <div className="mt-1 flex items-baseline gap-1">
+                        <div className="mt-0.5 flex items-baseline gap-1">
                             <span className="text-xl font-black text-emerald-600">{metrics.conversionRate}%</span>
                         </div>
                     </div>
@@ -2222,37 +2225,37 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     {/* Card 5: 담당자 검토 대기 */}
                     <div
                         onClick={() => setFilterTab('consultation_requested')}
-                        className="p-3 rounded-2xl bg-white border border-slate-200/80 hover:border-slate-300 shadow-sm cursor-pointer"
+                        className="px-3 py-2 rounded-2xl bg-white border border-slate-200/80 hover:border-slate-300 shadow-sm cursor-pointer"
                     >
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">담당자 검토 대기</span>
                             <Clock className="w-4 h-4 text-amber-500" />
                         </div>
-                        <div className="mt-1 flex items-baseline gap-1">
+                        <div className="mt-0.5 flex items-baseline gap-1">
                             <span className="text-xl font-black text-amber-600">{metrics.pendingStaffReview}</span>
                             <span className="text-xs text-slate-400 font-medium">건</span>
                         </div>
                     </div>
 
                     {/* Card 6: 내게 배정된 건 */}
-                    <div className="p-3 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
+                    <div className="px-3 py-2 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">내게 배정된 건</span>
                             <UserCheck className="w-4 h-4 text-indigo-600" />
                         </div>
-                        <div className="mt-1 flex items-baseline gap-1">
+                        <div className="mt-0.5 flex items-baseline gap-1">
                             <span className="text-xl font-black text-indigo-600">{metrics.myAssigned}</span>
                             <span className="text-xs text-slate-400 font-medium">건</span>
                         </div>
                     </div>
 
                     {/* Card 7: 리포트 준비 완료 */}
-                    <div className="p-3 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
+                    <div className="px-3 py-2 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">리포트 준비 완료</span>
                             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                         </div>
-                        <div className="mt-1 flex items-baseline gap-1">
+                        <div className="mt-0.5 flex items-baseline gap-1">
                             <span className="text-xl font-black text-slate-900">{metrics.reportReady}</span>
                             <span className="text-xs text-slate-400 font-medium">건</span>
                         </div>
@@ -2261,8 +2264,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             </div>
 
             {/* 2-1. Statistics Charts (접이식 통계 차트) */}
-            <div className="px-4 py-2 shrink-0">
-                <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 transition-all">
+            <div className="px-4 py-1.5 shrink-0">
+                <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl px-4 py-2.5 transition-all">
                     <div className="flex items-center justify-between">
                         <button
                             type="button"
@@ -2321,9 +2324,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                 /* ========================================================================= */
                 /* TAB 1: Master-Detail Applicant Dashboard                                  */
                 /* ========================================================================= */
-                <div className="flex-1 overflow-hidden px-4 py-3 flex flex-col min-h-0">
+                <div className="flex-1 overflow-hidden px-4 py-2 flex flex-col min-h-0">
                     {/* Filter Tabs, Staff Workload & Date Range Bar */}
-                    <div className="bg-white rounded-2xl border border-slate-200/90 px-3 py-2.5 mb-3 shadow-xs space-y-2 shrink-0">
+                    <div className="bg-white rounded-2xl border border-slate-200/90 px-3 py-2 mb-2 shadow-xs space-y-2 shrink-0">
                         {/* Row 1: Quick Status Filter Tabs + Staff Workload Inline + Sort Dropdown */}
                         <div className="flex items-center gap-2 flex-wrap">
                             <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar py-0.5 shrink-0" role="tablist" aria-label="상태 빠른 필터">
@@ -2389,6 +2392,29 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                 </div>
                             )}
 
+                            {/* Quick Presets (1행으로 이동해 필터바를 2행으로 유지) */}
+                            <div className="flex items-center gap-1 pl-2 border-l border-slate-200 flex-wrap shrink-0">
+                                {[
+                                    { id: 'today', label: '오늘' },
+                                    { id: '7days', label: '최근 7일' },
+                                    { id: '30days', label: '최근 30일' },
+                                    { id: 'all', label: '전체 기간' }
+                                ].map(p => (
+                                    <button
+                                        key={p.id}
+                                        type="button"
+                                        onClick={() => handleSelectPreset(p.id as any)}
+                                        className={`h-8 px-2.5 text-xs font-bold rounded-xl transition flex items-center justify-center ${
+                                            activePreset === p.id
+                                                ? 'bg-slate-800 text-white shadow-xs'
+                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                        }`}
+                                    >
+                                        {p.label}
+                                    </button>
+                                ))}
+                            </div>
+
                             {/* Sort Dropdown */}
                             <div className="flex items-center gap-1.5 text-xs font-bold text-slate-600 ml-auto shrink-0">
                                 <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
@@ -2448,29 +2474,6 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                 </button>
                             </div>
 
-                            {/* Quick Presets */}
-                            <div className="flex items-center gap-1 pl-2 border-l border-slate-200 flex-wrap shrink-0">
-                                {[
-                                    { id: 'today', label: '오늘' },
-                                    { id: '7days', label: '최근 7일' },
-                                    { id: '30days', label: '최근 30일' },
-                                    { id: 'all', label: '전체 기간' }
-                                ].map(p => (
-                                    <button
-                                        key={p.id}
-                                        type="button"
-                                        onClick={() => handleSelectPreset(p.id as any)}
-                                        className={`h-8 px-2.5 text-xs font-bold rounded-xl transition flex items-center justify-center ${
-                                            activePreset === p.id
-                                                ? 'bg-slate-800 text-white shadow-xs'
-                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                        }`}
-                                    >
-                                        {p.label}
-                                    </button>
-                                ))}
-                            </div>
-
                             {/* Campaign Filter */}
                             <div className="flex items-center gap-1.5 pl-2 border-l border-slate-200 shrink-0">
                                 <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5 shrink-0">
@@ -2480,7 +2483,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                 <select
                                     value={campaignFilter}
                                     onChange={e => setCampaignFilter(e.target.value)}
-                                    className="h-8 px-2.5 text-xs font-semibold border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none cursor-pointer max-w-[280px] sm:max-w-[360px] 2xl:max-w-[280px]"
+                                    className="h-8 px-2.5 text-xs font-semibold border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none cursor-pointer max-w-[190px] sm:max-w-[230px] 2xl:max-w-[260px]"
                                     aria-label="캠페인 필터 선택"
                                 >
                                     <option value="all">전체 (미지정 포함)</option>
@@ -2554,10 +2557,10 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                         {/* LEFT: Applicant List (Master) */}
                         <div className={`w-full lg:w-[clamp(500px,45%,780px)] flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden shrink-0 ${isMobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
                             {/* Selection & Quick Select Header */}
-                            <div className="p-3 border-b border-slate-100 bg-slate-50/70 space-y-2 shrink-0">
+                            <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70 space-y-2 shrink-0">
                                 <div className="flex items-center justify-between gap-2 flex-wrap">
                                     <div className="flex items-center gap-2">
-                                        <div className="min-w-[44px] min-h-[44px] flex items-center justify-center -ml-2 shrink-0">
+                                        <div className="min-w-[34px] min-h-[34px] flex items-center justify-center -ml-1 shrink-0">
                                             <input
                                                 type="checkbox"
                                                 ref={selectAllCheckboxRef}
@@ -2736,7 +2739,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                 )}
                             </div>
 
-                            <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2 custom-scrollbar">
+                            <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1.5 custom-scrollbar">
                                 {loading && imports.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center h-64 text-slate-400 gap-2">
                                         <RefreshCw className="w-6 h-6 animate-spin text-teal-600" />
@@ -2766,18 +2769,18 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                         setIsLargeDetailModalOpen(true);
                                                     }
                                                 }}
-                                                className={`p-3 rounded-2xl border transition-all cursor-pointer text-left relative min-h-[108px] space-y-1.5 ${
+                                                className={`px-3 py-1.5 rounded-2xl border transition-all cursor-pointer text-left relative space-y-0.5 ${
                                                     isSelected
                                                         ? 'bg-teal-50/60 border-teal-400 shadow-md ring-2 ring-teal-500/20'
                                                         : (isChecked ? 'bg-indigo-50/40 border-indigo-200' : 'bg-white border-slate-200/80 hover:border-slate-300 hover:bg-slate-50/50')
                                                 }`}
                                             >
                                                 {/* Header Line */}
-                                                <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                                                <div className="flex items-center justify-between gap-2 flex-wrap">
                                                     <div className="flex items-center gap-1.5">
-                                                        {/* Individual Checkbox (min 44px touch target) */}
+                                                        {/* Individual Checkbox (compact target; whole card is clickable) */}
                                                         <div
-                                                            className="min-w-[44px] min-h-[44px] flex items-center justify-center -ml-2 -mt-1 shrink-0 cursor-pointer"
+                                                            className="min-w-[30px] min-h-[30px] flex items-center justify-center -ml-1.5 -mt-0.5 shrink-0 cursor-pointer"
                                                             onClick={e => e.stopPropagation()}
                                                         >
                                                             <input
@@ -2792,9 +2795,6 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                         {renderPriorityBadge(item.assignmentPriority)}
                                                         <span className="text-sm font-black text-slate-900">
                                                             {item.maskedClientName || '이름없음'}
-                                                        </span>
-                                                        <span className="text-xs font-medium text-slate-500">
-                                                            {item.maskedPhone}
                                                         </span>
                                                     </div>
                                                     <div className="flex items-center gap-1.5 flex-wrap justify-end">
@@ -2834,29 +2834,30 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     </div>
                                                 </div>
 
-                                                {/* Sub-info Line: Date, Scale & Score */}
-                                                <div className="flex items-center justify-between text-[11px] text-slate-500 mb-2 font-medium">
-                                                    <span className="flex items-center gap-1">
-                                                        <Clock className="w-3 h-3 text-slate-400" />
-                                                        {formatKstDateTime(item.screeningCompletedAt || item.submittedAt || item.importedAt, 'list')}
-                                                    </span>
-                                                    <span className="text-slate-600 font-bold">
-                                                        {item.region}
-                                                    </span>
-                                                </div>
-
-                                                {/* Assessment & Report line */}
-                                                <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-                                                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                                                        <scaleInfo.icon className={`w-3.5 h-3.5 shrink-0 ${scaleInfo.color}`} />
-                                                        <span className="font-bold text-slate-700 truncate">
-                                                            {item.contactOnly ? '접촉 전용' : formatAssessmentDisplay(item.assessmentId)}
+                                                {/* Info Line: Date · Region · Scale/Score · Report (한 행 통합) */}
+                                                <div className="flex items-center justify-between gap-2 text-xs pt-1 border-t border-slate-100">
+                                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                        <span className="flex items-center gap-1 text-[11px] text-slate-500 font-medium shrink-0">
+                                                            <Clock className="w-3 h-3 text-slate-400" />
+                                                            {formatKstDateTime(item.screeningCompletedAt || item.submittedAt || item.importedAt, 'list')}
                                                         </span>
-                                                        {!item.contactOnly && item.totalScore !== null && (
-                                                            <span className="font-extrabold text-slate-900 shrink-0">
-                                                                ({item.totalScore}점)
+                                                        <span className="text-[11px] font-medium text-slate-500 shrink-0">
+                                                            {item.maskedPhone}
+                                                        </span>
+                                                        <span className="text-[11px] text-slate-600 font-bold shrink-0 hidden sm:inline">
+                                                            {item.region}
+                                                        </span>
+                                                        <div className="flex items-center gap-1.5 min-w-0">
+                                                            <scaleInfo.icon className={`w-3.5 h-3.5 shrink-0 ${scaleInfo.color}`} />
+                                                            <span className="font-bold text-slate-700 truncate">
+                                                                {item.contactOnly ? '접촉 전용' : formatAssessmentDisplay(item.assessmentId)}
                                                             </span>
-                                                        )}
+                                                            {!item.contactOnly && item.totalScore !== null && (
+                                                                <span className="font-extrabold text-slate-900 shrink-0">
+                                                                    ({item.totalScore}점)
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </div>
 
                                                     <div className="flex items-center gap-2">
@@ -2886,7 +2887,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     </div>
                                                 </div>
 
-                                                {/* Assigned Staff (Inline Dropdown or Read-only) */}
+                                                {/* Assigned Staff (Compact one-line; expands to inline dropdown on demand) */}
                                                 {(() => {
                                                     const isCompletedOrRegistered = Boolean(
                                                         item.referralId ||
@@ -2897,11 +2898,12 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     const isAdmin = currentUser.role === 'admin';
                                                     const canAssign = hasSurveyAssignmentAccess(currentUser);
                                                     const isRowAssigning = assigningRowId === item.submissionId;
+                                                    const isAssignExpanded = expandedAssignCardId === item.submissionId;
 
                                                     if (isRowAssigning) {
                                                         return (
-                                                            <div className="mt-2.5 pt-2 border-t border-slate-100 min-h-[44px] flex items-center">
-                                                                <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-xl text-xs font-bold text-indigo-700 min-h-[44px] w-full animate-pulse">
+                                                            <div className="mt-1 pt-1 border-t border-slate-100 flex items-center">
+                                                                <div className="flex items-center gap-2 px-2.5 py-1.5 bg-indigo-50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-700 w-full animate-pulse">
                                                                     <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600 shrink-0" />
                                                                     <span>[ 배정 중... ]</span>
                                                                 </div>
@@ -2909,35 +2911,22 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                         );
                                                     }
 
-                                                    if (isCompletedOrRegistered) {
-                                                        return (
-                                                            <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between min-h-[44px]">
-                                                                <div className="flex flex-col text-xs truncate max-w-[200px]" title={`${getStaffDisplayName(item.assignedUserId)} (등록 완료 · 읽기 전용)`}>
-                                                                    <span className="font-bold text-slate-700 truncate">{getStaffDisplayName(item.assignedUserId)}</span>
-                                                                    <span className="text-[10px] text-slate-400 font-medium">등록 완료 · 읽기 전용</span>
-                                                                </div>
-                                                                {item.assignedAt && (
-                                                                    <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">
-                                                                        {formatKstDateTime(item.assignedAt, 'list')} 배정
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    }
-
-                                                    if (canAssign) {
+                                                    if (canAssign && !isCompletedOrRegistered && isAssignExpanded) {
                                                         return (
                                                             <div
-                                                                className="mt-2.5 pt-2 border-t border-slate-100 flex items-center gap-2"
+                                                                className="mt-1 pt-1 border-t border-slate-100 flex items-center gap-2"
                                                                 onClick={e => e.stopPropagation()}
                                                             >
                                                                 <div className="relative flex-1">
                                                                     <select
                                                                         id={`staff-assign-${item.submissionId}`}
                                                                         value={item.assignedUserId || ''}
-                                                                        onChange={e => handleInlineAssignStaff(item, e.target.value)}
+                                                                        onChange={e => {
+                                                                            handleInlineAssignStaff(item, e.target.value);
+                                                                            setExpandedAssignCardId(null);
+                                                                        }}
                                                                         disabled={assigningRowId !== null}
-                                                                        className={`w-full min-h-[44px] h-11 px-3 pr-8 rounded-xl text-xs font-bold transition border focus:ring-2 focus:ring-indigo-500 focus:outline-none appearance-none truncate cursor-pointer ${
+                                                                        className={`w-full min-h-[40px] h-10 px-3 pr-8 rounded-xl text-xs font-bold transition border focus:ring-2 focus:ring-indigo-500 focus:outline-none appearance-none truncate cursor-pointer ${
                                                                             !item.assignedUserId
                                                                                 ? 'bg-amber-50/90 border-amber-300 text-amber-900 hover:bg-amber-100/70 shadow-xs'
                                                                                 : 'bg-white border-slate-300 text-slate-800 hover:border-slate-400'
@@ -2967,29 +2956,69 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                                             e.stopPropagation();
                                                                             handleUnassign(item);
                                                                         }}
-                                                                        className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 rounded-xl transition shrink-0"
+                                                                        className="min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 rounded-xl transition shrink-0"
                                                                         title="담당자 배정 취소 (미배정으로 전환)"
                                                                         aria-label="담당자 배정 취소"
                                                                     >
                                                                         <UserMinus className="w-4 h-4" />
                                                                     </button>
                                                                 )}
+
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={e => {
+                                                                        e.stopPropagation();
+                                                                        setExpandedAssignCardId(null);
+                                                                    }}
+                                                                    className="min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 border border-slate-200 rounded-xl transition shrink-0"
+                                                                    title="담당자 선택 접기"
+                                                                    aria-label="담당자 선택 접기"
+                                                                >
+                                                                    <ChevronUp className="w-4 h-4" />
+                                                                </button>
                                                             </div>
                                                         );
                                                     }
 
-                                                    // Regular non-admin users: read-only
+                                                    // Collapsed one-line: 담당자명 + (배정 가능 시) 선택/변경 버튼
                                                     return (
-
-                                                        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between min-h-[44px]">
-                                                            <div className="flex items-center gap-1.5 text-xs font-medium text-slate-600 truncate" title={getStaffDisplayName(item.assignedUserId)}>
+                                                        <div
+                                                            className="mt-1 pt-1 border-t border-slate-100 flex items-center justify-between gap-2 min-h-[24px]"
+                                                            onClick={e => e.stopPropagation()}
+                                                        >
+                                                            <div className="flex items-center gap-1.5 text-xs font-medium text-slate-600 truncate min-w-0" title={getStaffDisplayName(item.assignedUserId)}>
                                                                 <UserCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                                                <span>담당: <strong className={item.assignedUserId ? 'text-indigo-700 font-bold' : 'text-slate-400'}>{getStaffDisplayName(item.assignedUserId)}</strong></span>
-                                                            </div>
-                                                            {item.assignedAt && (
-                                                                <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">
-                                                                    {formatKstDateTime(item.assignedAt, 'list')} 배정
+                                                                <span className="truncate">
+                                                                    담당: <strong className={item.assignedUserId ? 'text-indigo-700 font-bold' : 'text-amber-700 font-bold'}>{getStaffDisplayName(item.assignedUserId)}</strong>
                                                                 </span>
+                                                                {isCompletedOrRegistered && (
+                                                                    <span className="text-[10px] text-slate-400 font-medium shrink-0">등록 완료 · 읽기 전용</span>
+                                                                )}
+                                                                {item.assignedAt && (
+                                                                    <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap hidden xl:inline">
+                                                                        {formatKstDateTime(item.assignedAt, 'list')} 배정
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            {canAssign && !isCompletedOrRegistered && (
+                                                                <button
+                                                                    type="button"
+                                                                    data-assign-toggle={item.submissionId}
+                                                                    onClick={e => {
+                                                                        e.stopPropagation();
+                                                                        setExpandedAssignCardId(item.submissionId);
+                                                                    }}
+                                                                    className={`h-6 px-2.5 rounded-lg text-[11px] font-bold border transition flex items-center gap-1 shrink-0 cursor-pointer ${
+                                                                        !item.assignedUserId
+                                                                            ? 'bg-amber-50/90 border-amber-300 text-amber-900 hover:bg-amber-100/70'
+                                                                            : 'bg-white border-slate-300 text-slate-700 hover:border-slate-400'
+                                                                    }`}
+                                                                    title={item.assignedUserId ? '담당자 변경' : '담당자 선택'}
+                                                                    aria-label={`담당자 ${item.assignedUserId ? '변경' : '선택'}: ${item.maskedClientName || item.submissionId}`}
+                                                                >
+                                                                    {item.assignedUserId ? '담당자 변경' : '담당자 선택'}
+                                                                    <ChevronDown className="w-3.5 h-3.5" />
+                                                                </button>
                                                             )}
                                                         </div>
                                                     );
