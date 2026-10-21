@@ -4270,6 +4270,12 @@ const EXTERNAL_CONFIG = {
     pollInterval: 30 * 60 * 1000 // 30 mins
 };
 
+// [2026-10-21 jun 지시] 홈페이지 의뢰 스크레이핑 비활성화.
+// 홈페이지 봇 차단으로 수집이 불가하고, 타 센터 배포 시 타 기관 의뢰가 섞일 위험이 있어
+// 기본값 OFF로 잠근다. 향후 홈페이지 API 구축 후 기관 설정 기준으로 센터별 동기화하는
+// 방식으로 교체 예정. 그 전까지는 EXTERNAL_SCRAPER_ENABLED=true 인 환경에서만 동작.
+const EXTERNAL_SCRAPER_ENABLED = process.env.EXTERNAL_SCRAPER_ENABLED === 'true';
+
 const DEFAULT_SYNC_METADATA = {
     lastSuccessfulSyncAt: null,
     lastAttemptedSyncAt: null,
@@ -4871,6 +4877,9 @@ async function fetchExternalReferralsInner(options = {}) {
 // 내부 함수의 finally가 transport 정리·플래그 해제를 보장하므로,
 // 타임아웃 시에는 여기서 강제 종료 + 메타데이터 기록만 수행.
 async function fetchExternalReferrals(options = {}) {
+    if (!EXTERNAL_SCRAPER_ENABLED) {
+        return { success: false, disabled: true, error: '홈페이지 의뢰 수집이 비활성화되어 있습니다.' };
+    }
     const timeoutMs = parseInt(process.env.SCRAPER_TIMEOUT_MS || '480000', 10);
     try {
         return await Promise.race([
@@ -5143,9 +5152,14 @@ const sanitizeReferralsOnStartup = async () => {
     }
 };
 
-// Initial check and set interval
-setTimeout(fetchExternalReferrals, 5000); // 5초 후 최초 1회 실행
-setInterval(fetchExternalReferrals, EXTERNAL_CONFIG.pollInterval); // 30분 주기
+// Initial check and set interval (스크레이퍼 활성화 시에만)
+if (EXTERNAL_SCRAPER_ENABLED) {
+    setTimeout(fetchExternalReferrals, 5000); // 5초 후 최초 1회 실행
+    setInterval(fetchExternalReferrals, EXTERNAL_CONFIG.pollInterval); // 30분 주기
+    console.log('🌐 [Scraper] 홈페이지 의뢰 수집 활성화 (EXTERNAL_SCRAPER_ENABLED=true)');
+} else {
+    console.log('⏸️ [Scraper] 홈페이지 의뢰 수집 비활성화 (기본값 OFF — API 방식 전환 예정)');
+}
 
 // START SERVER
 app.listen(PORT, async () => {
