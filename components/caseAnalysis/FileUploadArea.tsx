@@ -82,12 +82,12 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({ onFilesUpload, isLoadin
                         <button
                             type="button"
                             onClick={downloadSampleExcelFiles}
-                            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-300 text-slate-600 text-xs font-bold rounded-full hover:border-indigo-400 hover:text-indigo-600 transition-all"
+                            className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-full shadow-md shadow-indigo-200 hover:bg-indigo-700 transition-all"
                         >
                             <Download size={14} />
                             샘플 양식 다운로드
                         </button>
-                        <span className="text-[11px] text-slate-400 font-medium">처음 사용하시면 샘플 파일 6종을 내려받아 양식을 확인하세요.</span>
+                        <span className="text-[11px] text-slate-500 font-medium">처음 사용하시면 샘플 파일 6종을 내려받아 양식을 확인하세요.</span>
                     </div>
                 </div>
 
