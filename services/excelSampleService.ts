@@ -4,8 +4,8 @@ import { saveAs } from 'file-saver';
 /**
  * 사례분석시스템 샘플 양식 다운로드
  *
- * analyzeAllFiles(excelAnalysisService.ts)가 요구하는 6종 파일의 양식 샘플을 생성한다.
- * - 파일명은 파서의 파일명 정규식(1.개별상담 / 2.자원조정 / 3.일반상담 / 4.등퇴록대장 / 5.ISP수립 / 6.팀구별)에 맞춘다.
+ * analyzeAllFiles(excelAnalysisService.ts)가 요구하는 5종 파일의 양식 샘플을 생성한다.
+ * - 파일명은 파서의 파일명 정규식(1.개별상담 / 2.자원조정 / 3.일반상담 / 5.ISP수립 / 6.팀구별)에 맞춘다.
  * - 1·2번 파일은 열 위치(A=회원번호, C=상담자, G=성명, J=응급개입, K=상담유형, L=상담일) 기준으로 파싱된다.
  * - 3번 파일은 D=상담일, N=상담자, AH=상담유형 열을 사용한다.
  * - 5번 파일은 헤더명(회원등록번호·성명·관리구분·수립일 등) 기준으로 파싱된다.
@@ -178,22 +178,6 @@ const buildGeneralFile = (): [string, string, any[][]] => {
     ];
 };
 
-const buildRegistrationFile = (): [string, string, any[][]] => [
-    '4.등퇴록대장.xlsx', '등퇴록대장',
-    [
-        ['등록번호', '성명', '성별', '생년월일', '등록일', '퇴록일', '상태', '담당자', '관리구분'],
-        ...(['김철수', '이영자', '박민준', '최지현', '정수민', '한미래', '서민재', '강도윤', '윤하늘'] as MemberName[]).map(name => {
-            const m = MEMBERS[name];
-            const regDates: Record<MemberName, string> = {
-                김철수: '2026-01-15', 이영자: '2026-02-03', 박민준: '2026-03-10',
-                최지현: '2026-04-06', 정수민: '2026-05-12', 한미래: '2026-06-08',
-                서민재: '2026-06-15', 강도윤: '2026-07-03', 윤하늘: '2026-07-20',
-            };
-            return [m.regNo, name, m.gender, m.birth, regDates[name], '', '이용중', m.counselor, m.category];
-        }),
-        ['2025018', '오준석', '남', '1992-04-14', '2025-05-12', '2026-06-30', '퇴록', '김민수', '일시관리'],
-    ],
-];
 
 const buildIspFile = (): [string, string, any[][]] => [
     '5.ISP수립.xlsx', 'ISP수립',
@@ -214,14 +198,13 @@ const buildIspFile = (): [string, string, any[][]] => [
     ],
 ];
 
-/** 샘플 양식 6종을 순차 다운로드한다 (브라우저 다중 다운로드 허용이 필요할 수 있음). */
+/** 샘플 양식 5종을 순차 다운로드한다 (브라우저 다중 다운로드 허용이 필요할 수 있음). */
 export const downloadSampleExcelFiles = () => {
     const builders = [
         buildTeamFile,
         buildIndividualFile,
         buildResourceFile,
         buildGeneralFile,
-        buildRegistrationFile,
         buildIspFile,
     ];
     builders.forEach((build, i) => {

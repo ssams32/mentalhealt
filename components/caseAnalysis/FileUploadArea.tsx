@@ -71,7 +71,7 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({ onFilesUpload, isLoadin
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                        {['개별상담', '자원조정', '일반상담', '등퇴록', 'ISP', '팀구별'].map((tag, i) => (
+                        {['개별상담', '자원조정', '일반상담', 'ISP', '팀구별'].map((tag, i) => (
                             <span key={i} className="px-2.5 py-1 bg-slate-100 text-slate-500 text-[10px] font-bold rounded-full border border-slate-200">
                                 {tag}
                             </span>
@@ -87,7 +87,7 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({ onFilesUpload, isLoadin
                             <Download size={14} />
                             샘플 양식 다운로드
                         </button>
-                        <span className="text-[11px] text-slate-500 font-medium">처음 사용하시면 샘플 파일 6종을 내려받아 양식을 확인하세요.</span>
+                        <span className="text-[11px] text-slate-500 font-medium">처음 사용하시면 샘플 파일 5종을 내려받아 양식을 확인하세요.</span>
                     </div>
                 </div>
 
