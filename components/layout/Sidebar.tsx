@@ -164,7 +164,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                                     {page === 'surveyManagement' && surveyPendingCount !== undefined && surveyPendingCount > 0 && (
                                         <span
                                             className={`absolute ${isCollapsed ? 'top-1 right-1' : 'top-3 right-3'} min-w-[20px] h-5 px-1.5 bg-rose-600 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-md animate-pulse`}
-                                            aria-label={currentUser.role === 'admin' ? `미배정 및 미등록 온라인 설문 ${surveyPendingCount > 99 ? '99+' : surveyPendingCount}건` : `내게 배정된 미등록 온라인 설문 ${surveyPendingCount > 99 ? '99+' : surveyPendingCount}건`}
+                                            aria-label={`내게 배정된 미등록 온라인 설문 ${surveyPendingCount > 99 ? '99+' : surveyPendingCount}건`}
                                         >
                                             {surveyPendingCount > 99 ? '99+' : surveyPendingCount}
                                         </span>

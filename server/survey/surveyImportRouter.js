@@ -151,8 +151,6 @@ export function createSurveyImportRouter(deps = {}) {
     router.get('/status', requireAuth, requireSurveyImportPermission, (req, res) => {
         try {
             const currentUserId = String(req.auth?.id || req.auth?.userId || '');
-            const role = (req.auth?.role || req.auth?.userRole || 'user').toLowerCase();
-            const isAdmin = role === 'admin';
             const summary = surveyImportService.getStatusSummary(currentUserId);
 
             const subs = surveyRepository.getSurveySubmissions();
@@ -178,7 +176,10 @@ export function createSurveyImportRouter(deps = {}) {
                 }
             }
 
-            const badgeCount = isAdmin ? totalPendingReferralCount : myAssignedPendingCount;
+            // badgeCount 의미 (2026-10-22 변경): 관리자 포함 전 사용자 "본인에게 배정됐고 아직 의뢰 전환 안 된 건수"로 통일.
+            // 예전에는 관리자에게 전체 미등록 건수(totalPendingReferralCount)를 줘서 배지가 항상 크게 떴다.
+            // 전체/미배정 건수는 아래 별도 필드(unassignedCount, totalPendingReferralCount)로 계속 제공한다.
+            const badgeCount = myAssignedPendingCount;
 
             res.json({
                 ...summary,
