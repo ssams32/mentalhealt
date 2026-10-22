@@ -26,6 +26,9 @@ const GeneralAnalysisTab: React.FC<GeneralAnalysisTabProps> = ({ data, dateRange
         const filtered = data.map(c => {
             const validSessions = (c.allSessions || []).filter(s => {
                 if (!s.date) return false;
+                // 일반상담 분석은 파일 3(일반상담) 세션만 집계한다.
+                // category가 없는 레거시 세션은 개별/자원조정으로 간주하므로 여기서 제외한다.
+                if (s.category !== 'general') return false;
                 return s.date >= startDate && s.date <= endDate;
             });
 

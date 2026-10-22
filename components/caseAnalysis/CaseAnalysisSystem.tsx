@@ -205,7 +205,11 @@ const CaseAnalysisSystem: React.FC<CaseAnalysisSystemProps> = ({ currentUser }) 
         const filteredCounselorPerformance = safeCounselorPerf
             .filter(filterBySelection)
             .map(c => {
-                const validSessions = (c.allSessions || []).filter(s => isDateInRange(s.date));
+                const inRangeSessions = (c.allSessions || []).filter(s => isDateInRange(s.date));
+                // 상담사별 집계(types·합계)는 개별상담+자원조정만 대상으로 한다.
+                // 일반상담(category 'general')은 '일반상담 분석' 탭에서만 집계한다.
+                // category가 없는 레거시 세션은 개별/자원조정으로 간주한다.
+                const validSessions = inRangeSessions.filter(s => s.category !== 'general');
                 const newTypes = { inOffice: 0, visit: 0, online: 0, emergency: 0, phone: 0 };
                 validSessions.forEach(s => {
                     const type = s.type as keyof typeof newTypes;
@@ -218,8 +222,10 @@ const CaseAnalysisSystem: React.FC<CaseAnalysisSystemProps> = ({ currentUser }) 
                     types: newTypes,
                     totalSessions: total,
                     totalEmergency: newTypes.emergency,
-                    totalGeneral: total - newTypes.emergency,
-                    allSessions: validSessions,
+                    // 서비스 초기 집계와 동일: 개별+자원조정의 유형 판정 세션 수(응급 포함)
+                    totalGeneral: total,
+                    // allSessions는 일반상담 탭·요약 카드가 category로 나눠 쓰므로 전 category를 유지한다
+                    allSessions: inRangeSessions,
                     faceToFaceSessions: (c.faceToFaceSessions || []).filter(s => isDateInRange(s.date))
                 };
             });
