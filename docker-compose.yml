@@ -13,9 +13,20 @@ services:
       - DATA_DIR=/app/data
       - ATTACHMENTS_DIR=/app/attachments
       - TZ=Asia/Seoul
+      # [백업 대상 지정 예시] 데이터 관리 화면에서 고를 백업 대상 (최대 3개, 필요할 때만 주석 해제)
+      # - BACKUP_TARGET_1_NAME=volume1 시점 백업
+      # - BACKUP_TARGET_1_PATH=/app/external-backup/volume1
+      # - BACKUP_TARGET_1_HOST_PATH=/volume1/의뢰대장-시점백업
+      # - BACKUP_TARGET_2_NAME=USB 드라이브
+      # - BACKUP_TARGET_2_PATH=/app/external-backup/usb
+      # - BACKUP_TARGET_2_HOST_PATH=/volumeUSB1/usbshare
+      # - BACKUP_TARGET_2_MARKER=.imhc-backup-target
     volumes:
       - /volume2/docker/imhc/app/data:/app/data
       - /volume2/docker/imhc/app/attachments:/app/attachments
+      # [백업 대상 볼륨 예시] 위 BACKUP_TARGET_N_PATH와 짝을 맞춰 주석 해제
+      # - /volume1/의뢰대장-시점백업:/app/external-backup/volume1
+      # - /volumeUSB1/usbshare:/app/external-backup/usb
     restart: always
     logging:
       driver: "json-file"

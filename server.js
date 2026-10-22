@@ -61,6 +61,9 @@ import {
 } from './server/notifications/index.js';
 import { getNextKstPurgeTime, canAccessReferralAttachment } from './server/survey/kstUtils.js';
 
+// --- Backup Targets: 데이터 관리에서 백업 대상 지정 + 실행 ---
+import { createBackupService, createBackupRouter, getBackupTargetsFromEnv } from './server/backup/index.js';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -876,6 +879,11 @@ const notificationRouter = createNotificationRouter({
 
 app.use('/api/surveys', surveyImportRouter);
 app.use('/api/notifications', notificationRouter);
+
+// 백업 대상 지정/실행 (대상은 BACKUP_TARGET_N_* 환경변수로만 등록됨)
+const backupService = createBackupService({ dataDir: DATA_DIR, attachmentsDir: ATTACHMENTS_DIR });
+app.use('/api/backup', createBackupRouter({ backupService, requireAdmin }));
+backupService.startAutoBackupTimer();
 
 // Start autonomous background survey synchronization (60s initial delay, 5m cycle)
 surveyAutoImportScheduler.start();
@@ -3111,6 +3119,9 @@ app.get('/api/health/storage', requireAdmin, (req, res) => {
             attachmentsDir: ATTACHMENTS_DIR,
             // 실제 백업 기준 경로(createBackup이 path.join(DATA_DIR, 'backups', 날짜)에 저장). 프론트는 이 값을 그대로 표시만 한다.
             backupDir: path.join(DATA_DIR, 'backups'),
+            backups: {
+                targetsConfigured: getBackupTargetsFromEnv().length > 0
+            },
             stats
         });
     } catch (e) {

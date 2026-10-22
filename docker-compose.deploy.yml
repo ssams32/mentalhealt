@@ -19,9 +19,20 @@ services:
       # ★ 필수: 초기 관리자 비밀번호를 정해서 넣으세요. 이 값이 없으면 관리자 계정이 만들어지지 않습니다.
       #   첫 로그인 후에는 이 값을 지워도 됩니다.
       - ADMIN_INIT_PASSWORD=여기에_초기관리자_비밀번호_입력
+      # [백업 대상 지정 예시] 데이터 관리 화면에서 고를 백업 대상 (최대 3개, 필요할 때만 주석 해제)
+      # - BACKUP_TARGET_1_NAME=volume1 시점 백업
+      # - BACKUP_TARGET_1_PATH=/app/external-backup/volume1
+      # - BACKUP_TARGET_1_HOST_PATH=/volume1/의뢰대장-시점백업
+      # - BACKUP_TARGET_2_NAME=USB 드라이브
+      # - BACKUP_TARGET_2_PATH=/app/external-backup/usb
+      # - BACKUP_TARGET_2_HOST_PATH=/volumeUSB1/usbshare
+      # - BACKUP_TARGET_2_MARKER=.imhc-backup-target
     volumes:
       - ./data:/app/data               # 모든 자료가 여기 저장됩니다 (백업은 이 폴더)
       - ./attachments:/app/attachments # 첨부파일 저장 폴더
+      # [백업 대상 볼륨 예시] 위 BACKUP_TARGET_N_PATH와 짝을 맞춰 주석 해제
+      # - /volume1/의뢰대장-시점백업:/app/external-backup/volume1
+      # - /volumeUSB1/usbshare:/app/external-backup/usb
 
   # 자동 업데이트: 매일 자정(00:00)에 새 이미지가 있으면 알아서 교체합니다.
   # 데이터(data 폴더)는 그대로 유지됩니다. referral-system 컨테이너만 감시합니다.
