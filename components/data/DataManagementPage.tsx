@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Referral, SuicideAttempterReferral, Page } from '../../types';
 import PageContainer from '../layout/PageContainer';
 import StatCard from '../common/StatCard';
@@ -14,7 +14,34 @@ interface DataManagementPageProps {
 }
 
 const DataManagementPage: React.FC<DataManagementPageProps> = ({ referrals, suicideAttempterReferrals, activePage }) => {
-    
+
+    // 저장 경로 정보는 서버(/api/health/storage) 응답값을 그대로 표시한다. 경로를 프론트에 하드코딩하지 않는다.
+    const [storagePaths, setStoragePaths] = useState<{ dataDir: string; backupDir: string; attachmentsDir: string } | null>(null);
+    const [storagePathsFailed, setStoragePathsFailed] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch('/api/health/storage', { credentials: 'include' });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                if (!cancelled && data && data.success) {
+                    setStoragePaths({
+                        dataDir: data.dataDir || '',
+                        backupDir: data.backupDir || '',
+                        attachmentsDir: data.attachmentsDir || ''
+                    });
+                } else if (!cancelled) {
+                    setStoragePathsFailed(true);
+                }
+            } catch (e) {
+                if (!cancelled) setStoragePathsFailed(true);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+
     const downloadFile = (data: Blob, fileName: string) => {
         const url = URL.createObjectURL(data);
         const a = document.createElement('a');
@@ -112,6 +139,33 @@ const DataManagementPage: React.FC<DataManagementPageProps> = ({ referrals, suic
                     </div>
                     <button onClick={() => handleDownloadJson(true)} className="w-full py-4 bg-indigo-500 text-white rounded-2xl font-bold hover:bg-indigo-600 transition shadow-lg shadow-indigo-500/20">백업 파일 생성</button>
                 </div>
+            </div>
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
+                <div className="flex items-center gap-3 mb-6">
+                    <div className="w-12 h-12 bg-slate-100 text-slate-600 rounded-2xl flex items-center justify-center text-2xl"><i className="fas fa-folder-open"></i></div>
+                    <div>
+                        <h3 className="text-lg font-extrabold text-slate-900">서버 저장 경로</h3>
+                        <p className="text-slate-500 text-sm">서버가 알려준 실제 저장 위치입니다.</p>
+                    </div>
+                </div>
+                {storagePaths ? (
+                    <dl className="space-y-4">
+                        <div>
+                            <dt className="text-sm font-bold text-slate-500 mb-1">백업 경로</dt>
+                            <dd className="text-sm font-mono font-semibold text-slate-800 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 break-all">{storagePaths.backupDir}</dd>
+                        </div>
+                        <div>
+                            <dt className="text-sm font-bold text-slate-500 mb-1">데이터 경로</dt>
+                            <dd className="text-sm font-mono font-semibold text-slate-800 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 break-all">{storagePaths.dataDir}</dd>
+                        </div>
+                        <div>
+                            <dt className="text-sm font-bold text-slate-500 mb-1">첨부파일 경로</dt>
+                            <dd className="text-sm font-mono font-semibold text-slate-800 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 break-all">{storagePaths.attachmentsDir}</dd>
+                        </div>
+                    </dl>
+                ) : (
+                    <p className="text-slate-500 text-sm">{storagePathsFailed ? '서버에서 경로 정보를 불러오지 못했습니다. 서버 연결 상태를 확인해 주세요.' : '경로 정보를 불러오는 중입니다.'}</p>
+                )}
             </div>
             <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
                 <h3 className="text-lg font-extrabold text-slate-900 mb-6">데이터 요약</h3>

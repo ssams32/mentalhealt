@@ -3109,6 +3109,8 @@ app.get('/api/health/storage', requireAdmin, (req, res) => {
             success: true,
             dataDir: DATA_DIR,
             attachmentsDir: ATTACHMENTS_DIR,
+            // 실제 백업 기준 경로(createBackup이 path.join(DATA_DIR, 'backups', 날짜)에 저장). 프론트는 이 값을 그대로 표시만 한다.
+            backupDir: path.join(DATA_DIR, 'backups'),
             stats
         });
     } catch (e) {
