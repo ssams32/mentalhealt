@@ -2980,7 +2980,10 @@ app.get('/api/analysis/current', requireAuth, (req, res) => {
                 ...data,
                 counselorPerformance: filteredCounselors,
                 memberPerformance: filteredMemberPerf,
-                ispExpiringMembers: filteredISP
+                ispExpiringMembers: filteredISP,
+                briefingMembers: Array.isArray(data.briefingMembers)
+                    ? data.briefingMembers.filter(m => allowedCounselorNames.has(m.mainCounselor))
+                    : data.briefingMembers
             };
         }
 
@@ -2995,6 +2998,105 @@ app.post('/api/analysis/current', requireAuth, (req, res) => {
     saveData('GlobalCaseAnalysis', req.body.data);
     clearIspAchievementCache();
     res.json({ success: true });
+});
+
+// BRIEFING SUPERVISION COMMENTS API (설계서 §3.3, §4.5)
+app.post('/api/analysis/briefing-comments', requireAuth, (req, res) => {
+    try {
+        const { memberKey, text } = req.body;
+        if (!memberKey || !text || !String(text).trim()) {
+            return res.status(400).json({ success: false, error: '내용이 없습니다.' });
+        }
+
+        let data = getData('GlobalCaseAnalysis', null);
+        if (!data) data = {};
+        if (!data.briefingComments) data.briefingComments = {};
+        if (!Array.isArray(data.briefingComments[memberKey])) {
+            data.briefingComments[memberKey] = [];
+        }
+
+        const author = req.auth?.name || req.auth?.username || '상담사';
+        const comment = {
+            id: `c_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            text: String(text).trim(),
+            author,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+
+        data.briefingComments[memberKey].push(comment);
+        saveData('GlobalCaseAnalysis', data);
+        res.json({ success: true, comment, comments: data.briefingComments[memberKey] });
+    } catch (err) {
+        console.error('❌ POST /api/analysis/briefing-comments error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.put('/api/analysis/briefing-comments', requireAuth, (req, res) => {
+    try {
+        const { memberKey, commentId, text } = req.body;
+        if (!memberKey || !commentId || !text || !String(text).trim()) {
+            return res.status(400).json({ success: false, error: '필수 항목이 누락되었습니다.' });
+        }
+
+        let data = getData('GlobalCaseAnalysis', null);
+        if (!data || !data.briefingComments || !Array.isArray(data.briefingComments[memberKey])) {
+            return res.status(404).json({ success: false, error: '코멘트를 찾을 수 없습니다.' });
+        }
+
+        const comment = data.briefingComments[memberKey].find(c => c.id === commentId);
+        if (!comment) {
+            return res.status(404).json({ success: false, error: '코멘트를 찾을 수 없습니다.' });
+        }
+
+        const currentUserName = req.auth?.name || req.auth?.username;
+        const isAdmin = req.auth?.role === 'admin';
+        if (!isAdmin && comment.author !== currentUserName) {
+            return res.status(403).json({ success: false, error: '본인이 작성한 코멘트만 수정할 수 있습니다.' });
+        }
+
+        comment.text = String(text).trim();
+        comment.updatedAt = new Date().toISOString();
+
+        saveData('GlobalCaseAnalysis', data);
+        res.json({ success: true, comment, comments: data.briefingComments[memberKey] });
+    } catch (err) {
+        console.error('❌ PUT /api/analysis/briefing-comments error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.delete('/api/analysis/briefing-comments', requireAuth, (req, res) => {
+    try {
+        const { memberKey, commentId } = req.body;
+        if (!memberKey || !commentId) {
+            return res.status(400).json({ success: false, error: '필수 항목이 누락되었습니다.' });
+        }
+
+        let data = getData('GlobalCaseAnalysis', null);
+        if (!data || !data.briefingComments || !Array.isArray(data.briefingComments[memberKey])) {
+            return res.status(404).json({ success: false, error: '코멘트를 찾을 수 없습니다.' });
+        }
+
+        const comment = data.briefingComments[memberKey].find(c => c.id === commentId);
+        if (!comment) {
+            return res.status(404).json({ success: false, error: '코멘트를 찾을 수 없습니다.' });
+        }
+
+        const currentUserName = req.auth?.name || req.auth?.username;
+        const isAdmin = req.auth?.role === 'admin';
+        if (!isAdmin && comment.author !== currentUserName) {
+            return res.status(403).json({ success: false, error: '본인이 작성한 코멘트만 삭제할 수 있습니다.' });
+        }
+
+        data.briefingComments[memberKey] = data.briefingComments[memberKey].filter(c => c.id !== commentId);
+        saveData('GlobalCaseAnalysis', data);
+        res.json({ success: true, comments: data.briefingComments[memberKey] });
+    } catch (err) {
+        console.error('❌ DELETE /api/analysis/briefing-comments error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
 });
 
 // Helper to identify genuine website referrals and strictly exclude online surveys and voice calls

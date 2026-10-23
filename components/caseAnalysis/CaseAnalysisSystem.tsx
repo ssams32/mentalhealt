@@ -241,7 +241,9 @@ const CaseAnalysisSystem: React.FC<CaseAnalysisSystemProps> = ({ currentUser }) 
             counselorPerformance: filteredCounselorPerformance,
             memberPerformance: filteredMemberPerformance,
             ispExpiringMembers: filteredISP,
-            ispPlans: analysisResult?.ispPlans || []
+            ispPlans: analysisResult?.ispPlans || [],
+            briefingMembers: analysisResult?.briefingMembers || [],
+            briefingComments: analysisResult?.briefingComments || {}
         };
     }, [analysisResult, selectedDepartments, selectedCounselors, dateRange]);
 

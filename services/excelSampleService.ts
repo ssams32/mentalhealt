@@ -5,15 +5,13 @@ import { saveAs } from 'file-saver';
  * 사례분석시스템 샘플 양식 다운로드
  *
  * 실제 MHIS 내보내기 양식과 동일한 구조(시트명·헤더·열 순서)로 샘플 5종을 생성한다.
- * analyzeAllFiles(excelAnalysisService.ts)의 파일명 정규식(1.개별상담 / 2.자원조정 / 3.일반상담 / 5.ISP수립 / 6.팀구별)에 맞춘다.
- * - 1·2번: 시트 2개(○○_성인_리스트 + ○○_성인_합계). 리스트 열: A=No, B=기관명, C=상담자, D=상담일자(YYYYMMDD),
- *   E=상담시간, F=회원등록번호, G=회원명, H=성별, I=연령, J=응급개입, K=상담유형, L=상담일자2, N~R=유형별 건수.
+ * analyzeAllFiles(excelAnalysisService.ts)의 파일 판별 규칙에 맞춘다.
+ * - 1번(개별상담): 시트명 '개별상담내역', 24열 양식 (D=회원명, I=상담시작시간, O=상담형태, P=부재여부, Q=응급개입, T=문제영역, U=욕구항목, V=상담주제, W=상담내용, X=상담자)
+ * - 2번(자원조정): 시트명 '자원조정내역', 24열 양식 (D=회원명, J=상담일자, O=상담형태, Q=부재여부, R=응급개입, T=문제영역, U=욕구항목, V=상담주제, W=상담내용, X=상담자)
  * - 3번(접수상담대장): D=상담일자, N=상담자, AH=상담유형(대분류) 열을 파서가 사용한다.
  * - 5번(ISP): 2단 헤더(1행 대분류, 2행 세부 평가항목, 데이터는 3행부터). C=회원등록번호, D=이름, G=수립일자, H=등록자, I=관리구분.
- *   수립예정일 열이 없어 만기는 수립일 + 180일(재평가 주기)로 산정된다.
+ *   J~O 자살정보, P ISP결과 서술문, Q 장단기 목표(<장기목표>/<단기목표>), R~AG 16개 상태평가 점수.
  * - 6번(팀구별): A=상담자, B=부서별 두 열만 사용한다.
- * - 회원 예시는 관리구분 3종(집중관리·유지관리·일시관리)과 자살 위험도 3군(고·중·저)을 골고루 포함하고,
- *   월 목표 기준(집중 월 4회 / 유지 월 1회 / 일시 월 1회, 개별상담+자원조정 합산)에 맞춰 세션을 배치했다.
  * - 모든 데이터는 가짜 예시 데이터다.
  */
 
@@ -32,7 +30,7 @@ const downloadWorkbook = (fileName: string, sheets: SheetSpec[]) => {
 const ORG_NAME = '00시정신건강복지센터';
 
 // 상담자(6.팀구별)와 회원 예시 — 5개 파일이 서로 맞물리는 하나의 작은 예시 데이터셋
-const COUNSELORS: [string, string][] = [
+export const COUNSELORS: [string, string][] = [
     ['김민수', '증진팀'],
     ['이영희', '증진팀'],
     ['박준호', '회복팀'],
@@ -42,7 +40,7 @@ const COUNSELORS: [string, string][] = [
 
 // 회원 예시: [회원등록번호(14자리), 성별, 생년월일, 연령, 진단명, 관리구분, 담당자]
 // 관리구분 월 목표 (ISP 기준): 집중관리 월 4회 / 유지관리 월 1회 / 일시관리 월 1회 (개별상담+자원조정 합산)
-const MEMBERS = {
+export const MEMBERS = {
     김철수: { regNo: '20260115000001', gender: '남', birth: '1985-03-12', age: 41, diag: '우울장애', category: '집중관리', counselor: '김민수' },
     이영자: { regNo: '20260203000002', gender: '여', birth: '1990-07-25', age: 36, diag: '불안장애', category: '일시관리', counselor: '이영희' },
     박민준: { regNo: '20260310000003', gender: '남', birth: '1978-11-02', age: 48, diag: '조현병', category: '집중관리', counselor: '박준호' },
@@ -50,50 +48,17 @@ const MEMBERS = {
     정수민: { regNo: '20260512000005', gender: '남', birth: '1995-09-30', age: 31, diag: '우울장애', category: '유지관리', counselor: '정다은' },
     한미래: { regNo: '20260608000006', gender: '여', birth: '1988-12-05', age: 38, diag: '불안장애', category: '일시관리', counselor: '정다은' },
     // 자살 사례 위험도 구분 (MHIS): 고위험군 월 4회 이상 / 중위험군 월 2회 이상 / 저위험군 월 1회 이상 — 담당은 자살예방센터
-    서민재: { regNo: '20260615000007', gender: '남', birth: '1993-06-15', age: 33, diag: '우울장애', category: '고위험군', counselor: '정다은' },
-    강도윤: { regNo: '20260703000008', gender: '여', birth: '1997-02-20', age: 29, diag: '불안장애', category: '중위험군', counselor: '정다은' },
-    윤하늘: { regNo: '20260720000009', gender: '남', birth: '1990-10-08', age: 36, diag: '우울장애', category: '저위험군', counselor: '정다은' },
+    서민재: { regNo: '20260615000007', gender: '남', birth: '1993-06-15', age: 33, diag: '우울장애', category: '집중관리', counselor: '정다은' },
+    강도윤: { regNo: '20260703000008', gender: '여', birth: '1997-02-20', age: 29, diag: '불안장애', category: '유지관리', counselor: '정다은' },
+    윤하늘: { regNo: '20260720000009', gender: '남', birth: '1990-10-08', age: 36, diag: '우울장애', category: '일시관리', counselor: '정다은' },
 } as const;
-type MemberName = keyof typeof MEMBERS;
 
-// 1·2번 공통 리스트 양식 (A~R, 18열): M열은 실제 파일에서도 비어 있다.
-const SESSION_HEADER = ['No', '기관명', '상담자', '상담일자', '상담시간', '회원등록번호', '회원명', '성별', '연령', '응급개입', '상담유형', '상담일자2', '', '온라인', '전화', '방문', '내소', '기타'];
-const TYPE_MINUTES: Record<string, number> = { 내소: 50, 방문: 60, 전화: 20, 온라인: 30 };
+export type MemberName = keyof typeof MEMBERS;
 
-const sessionRow = (no: number, name: MemberName, counselor: string, emergency: string, type: string, date: string) => {
-    const m = MEMBERS[name];
-    const flags = [0, 0, 0, 0, 0]; // N 온라인 / O 전화 / P 방문 / Q 내소 / R 기타
-    if (type === '온라인') flags[0] = 1;
-    else if (type === '전화') flags[1] = 1;
-    else if (type === '방문') flags[2] = 1;
-    else if (type === '내소') flags[3] = 1;
-    else flags[4] = 1;
-    return [
-        no, ORG_NAME, counselor, date.replace(/-/g, ''), TYPE_MINUTES[type] ?? 30,
-        m.regNo, name, m.gender === '남' ? '남성' : '여성', m.age, emergency, type, date, '',
-        ...flags,
-    ];
-};
+export type SessionSpec = [MemberName, string, string, string, string]; // [회원명, 상담자, 응급(Y/N), 유형, 날짜]
 
-type SessionSpec = [MemberName, string, string, string, string]; // [회원명, 상담자, 응급(Y/N), 유형, 날짜]
-
-const buildSessionSheets = (kind: '개별상담' | '자원조정', specs: SessionSpec[]): SheetSpec[] => {
-    // 실제 파일 기준: L열 헤더는 개별상담='상담일자2', 자원조정='상담일자'로 다르다.
-    const header = kind === '자원조정' ? SESSION_HEADER.map(h => (h === '상담일자2' ? '상담일자' : h)) : SESSION_HEADER;
-    const listRows = [header, ...specs.map((s, i) => sessionRow(i + 1, ...s))];
-    const emergRows = specs.filter(s => s[2] === 'Y');
-    const countBy = (t: string) => specs.filter(s => s[3] === t).length;
-    const summaryRows = [
-        ['기관명', '응급개입', '', '사례관리 수행'],
-        ['', '연인원', '실인원', '소계', '전화', '온라인', '방문', '내소'],
-        [ORG_NAME, emergRows.length, new Set(emergRows.map(s => s[0])).size, specs.length,
-            countBy('전화'), countBy('온라인'), countBy('방문'), countBy('내소')],
-    ];
-    return [[`${kind}_성인_리스트`, listRows], [`${kind}_성인_합계`, summaryRows]];
-};
-
-const INDIVIDUAL_SPECS: SessionSpec[] = [
-    // 김철수 (집중관리, 월 4회 이상 목표): 8월 4회 / 9월 3회 / 10월 2회 — 자원조정과 합산해 8·9월 달성
+export const INDIVIDUAL_SPECS: SessionSpec[] = [
+    // 김철수 (집중관리, 월 4회 이상 목표): 8월 4회 / 9월 3회 / 10월 2회
     ['김철수', '김민수', 'N', '내소', '2026-08-05'],
     ['김철수', '김민수', 'N', '방문', '2026-08-12'],
     ['김철수', '김민수', 'N', '내소', '2026-08-19'],
@@ -107,7 +72,7 @@ const INDIVIDUAL_SPECS: SessionSpec[] = [
     ['이영자', '이영희', 'N', '내소', '2026-08-11'],
     ['이영자', '이영희', 'N', '온라인', '2026-09-08'],
     ['이영자', '이영희', 'Y', '내소', '2026-10-05'],
-    // 박민준 (집중관리, 월 4회 이상 목표): 8월 3회 / 9월 2회 / 10월 2회 — 자원조정 합산해도 8·9월 미달(미달 예시)
+    // 박민준 (집중관리, 월 4회 이상 목표): 8월 3회 / 9월 2회 / 10월 2회
     ['박민준', '박준호', 'N', '방문', '2026-08-07'],
     ['박민준', '박준호', 'N', '내소', '2026-08-14'],
     ['박민준', '박준호', 'N', '방문', '2026-08-21'],
@@ -119,13 +84,13 @@ const INDIVIDUAL_SPECS: SessionSpec[] = [
     ['최지현', '최서연', 'N', '내소', '2026-08-18'],
     ['최지현', '최서연', 'N', '내소', '2026-09-15'],
     ['최지현', '최서연', 'N', '전화', '2026-10-10'],
-    // 정수민 (유지관리, 월 1회 목표): 9·10월 각 1회 (8월은 자원조정만으로 달성)
+    // 정수민 (유지관리, 월 1회 목표): 9·10월 각 1회
     ['정수민', '정다은', 'N', '내소', '2026-09-07'],
     ['정수민', '정다은', 'N', '온라인', '2026-10-04'],
-    // 한미래 (일시관리, 월 1회 목표): 8·10월 각 1회 (9월은 자원조정만으로 달성)
+    // 한미래 (일시관리, 월 1회 목표): 8·10월 각 1회
     ['한미래', '정다은', 'N', '내소', '2026-08-25'],
     ['한미래', '정다은', 'N', '내소', '2026-10-11'],
-    // 서민재 (고위험군, 월 4회 이상 목표): 8월 4회 / 9월 4회 / 10월 2회 — 자원조정과 합산해 8·9월 달성
+    // 서민재: 8월 4회 / 9월 4회 / 10월 2회
     ['서민재', '정다은', 'N', '내소', '2026-08-03'],
     ['서민재', '정다은', 'N', '방문', '2026-08-10'],
     ['서민재', '정다은', 'N', '내소', '2026-08-17'],
@@ -136,59 +101,145 @@ const INDIVIDUAL_SPECS: SessionSpec[] = [
     ['서민재', '정다은', 'N', '전화', '2026-09-22'],
     ['서민재', '정다은', 'N', '내소', '2026-10-06'],
     ['서민재', '정다은', 'N', '방문', '2026-10-13'],
-    // 강도윤 (중위험군, 월 2회 이상 목표): 8월 2회 / 9월 2회 / 10월 1회 — 자원조정과 합산해 8·9월 달성
+    // 강도윤: 8월 2회 / 9월 2회 / 10월 1회
     ['강도윤', '정다은', 'N', '내소', '2026-08-06'],
     ['강도윤', '정다은', 'N', '온라인', '2026-08-20'],
     ['강도윤', '정다은', 'N', '내소', '2026-09-03'],
     ['강도윤', '정다은', 'N', '전화', '2026-09-17'],
     ['강도윤', '정다은', 'N', '내소', '2026-10-08'],
-    // 윤하늘 (저위험군, 월 1회 이상 목표): 8·10월 각 1회 (9월은 자원조정만으로 달성)
+    // 윤하늘: 8·10월 각 1회
     ['윤하늘', '정다은', 'N', '내소', '2026-08-14'],
     ['윤하늘', '정다은', 'N', '방문', '2026-10-03'],
 ];
 
-const RESOURCE_SPECS: SessionSpec[] = [
-    // 김철수 (집중관리): 8월 1회 / 9월 2회 / 10월 1회 — 개별상담과 합산 시 8월 5회·9월 5회 달성
+export const RESOURCE_SPECS: SessionSpec[] = [
+    // 김철수: 8월 1회 / 9월 2회 / 10월 1회
     ['김철수', '김민수', 'N', '방문', '2026-08-26'],
     ['김철수', '김민수', 'N', '전화', '2026-09-23'],
     ['김철수', '정다은', 'Y', '전화', '2026-09-25'],
     ['김철수', '김민수', 'N', '내소', '2026-10-16'],
-    // 이영자 (일시관리): 9월 1회 — 합산 2회
+    // 이영자: 9월 1회
     ['이영자', '이영희', 'N', '내소', '2026-09-21'],
-    // 박민준 (집중관리): 8월 1회 / 9월 1회 / 10월 1회 — 합산 시 8월 4회·9월 3회로 미달
+    // 박민준: 8월 1회 / 9월 1회 / 10월 1회
     ['박민준', '박준호', 'N', '방문', '2026-08-28'],
     ['박민준', '박준호', 'N', '전화', '2026-09-18'],
     ['박민준', '박준호', 'N', '방문', '2026-10-06'],
-    // 최지현 (유지관리): 10월 1회 — 합산 2회
+    // 최지현: 10월 1회
     ['최지현', '최서연', 'N', '내소', '2026-10-13'],
-    // 정수민 (유지관리): 8월 1회 — 개별상담 없이 자원조정만으로 8월 목표 달성
+    // 정수민: 8월 1회
     ['정수민', '정다은', 'N', '전화', '2026-08-24'],
-    // 한미래 (일시관리): 9월 1회 — 개별상담 없이 자원조정만으로 9월 목표 달성
+    // 한미래: 9월 1회
     ['한미래', '정다은', 'N', '방문', '2026-09-28'],
-    // 서민재 (고위험군): 8월 1회 / 9월 1회 — 개별상담과 합산 시 8월 5회·9월 5회 달성
+    // 서민재: 8월 1회 / 9월 1회
     ['서민재', '정다은', 'N', '방문', '2026-08-26'],
     ['서민재', '정다은', 'N', '전화', '2026-09-29'],
-    // 강도윤 (중위험군): 8월 1회 — 개별상담과 합산 시 8월 3회 달성
+    // 강도윤: 8월 1회
     ['강도윤', '정다은', 'N', '전화', '2026-08-27'],
-    // 윤하늘 (저위험군): 9월 1회 — 개별상담 없이 자원조정만으로 9월 목표 달성
+    // 윤하늘: 9월 1회
     ['윤하늘', '정다은', 'N', '내소', '2026-09-11'],
 ];
 
-const buildTeamFile = (): [string, SheetSpec[]] => [
+// 신규 24열 개별상담내역 헤더
+export const INDIVIDUAL_24_HEADER = [
+    'No', '기관명', '구분', '회원명', '성별', '나이', '진단명', '진단코드',
+    '상담시작시간', '상담종료시간', '소요시간', '관련기관', '장소', '상담대상', '상담형태',
+    '부재여부', '응급개입', '프로그램영역', '프로그램세부', '문제영역', '욕구항목',
+    '상담주제', '상담내용', '상담자'
+];
+
+// 신규 24열 자원조정내역 헤더
+export const RESOURCE_24_HEADER = [
+    'No', '기관명', '구분', '회원명', '성별', '나이', '진단명', '진단코드',
+    '관련기관', '상담일자', '상담시작시간', '상담종료시간', '소요시간', '상담대상', '상담형태',
+    'ISP관리구분', '부재여부', '응급개입', '관리구분', '문제영역', '욕구항목',
+    '상담주제', '상담내용', '상담자'
+];
+
+export const buildIndividualFile = (): [string, SheetSpec[]] => {
+    const rows = INDIVIDUAL_SPECS.map((spec, index) => {
+        const [name, counselor, emergencyFlag, type, date] = spec;
+        const m = MEMBERS[name];
+        const isEmergency = emergencyFlag === 'Y';
+        return [
+            index + 1,
+            ORG_NAME,
+            '성인',
+            name,
+            m.gender,
+            m.age,
+            m.diag,
+            'F32.9',
+            `${date} 10:00`,
+            `${date} 10:50`,
+            50,
+            '',
+            '상담실',
+            '본인',
+            type,
+            'N',
+            isEmergency ? '응급' : '비응급',
+            '사례관리',
+            '개별상담',
+            '정신과적 증상',
+            '증상 모니터링',
+            `(${type}) 정기 상담 및 일상생활 복약 확인`,
+            `${name} 회원과 정기 상담을 진행함. 현재 수면 및 복약 상태 양호하며 특이사항 없음. 지속적인 사례관리 유지 예정.`,
+            counselor
+        ];
+    });
+
+    return [
+        '1.개별상담.xlsx',
+        [['개별상담내역', [INDIVIDUAL_24_HEADER, ...rows]]]
+    ];
+};
+
+export const buildResourceFile = (): [string, SheetSpec[]] => {
+    const rows = RESOURCE_SPECS.map((spec, index) => {
+        const [name, counselor, emergencyFlag, type, date] = spec;
+        const m = MEMBERS[name];
+        const isEmergency = emergencyFlag === 'Y';
+        return [
+            index + 1,
+            ORG_NAME,
+            '성인',
+            name,
+            m.gender,
+            m.age,
+            m.diag,
+            'F32.9',
+            '지역자원연계기관',
+            date,
+            `${date} 14:00`,
+            `${date} 14:30`,
+            30,
+            '본인',
+            type,
+            m.category,
+            'N',
+            isEmergency ? '응급' : '비응급',
+            m.category,
+            '공공서비스 활용능력',
+            '자원연계',
+            `(${type}) 자원조정 및 서비스 연계 지원`,
+            `${name} 회원의 서비스 연계 및 복지 자원 제공을 위해 기관 통화 및 서비스 조정을 진행함.`,
+            counselor
+        ];
+    });
+
+    return [
+        '2.자원조정.xlsx',
+        [['자원조정내역', [RESOURCE_24_HEADER, ...rows]]]
+    ];
+};
+
+export const buildTeamFile = (): [string, SheetSpec[]] => [
     '6.팀구별.xlsx',
     [['Sheet1', [['상담자', '부서별'], ...COUNSELORS]]],
 ];
 
-const buildIndividualFile = (): [string, SheetSpec[]] => [
-    '1.개별상담.xlsx', buildSessionSheets('개별상담', INDIVIDUAL_SPECS),
-];
-
-const buildResourceFile = (): [string, SheetSpec[]] => [
-    '2.자원조정.xlsx', buildSessionSheets('자원조정', RESOURCE_SPECS),
-];
-
-// 3번 접수상담대장 헤더 (A~DA, 105열) — 실제 양식 그대로. A·B열은 헤더가 비어 있다.
-const GENERAL_HEADER = [
+// 3번 접수상담대장 헤더 (A~DA, 105열)
+export const GENERAL_HEADER = [
     '', '', '접수번호', '상담일자', '상담시간', '소요시간', '응급성', '응급출동여부', '현장이동시간', '의료기관이동시간',
     '복귀이동시간', '상담(개입)시간', '의료기관 확보시간', '상담자', '인적자원등록', '정보제공자/본인여부', '정보제공자/본인여부 중분류', '정보제공자/본인여부 소분류', '성명', '성별',
     '나이', '전화번호', '핸드폰번호', '내/외국인', '구분', '주소', '성명', '전화번호', '핸드폰번호', '주소',
@@ -202,8 +253,7 @@ const GENERAL_HEADER = [
     '7번문항', '8번문항', 'CRI결과',
 ];
 
-const buildGeneralFile = (): [string, SheetSpec[]] => {
-    // 파서 사용 열: D 상담일자(날짜) / N 상담자 / AH 상담유형(대분류)
+export const buildGeneralFile = (): [string, SheetSpec[]] => {
     const row = (no: number, date: Date, receiptNo: string, name: string, gender: string, age: number, counselor: string, type: string, urgent: string) => {
         const r = new Array(GENERAL_HEADER.length).fill('');
         r[0] = no; r[1] = ORG_NAME; r[2] = receiptNo; r[3] = date; r[4] = '09:00'; r[5] = 10; r[6] = urgent;
@@ -227,46 +277,77 @@ const buildGeneralFile = (): [string, SheetSpec[]] => {
 };
 
 // 5번 ISP: 2단 헤더 (1행 대분류, 2행 세부 평가항목 R~AG, 데이터는 3행부터)
-const ISP_HEADER_ROW1 = [
+export const ISP_HEADER_ROW1 = [
     'No', 'ISP수립기관', '회원등록번호', '이름', '성별', '나이', '수립일자', '등록자', '관리구분', '자살,자해\n/타해 여부',
     '자살사고\n점수', '자살사고\n이유', '자살계획\n여부', '자살계획\n방법', '자살,자해\n/타해 내용', 'ISP결과', '장단기 목표수립', '상태평가', '', '',
     '', '', '', '기본생활관리능력', '', '사회적기능평가', '', '', '', '사회서비스평가',
     '', '', '',
 ];
-const ISP_HEADER_ROW2 = [
+
+export const ISP_HEADER_ROW2 = [
     '', '', '', '', '', '', '', '', '', '',
     '', '', '', '', '', '', '', '자살, 자해 및 타해 위험', '정신과적 증상', '정신약물관리',
     '스트레스 상태', '신체질환', '음주 및 중독문제', '개인위생관리', '일상생활관리', '가족자원', '가족관계', '사회적 관계', '공공서비스 활용능력', '주거',
     '경제활동 지원', '취업 및 학업욕구', '고용 및 교육가능성',
 ];
 
-const buildIspFile = (): [string, SheetSpec[]] => {
-    // 수립일 — 만기는 수립일 + 180일로 산정된다.
+export const buildIspFile = (): [string, SheetSpec[]] => {
     const establishedDates: Record<MemberName, Date> = {
-        김철수: new Date(2026, 0, 15), 이영자: new Date(2026, 1, 3), 박민준: new Date(2026, 2, 10),
-        최지현: new Date(2026, 3, 6), 정수민: new Date(2026, 4, 12), 한미래: new Date(2026, 5, 8),
-        서민재: new Date(2026, 5, 15), 강도윤: new Date(2026, 6, 3), 윤하늘: new Date(2026, 6, 20),
+        김철수: new Date(2026, 0, 15),
+        이영자: new Date(2026, 1, 3),
+        박민준: new Date(2026, 2, 10),
+        최지현: new Date(2026, 3, 6),
+        정수민: new Date(2026, 4, 12),
+        한미래: new Date(2026, 5, 8),
+        서민재: new Date(2026, 5, 15),
+        강도윤: new Date(2026, 6, 3),
+        윤하늘: new Date(2026, 6, 20),
     };
+
     const suicideRiskScore: Partial<Record<MemberName, number>> = { 서민재: 12, 강도윤: 8, 윤하늘: 3 };
+
     const dataRows = (Object.keys(MEMBERS) as MemberName[]).map((name, i) => {
         const m = MEMBERS[name];
         const isSuicideCase = name in suicideRiskScore;
         const scores = new Array(16).fill(0); // R~AG 세부 평가 점수
-        scores[1] = 1; // 정신과적 증상
-        if (isSuicideCase) scores[0] = 1; // 자살, 자해 및 타해 위험
+
+        // 상태평가 1점 이상 미충족 욕구 배치
+        scores[1] = 1; // 정신과적 증상 (1)
+        scores[2] = 1; // 정신약물관리 (1)
+        if (i % 2 === 0) scores[3] = 1; // 스트레스 상태 (1)
+        if (isSuicideCase) scores[0] = 1; // 자살, 자해 및 타해 위험 (1)
+
+        const suicideInfo = isSuicideCase
+            ? ['Y', suicideRiskScore[name], '대인관계 및 스트레스 상황에서의 절망감', 'Y', '약물 과다복용 계획', '구체적인 자살 계획 및 사고 호소']
+            : ['N', '', '', 'N', '', ''];
+
+        const ispResult = `정신과적 증상(${scores[1]}): 스트레스 상황에서 불안 및 우울 증상 증가 양상 관찰됨. 정신약물관리(${scores[2]}): 복약 규칙성 유지가 필요하며 정기적 모니터링 요함.${scores[3] ? ` 스트레스 상태(${scores[3]}): 가족 갈등 상황 시 심리적 부담 호소.` : ''}`;
+        const goalsText = `<장기목표>\n증상 안정을 도모하고 일상생활 복약 순응도를 유지하며 사회 복귀를 위한 역량을 강화한다.\n<단기목표>\n1. 월 1회 이상 정기 상담을 통해 복약 지속 확인\n2. 위기 상황 시 센터 긴급 연락망 활용 교육 1회 실시`;
+
         return [
-            i + 1, ORG_NAME, m.regNo, name, m.gender, m.age, establishedDates[name], m.counselor, m.category,
-            isSuicideCase ? 'Y' : 'N', isSuicideCase ? suicideRiskScore[name] : '', '', '', '',
-            '', '정기적인 상담 및 모니터링 유지', '<장기목표>\n- 증상에 대한 정기적인 모니터링', ...scores,
+            i + 1,
+            ORG_NAME,
+            m.regNo,
+            name,
+            m.gender,
+            m.age,
+            establishedDates[name],
+            m.counselor,
+            m.category,
+            ...suicideInfo,
+            ispResult,
+            goalsText,
+            ...scores,
         ];
     });
+
     return [
         '5.ISP수립.xlsx',
         [['중증정신질환(ISP 수립정보)', [ISP_HEADER_ROW1, ISP_HEADER_ROW2, ...dataRows]]],
     ];
 };
 
-/** 샘플 양식 5종을 순차 다운로드한다 (브라우저 다중 다운로드 허용이 필요할 수 있음). */
+/** 샘플 양식 5종을 순차 다운로드한다 */
 export const downloadSampleExcelFiles = () => {
     const builders = [
         buildTeamFile,

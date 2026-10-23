@@ -24,7 +24,35 @@ const loadLocalSavedResults = (): AnalysisStorageItem[] => {
 };
 
 const saveLocalSavedResults = (items: AnalysisStorageItem[]) => {
-    localStorage.setItem(CASE_ANALYSIS_STORAGE_KEY, JSON.stringify(items));
+    try {
+        localStorage.setItem(CASE_ANALYSIS_STORAGE_KEY, JSON.stringify(items));
+    } catch (e: any) {
+        // 설계서 §4.4: localStorage 용량 초과 시 타임라인(briefingSessions) 및 allSessions 제외 후 폴백 저장
+        console.warn('[useAnalysisStorage] QuotaExceededError 발생, 세션 상세 제외 후 재시도:', e);
+        try {
+            const stripped = items.map(item => {
+                if (!item.data) return item;
+                const cleanData: any = { ...item.data };
+                if (Array.isArray(cleanData.briefingMembers)) {
+                    cleanData.briefingMembers = cleanData.briefingMembers.map((m: any) => ({
+                        ...m,
+                        sessions: []
+                    }));
+                }
+                if (Array.isArray(cleanData.counselorPerformance)) {
+                    cleanData.counselorPerformance = cleanData.counselorPerformance.map((c: any) => ({
+                        ...c,
+                        allSessions: []
+                    }));
+                }
+                return { ...item, data: cleanData };
+            });
+            localStorage.setItem(CASE_ANALYSIS_STORAGE_KEY, JSON.stringify(stripped));
+            console.info('[useAnalysisStorage] 세션 제외 축소 데이터로 로컬 저장 성공.');
+        } catch (innerErr) {
+            console.error('[useAnalysisStorage] 로컬 스토리지 저장 완전 실패 (용량 한도 초과):', innerErr);
+        }
+    }
 };
 
 const normalizeSavedItem = (item: any, index: number): AnalysisStorageItem => {
@@ -75,6 +103,8 @@ const getSafeAnalysisData = (data: any): AnalysisResult => ({
     memberPerformance: Array.isArray(data?.memberPerformance) ? data.memberPerformance : [],
     ispExpiringMembers: Array.isArray(data?.ispExpiringMembers) ? data.ispExpiringMembers : [],
     ispPlans: Array.isArray(data?.ispPlans) ? data.ispPlans : [],
+    briefingMembers: Array.isArray(data?.briefingMembers) ? data.briefingMembers : [],
+    briefingComments: data?.briefingComments && typeof data.briefingComments === 'object' ? data.briefingComments : {},
 });
 
 export const useAnalysisStorage = () => {

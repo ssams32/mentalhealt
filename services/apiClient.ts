@@ -344,6 +344,15 @@ class ApiClient {
     // Misc
     async getAnalysisCurrent(): Promise<any> { try { return await this.request('/analysis/current'); } catch { return null; } }
     async saveAnalysisCurrent(data: any): Promise<any> { return this.request('/analysis/current', { method: 'POST', body: JSON.stringify({ data }) }); }
+    async addBriefingComment(memberKey: string, text: string): Promise<any> {
+        return this.request('/analysis/briefing-comments', { method: 'POST', body: JSON.stringify({ memberKey, text }) });
+    }
+    async updateBriefingComment(memberKey: string, commentId: string, text: string): Promise<any> {
+        return this.request('/analysis/briefing-comments', { method: 'PUT', body: JSON.stringify({ memberKey, commentId, text }) });
+    }
+    async deleteBriefingComment(memberKey: string, commentId: string): Promise<any> {
+        return this.request('/analysis/briefing-comments', { method: 'DELETE', body: JSON.stringify({ memberKey, commentId }) });
+    }
     async getISPAchievement(month: string): Promise<any> {
         return this.request(`/analysis/isp-achievement?month=${encodeURIComponent(month)}`);
     }

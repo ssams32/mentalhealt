@@ -434,6 +434,20 @@ export interface ISPExpiringMember {
     rowNum: number;
 }
 
+export interface IspSuicideInfo {
+    riskFlag?: string;
+    thoughtScore?: string | number;
+    thoughtReason?: string;
+    planFlag?: string;
+    planMethod?: string;
+    content?: string;
+}
+
+export interface IspNeedScore {
+    label: string;
+    score: number;
+}
+
 export interface IspPlan {
     registrationNo: string;
     normalizedRegistrationNo: string;
@@ -441,11 +455,51 @@ export interface IspPlan {
     normalizedName: string;
     managementCategory: string;
     establishedDate: string;
+    registrant?: string;
     gender?: string;
+    age?: number;
     birthDate?: string;
     excelRowNumber?: number;
     parseStatus?: 'success' | 'warning' | 'error';
     parseIssues?: string[];
+    needs?: IspNeedScore[];
+    ispResultText?: string;
+    goalsRaw?: string;
+    suicideInfo?: IspSuicideInfo;
+}
+
+export interface BriefingSession {
+    date: string;
+    category: 'individual' | 'resource';
+    type: 'inOffice' | 'visit' | 'online' | 'phone';
+    rawType?: string;
+    counselor: string;
+    emergency: boolean;
+    absent: boolean;
+    topic: string;
+    problemArea?: string;
+    needItem?: string;
+    content?: string;
+}
+
+export interface BriefingMember {
+    memberName: string;
+    normalizedName: string;
+    gender?: string;
+    age?: number;
+    diagnosis?: string;
+    diagnosisCode?: string;
+    mainCounselor: string;
+    department: string;
+    sessions: BriefingSession[];
+}
+
+export interface BriefingComment {
+    id: string;
+    text: string;
+    author: string;
+    createdAt: string;
+    updatedAt: string;
 }
 
 export interface AnalysisResult {
@@ -454,6 +508,8 @@ export interface AnalysisResult {
     ispExpiringMembers: ISPExpiringMember[];
     ispPlans: IspPlan[];
     ispAchievement?: any[]; // Defined as any[] for legacy support, use specialized types for new features
+    briefingMembers?: BriefingMember[];
+    briefingComments?: Record<string, BriefingComment[]>;
 }
 
 export interface BudgetTransaction {

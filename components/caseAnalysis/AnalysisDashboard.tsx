@@ -5,7 +5,8 @@ import CounselorPerformanceTab from './tabs/CounselorPerformanceTab';
 import GeneralAnalysisTab from './tabs/GeneralAnalysisTab';
 import ISPAnalysisTab from './tabs/ISPAnalysisTab';
 import MemberAnalysisTab from './tabs/MemberAnalysisTab';
-import { PieChart, Users, FileText, Target } from 'lucide-react';
+import BriefingTab from './tabs/BriefingTab';
+import { PieChart, Users, FileText, Target, ClipboardList } from 'lucide-react';
 
 interface AnalysisDashboardProps {
     analysisResult: AnalysisResult;
@@ -39,6 +40,7 @@ const AnalysisDashboard: React.FC<AnalysisDashboardProps> = ({
         { id: 'general', label: '일반상담 분석', icon: PieChart },
         { id: 'member', label: '회원/월별 분석', icon: FileText },
         { id: 'isp', label: 'ISP 수립률', icon: Target },
+        { id: 'briefing', label: '풀브리핑 회의', icon: ClipboardList },
     ];
     // Local state for UI active tab only
     const [activeTabId, setActiveTabId] = useState(TABS[0].id);
@@ -82,6 +84,7 @@ const AnalysisDashboard: React.FC<AnalysisDashboardProps> = ({
                     {activeTabId === 'general' && <GeneralAnalysisTab data={initialResult.counselorPerformance} dateRange={dateRange} />}
                     {activeTabId === 'member' && <MemberAnalysisTab data={initialResult.memberPerformance} dateRange={dateRange} />}
                     {activeTabId === 'isp' && <ISPAnalysisTab />}
+                    {activeTabId === 'briefing' && <BriefingTab analysisResult={initialResult} dateRange={dateRange} />}
                 </div>
             </div>
         </div>

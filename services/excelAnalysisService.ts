@@ -1,9 +1,18 @@
-import { AnalysisResult, CounselorPerformance, MemberPerformance, ISPExpiringMember, IspPlan } from '../types';
+import {
+    AnalysisResult,
+    CounselorPerformance,
+    MemberPerformance,
+    ISPExpiringMember,
+    IspPlan,
+    BriefingMember,
+    BriefingSession
+} from '../types';
+import { ISP_NEED_LABELS, normalizePersonName } from '../utils/briefingUtils';
 
 declare var XLSX: any;
 declare var _: any;
 
-const readExcelFile = (file: File, options = {}, preferSheetIncludes?: string): Promise<any[]> => {
+const readExcelFile = (file: File, options = {}, preferSheetIncludes?: string | string[]): Promise<any[]> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -14,11 +23,17 @@ const readExcelFile = (file: File, options = {}, preferSheetIncludes?: string): 
                 }
                 const data = new Uint8Array(e.target.result as ArrayBuffer);
                 const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-                // MHIS 내보내기는 '리스트' 시트가 첫 번째지만, 순서가 바뀐 파일에서도 데이터 시트를 우선 선택한다.
+                
                 let sheetName = workbook.SheetNames[0];
                 if (preferSheetIncludes) {
-                    const preferred = workbook.SheetNames.find((name: string) => name.includes(preferSheetIncludes));
-                    if (preferred) sheetName = preferred;
+                    const prefers = Array.isArray(preferSheetIncludes) ? preferSheetIncludes : [preferSheetIncludes];
+                    for (const pref of prefers) {
+                        const found = workbook.SheetNames.find((name: string) => name.includes(pref));
+                        if (found) {
+                            sheetName = found;
+                            break;
+                        }
+                    }
                 }
                 const worksheet = workbook.Sheets[sheetName];
                 const json = XLSX.utils.sheet_to_json(worksheet, options);
@@ -27,10 +42,88 @@ const readExcelFile = (file: File, options = {}, preferSheetIncludes?: string): 
                 reject(new Error(`"${file.name}" 파싱 오류: ${error.message}`));
             }
         };
-        // FIX: The `onerror` event handler for FileReader receives a ProgressEvent, which does not have a `message` property. The actual error is stored in `reader.error`.
         reader.onerror = () => reject(new Error(`"${file.name}" 읽기 오류: ${reader.error?.message ?? '알 수 없는 오류가 발생했습니다.'}`));
         reader.readAsArrayBuffer(file);
     });
+};
+
+/**
+ * 워크북 시트명 배열을 빠르게 추출하는 유틸 (파일 판별 보조용)
+ */
+const getWorkbookSheetNames = (file: File): Promise<string[]> => {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                if (!e.target?.result) return resolve([]);
+                const data = new Uint8Array(e.target.result as ArrayBuffer);
+                const workbook = XLSX.read(data, { type: 'array', bookSheets: true });
+                resolve(workbook.SheetNames || []);
+            } catch {
+                resolve([]);
+            }
+        };
+        reader.onerror = () => resolve([]);
+        reader.readAsArrayBuffer(file);
+    });
+};
+
+export const normalizeMemberRegistrationNo = (raw: any): string => {
+    if (raw == null) return '';
+    let str = String(raw).trim();
+    if (str.includes('.') || str.includes('e')) {
+        const num = Number(str);
+        if (!isNaN(num)) str = String(BigInt(Math.floor(num)));
+    }
+    return str.replace(/[^a-zA-Z0-9]/g, '');
+};
+
+export const parseDate = (dateRaw: any): Date | null => {
+    if (!dateRaw) return null;
+    if (dateRaw instanceof Date) {
+        return isNaN(dateRaw.getTime()) ? null : dateRaw;
+    }
+
+    // 1. Handle Excel Serial Numbers
+    if (typeof dateRaw === 'number') {
+        const date = new Date((dateRaw - 25569) * 86400000);
+        return new Date(date.getTime() + (date.getTimezoneOffset() * 60000));
+    }
+
+    const dateStr = String(dateRaw).trim();
+
+    // 2. YYYYMMDD 8자리 숫자 형식 (또는 뒤에 시간 있는 형식)
+    const compactMatch = dateStr.match(/^(\d{4})(\d{2})(\d{2})/);
+    if (compactMatch) {
+        const year = parseInt(compactMatch[1]);
+        const month = parseInt(compactMatch[2]) - 1;
+        const day = parseInt(compactMatch[3]);
+        const date = new Date(year, month, day);
+        if (!isNaN(date.getTime()) && date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
+            const offset = date.getTimezoneOffset() * 60000;
+            return new Date(date.getTime() - offset);
+        }
+    }
+
+    // 3. YYYY-MM-DD or YYYY.MM.DD or YYYY/MM/DD 형식 (시간 포함 시에도 앞 날짜 추출)
+    const regex = /(\d{4})[\.\-\/\s년]*(\d{1,2})[\.\-\/\s월]*(\d{1,2})/;
+    const match = dateStr.match(regex);
+    if (match) {
+        const year = parseInt(match[1]);
+        const month = parseInt(match[2]) - 1;
+        const day = parseInt(match[3]);
+        const date = new Date(year, month, day);
+        if (!isNaN(date.getTime()) && date.getFullYear() === year) {
+            const offset = date.getTimezoneOffset() * 60000;
+            return new Date(date.getTime() - offset);
+        }
+    }
+
+    // 4. Fallback to standard Date
+    const fallback = new Date(dateStr);
+    if (!isNaN(fallback.getTime())) return fallback;
+
+    return null;
 };
 
 export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> => {
@@ -43,19 +136,49 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
     };
 
     const fileMap: { [key: string]: File } = {};
-    const missingFiles: string[] = [];
     let availableFiles = files.filter(f => !f.name.startsWith('~$'));
 
+    // 1차: 파일명 정규식으로 매핑
     for (const [key, regex] of Object.entries(requiredFileRegex)) {
         const foundIndex = availableFiles.findIndex(file => regex.test(file.name));
-
         if (foundIndex !== -1) {
             fileMap[key] = availableFiles[foundIndex];
             availableFiles.splice(foundIndex, 1);
-        } else {
-            missingFiles.push(key);
         }
     }
+
+    // 2차: 미매칭 슬롯에 대해 시트명 기반 판별 (설계서 §2 확정 사실 반영)
+    if (Object.keys(fileMap).length < 5 && availableFiles.length > 0) {
+        const sheetMapList = await Promise.all(
+            availableFiles.map(async file => ({
+                file,
+                sheets: await getWorkbookSheetNames(file)
+            }))
+        );
+
+        const slotSheetMatchers: { key: string; test: (sheets: string[]) => boolean }[] = [
+            { key: '1.개별상담', test: sheets => sheets.some(s => s.includes('개별상담')) },
+            { key: '2.자원조정', test: sheets => sheets.some(s => s.includes('자원조정')) },
+            { key: '3.일반상담', test: sheets => sheets.some(s => s.includes('접수상담대장') || s.includes('일반상담')) },
+            { key: '5.ISP수립', test: sheets => sheets.some(s => s.includes('중증정신질환') || s.includes('ISP') || s.includes('수립')) },
+            { key: '6.팀구별', test: sheets => sheets.some(s => s.includes('팀구별')) },
+        ];
+
+        for (const matcher of slotSheetMatchers) {
+            if (!fileMap[matcher.key]) {
+                const foundItem = sheetMapList.find(item => availableFiles.includes(item.file) && matcher.test(item.sheets));
+                if (foundItem) {
+                    fileMap[matcher.key] = foundItem.file;
+                    availableFiles = availableFiles.filter(f => f !== foundItem.file);
+                }
+            }
+        }
+    }
+
+    const missingFiles: string[] = [];
+    ['1.개별상담', '2.자원조정', '3.일반상담', '5.ISP수립', '6.팀구별'].forEach(k => {
+        if (!fileMap[k]) missingFiles.push(k);
+    });
 
     if (missingFiles.length > 0) {
         throw new Error(`필수 파일 누락: ${missingFiles.join(', ')}`);
@@ -63,8 +186,6 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
 
     const findValue = (row: any, potentialKeys: string[], columnIndexFallback?: number): any => {
         const rowKeys = Object.keys(row);
-        
-        // 1. Try matching by header names
         for (const pKey of potentialKeys) {
             const normalizedPKey = pKey.toLowerCase().replace(/\s+/g, '');
             for (const rKey of rowKeys) {
@@ -74,100 +195,21 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
                 }
             }
         }
-        
-        // 2. Try index-based fallback if provided
-        // In many XLSX parsers, the row object might have keys like "A", "B", "C"...
         if (columnIndexFallback !== undefined) {
-            const charKey = String.fromCharCode(65 + columnIndexFallback); // 0 -> A, 3 -> D, 6 -> G
+            const charKey = String.fromCharCode(65 + columnIndexFallback);
             if (row[charKey] != null) return row[charKey];
-            
-            // Also check for raw index keys if available
             if (row[columnIndexFallback] != null) return row[columnIndexFallback];
-            
-            // Try lowercase char key
             const lowerCharKey = charKey.toLowerCase();
             if (row[lowerCharKey] != null) return row[lowerCharKey];
         }
-
         return null;
     };
 
-    const normalizePersonName = (value: any): string | null => {
-        if (value == null) return null;
-        const text = String(value).trim().replace(/\s+/g, '');
-        return text || null;
-    };
-
-    const normalizeMemberRegistrationNo = (raw: any): string => {
-        if (raw == null) return '';
-        let str = String(raw).trim();
-        // Handle scientific notation or ".0" suffix from Excel
-        if (str.includes('.') || str.includes('e')) {
-            const num = Number(str);
-            if (!isNaN(num)) str = String(BigInt(Math.floor(num)));
-        }
-        // Remove all non-alphanumeric characters (hyphens, spaces, etc.)
-        return str.replace(/[^a-zA-Z0-9]/g, '');
-    };
-
-    const parseDate = (dateRaw: any): Date | null => {
-        if (!dateRaw) return null;
-        if (dateRaw instanceof Date) return dateRaw;
-
-        // 1. Handle Excel Serial Numbers
-        if (typeof dateRaw === 'number') {
-            const date = new Date((dateRaw - 25569) * 86400000);
-            return new Date(date.getTime() + (date.getTimezoneOffset() * 60000));
-        }
-
-        const dateStr = String(dateRaw).trim();
-
-        // 2. YYYYMMDD 8자리 숫자 형식 (MHIS 1·2번 파일 D열 '상담일자')
-        const compactMatch = dateStr.match(/^(\d{4})(\d{2})(\d{2})$/);
-        if (compactMatch) {
-            const year = parseInt(compactMatch[1]);
-            const month = parseInt(compactMatch[2]) - 1;
-            const day = parseInt(compactMatch[3]);
-            const date = new Date(year, month, day);
-            if (!isNaN(date.getTime()) && date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
-                const offset = date.getTimezoneOffset() * 60000;
-                return new Date(date.getTime() - offset);
-            }
-            return null;
-        }
-
-        // 3. Aggressive Regex Parse (Common Korean Formats)
-        // Matches: 2024.05.01, 2024-5-1, 2024년 5월 1일, 2024/05/01
-        const regex = /(\d{4})[\.\-\/\s년]*(\d{1,2})[\.\-\/\s월]*(\d{1,2})/;
-        const match = dateStr.match(regex);
-
-        if (match) {
-            const year = parseInt(match[1]);
-            const month = parseInt(match[2]) - 1; // Month is 0-indexed
-            const day = parseInt(match[3]);
-            const date = new Date(year, month, day);
-            // Basic validation
-            if (!isNaN(date.getTime()) && date.getFullYear() === year) {
-                // Adjust for timezone offset to keep strict YYYY-MM-DD
-                const offset = date.getTimezoneOffset() * 60000;
-                return new Date(date.getTime() - offset);
-            }
-        }
-
-        // 3. Fallback to standard Date parser
-        const date = new Date(dateStr);
-        if (!isNaN(date.getTime())) return date;
-
-        console.warn(`Failed to parse date: ${dateRaw}`);
-        return null;
-    };
-
+    // 6. 팀구별 파일 읽기
     const teamData = await readExcelFile(fileMap['6.팀구별'], { header: 1, defval: '' });
     const counselorMap = teamData.reduce((acc: { [key: string]: string }, row: any[]) => {
         const counselorName = row[0] ? String(row[0]).trim() : null;
         const departmentName = row[1] ? String(row[1]).trim() : '부서정보없음';
-
-        // 헤더 행(A=상담자, B=부서별 — 구 양식의 상담사/부서 포함)을 상담사로 오등록하지 않는다.
         const isHeaderRow = counselorName === '상담자' || counselorName === '상담사'
             || departmentName === '부서별' || departmentName === '부서';
         if (counselorName && !isHeaderRow) {
@@ -177,14 +219,27 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
     }, {});
 
     const validCounselors = Object.keys(counselorMap);
-    if (validCounselors.length === 0) throw new Error("'6.팀구별' 파일에서 상담사 정보를 찾을 수 없거나 형식이 올바르지 않습니다.");
+    if (validCounselors.length === 0) {
+        throw new Error("'6.팀구별' 파일에서 상담사 정보를 찾을 수 없거나 형식이 올바르지 않습니다.");
+    }
 
-    const individualData = await readExcelFile(fileMap['1.개별상담'], { header: 'A', defval: '' }, '리스트');
-    const resourceData = await readExcelFile(fileMap['2.자원조정'], { header: 'A', defval: '' }, '리스트');
-    // Read General Counseling using 'A', 'B', 'C' column headers
-    const generalData = await readExcelFile(fileMap['3.일반상담'], { header: 'A', defval: '' });
+    // 파일 1, 2, 3 읽기
+    const individualData = await readExcelFile(
+        fileMap['1.개별상담'],
+        { header: 'A', defval: '' },
+        ['개별상담내역', '개별상담', '리스트']
+    );
+    const resourceData = await readExcelFile(
+        fileMap['2.자원조정'],
+        { header: 'A', defval: '' },
+        ['자원조정내역', '자원조정', '리스트']
+    );
+    const generalData = await readExcelFile(
+        fileMap['3.일반상담'],
+        { header: 'A', defval: '' },
+        ['접수상담대장', '일반상담']
+    );
 
-    const ispData = await readExcelFile(fileMap['5.ISP수립']);
     const allSessionsData = [
         ...individualData.map((r: any) => ({ ...r, _category: 'individual' })),
         ...resourceData.map((r: any) => ({ ...r, _category: 'resource' }))
@@ -193,146 +248,241 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
     const counselorPerformance: { [key: string]: CounselorPerformance } = {};
     validCounselors.forEach(c => {
         counselorPerformance[c] = {
-            counselorName: c, department: counselorMap[c],
+            counselorName: c,
+            department: counselorMap[c],
             types: { inOffice: 0, visit: 0, online: 0, emergency: 0, phone: 0 },
             faceToFaceSessions: [],
             allSessions: [],
-            totalSessions: 0, totalEmergency: 0, totalGeneral: 0
+            totalSessions: 0,
+            totalEmergency: 0,
+            totalGeneral: 0
         };
     });
 
     const memberPerformanceMap: { [key: string]: MemberPerformance } = {};
 
-    allSessionsData.forEach((row: any) => {
-        // Enforce Column C for Counselor if available (User specified C column)
-        const counselorName = findValue(row, ['C', 'c', '상담자', '등록자', '담당자', '수행인력', '실시자', '진행자', '서비스제공자', 'c열', 'C열'], 2);
-        const counselor = counselorName ? String(counselorName).trim() : null;
+    // 브리핑 전용 중간 데이터 구조: 대상자 정규화 이름별 세션 및 메타데이터 수집
+    interface BriefingRowMeta {
+        counselor: string;
+        date: string;
+        rawDate: any;
+        category: 'individual' | 'resource';
+        type: 'inOffice' | 'visit' | 'online' | 'phone';
+        rawType: string;
+        emergency: boolean;
+        absent: boolean;
+        topic: string;
+        problemArea?: string;
+        needItem?: string;
+        content?: string;
+        memberName: string;
+        normalizedName: string;
+        gender?: string;
+        age?: number;
+        diagnosis?: string;
+        diagnosisCode?: string;
+    }
 
-        // Valid Counselor Check & Header Row Skip
+    const briefingRows: BriefingRowMeta[] = [];
+
+    allSessionsData.forEach((row: any) => {
+        // 신규 24열 양식(X열 상담자) 여부 확인
+        const isNewFormat = Boolean(row['X'] != null && String(row['X']).trim() !== '');
+
+        let counselorRaw: any;
+        let memberNameRaw: any;
+        let dateRaw: any;
+        let typeRaw: any;
+        let emergencyRaw: any;
+        let absentRaw: any;
+        let topicRaw: any;
+        let contentRaw: any;
+        let problemAreaRaw: any;
+        let needItemRaw: any;
+        let genderRaw: any;
+        let ageRaw: any;
+        let diagnosisRaw: any;
+        let diagnosisCodeRaw: any;
+        let regNoRaw: any;
+
+        if (isNewFormat) {
+            // 신규 24열 양식 매핑 (설계서 §2 표 기준)
+            counselorRaw = row['X'];
+            memberNameRaw = row['D'];
+            genderRaw = row['E'];
+            ageRaw = row['F'];
+            diagnosisRaw = row['G'];
+            diagnosisCodeRaw = row['H'];
+            // 일자: 개별상담 I열 (상담시작시간에 포함), 자원조정 J열 (상담일자)
+            dateRaw = row._category === 'individual' ? row['I'] : row['J'];
+            typeRaw = row['O'];
+            // 부재여부: 개별상담 P열, 자원조정 Q열
+            absentRaw = row._category === 'individual' ? row['P'] : row['Q'];
+            // 응급개입: 개별상담 Q열, 자원조정 R열 ('응급'/'비응급' 텍스트)
+            emergencyRaw = row._category === 'individual' ? row['Q'] : row['R'];
+            problemAreaRaw = row['T'];
+            needItemRaw = row['U'];
+            topicRaw = row['V'];
+            contentRaw = row['W'];
+        } else {
+            // 기존 실적 리스트 양식 폴백 (회귀 지원)
+            counselorRaw = findValue(row, ['C', 'c', '상담자', '등록자', '담당자'], 2);
+            memberNameRaw = findValue(row, ['G', 'g', '성명', '회원명', '대상자'], 6);
+            genderRaw = row['H'];
+            ageRaw = row['I'];
+            dateRaw = findValue(row, ['L', 'l', '상담일자2', '상담일자'], 11) || row['D'];
+            typeRaw = findValue(row, ['K', 'k', '상담유형', '유형'], 10);
+            emergencyRaw = findValue(row, ['J', 'j', '응급개입'], 9);
+            regNoRaw = findValue(row, ['F', 'f', '회원등록번호', '등록번호'], 5);
+        }
+
+        const counselor = counselorRaw ? String(counselorRaw).trim() : null;
         if (!counselor || !validCounselors.includes(counselor)) return;
 
-        // Date (L column). L이 비었거나 파싱 실패 시 D열 '상담일자'(YYYYMMDD)로 폴백한다.
-        let date = parseDate(findValue(row, ['L', 'l', '상담일', '상담일자', '일자', '일시', '상담일시', '날짜', '서비스일자', '제공일자', '실시일자', 'l열', 'L열'], 11));
-        if (!date) date = parseDate(row['D']);
+        // 헤더 행 제외: memberName이 '회원명', '성명', '이름' 등인 경우 스킵
+        const memberNameStr = memberNameRaw ? String(memberNameRaw).trim() : '';
+        if (memberNameStr === '회원명' || memberNameStr === '성명' || memberNameStr === '이름' || memberNameStr === '대상자') {
+            return;
+        }
+
+        const date = parseDate(dateRaw);
         const isoDate = date && !isNaN(date.getTime()) ? date.toISOString().split('T')[0] : null;
 
-        const perf = counselorPerformance[counselor];
-        perf.totalSessions++;
+        // 부재(노쇼) 여부 판정
+        const absentStr = String(absentRaw || '').trim().toLowerCase();
+        const isAbsent = absentStr === 'y' || absentStr.includes('부재');
 
-        // Type (K column)
-        const type = String(findValue(row, ['K', 'k', '상담유형', '유형', '상담 방법', 'k열', 'K열'], 10) || '').toLowerCase();
-        // Emergency (J column)
-        const emergencyValue = String(findValue(row, ['J', 'j', '응급개입', 'j열', 'J열'], 9) || '').trim().toLowerCase();
-        const isEmergency = emergencyValue === 'y';
+        // 응급 여부 판정 ('응급'/'비응급' 텍스트 또는 'y')
+        const emergStr = String(emergencyRaw || '').trim().toLowerCase();
+        const isEmergency = emergStr === 'y' || (emergStr.includes('응급') && !emergStr.includes('비응급'));
 
-        const isInOffice = type.includes('내소');
-        const isVisit = type.includes('방문') || type.includes('대면') || type.includes('출장') || type.includes('현장');
-        const isOnline = type.includes('온라인');
-        const isPhone = type.includes('유선') || type.includes('전화');
+        // 상담형태 (내소, 방문, 온라인, 전화)
+        const typeStr = String(typeRaw || '').toLowerCase();
+        const isInOffice = typeStr.includes('내소');
+        const isVisit = typeStr.includes('방문') || typeStr.includes('대면') || typeStr.includes('출장') || typeStr.includes('현장');
+        const isOnline = typeStr.includes('온라인');
+        const isPhone = typeStr.includes('유선') || typeStr.includes('전화');
 
-        if ((isInOffice || isVisit) && isoDate) {
-            perf.faceToFaceSessions.push({ date: isoDate });
-        }
+        let sessionType: 'inOffice' | 'visit' | 'online' | 'emergency' | 'phone' | null = null;
+        if (isEmergency) sessionType = 'emergency';
+        else if (isInOffice) sessionType = 'inOffice';
+        else if (isVisit) sessionType = 'visit';
+        else if (isOnline) sessionType = 'online';
+        else if (isPhone) sessionType = 'phone';
 
-        let isGeneralSession = false;
-        // Fix: Removed isEmergencyFinal redeclaration and simplified logic
-        if (isEmergency) {
-            perf.types.emergency++;
-            perf.totalEmergency++;
-            isGeneralSession = true;
-        } else if (isInOffice) {
-            perf.types.inOffice++;
-            isGeneralSession = true;
-        } else if (isVisit) {
-            perf.types.visit++;
-            isGeneralSession = true;
-        } else if (isOnline) {
-            perf.types.online++;
-            isGeneralSession = true;
-        } else if (isPhone) {
-            perf.types.phone++;
-            isGeneralSession = true;
-        }
-        if (isGeneralSession) perf.totalGeneral++;
+        // 4. 부재(노쇼) 건 jun 확정 결정: "건수·판정에서 제외, 타임라인에만 부재로 표시"
+        if (!isAbsent) {
+            const perf = counselorPerformance[counselor];
+            perf.totalSessions++;
 
-        // Fix: Add to allSessions for comprehensive date filtering
-        if (isGeneralSession && isoDate) {
-            let sessionType: 'inOffice' | 'visit' | 'online' | 'emergency' | 'phone' | null = null;
-            if (isEmergency) sessionType = 'emergency';
-            else if (isInOffice) sessionType = 'inOffice';
-            else if (isVisit) sessionType = 'visit';
-            else if (isOnline) sessionType = 'online';
-            else if (isPhone) sessionType = 'phone';
+            if ((isInOffice || isVisit) && isoDate) {
+                perf.faceToFaceSessions.push({ date: isoDate });
+            }
 
-            if (sessionType) {
+            let isGeneralSession = false;
+            if (isEmergency) {
+                perf.types.emergency++;
+                perf.totalEmergency++;
+                isGeneralSession = true;
+            } else if (isInOffice) {
+                perf.types.inOffice++;
+                isGeneralSession = true;
+            } else if (isVisit) {
+                perf.types.visit++;
+                isGeneralSession = true;
+            } else if (isOnline) {
+                perf.types.online++;
+                isGeneralSession = true;
+            } else if (isPhone) {
+                perf.types.phone++;
+                isGeneralSession = true;
+            }
+            if (isGeneralSession) perf.totalGeneral++;
+
+            if (isGeneralSession && isoDate && sessionType) {
                 perf.allSessions.push({ date: isoDate, type: sessionType, category: row._category as any });
             }
+
+            // MemberPerformance 집계 (회원/월별 탭용)
+            if (memberNameStr && date) {
+                const regNo = normalizeMemberRegistrationNo(regNoRaw);
+                if (!memberPerformanceMap[memberNameStr]) {
+                    memberPerformanceMap[memberNameStr] = {
+                        memberName: memberNameStr,
+                        registrationNo: regNo,
+                        department: '',
+                        mainCounselor: '',
+                        totalSessions: 0,
+                        detailedSessions: [],
+                        _counselorStats: {}
+                    } as any;
+                }
+
+                const memberStat = memberPerformanceMap[memberNameStr] as any;
+                if (!memberStat.registrationNo && regNo) {
+                    memberStat.registrationNo = regNo;
+                }
+                memberStat.totalSessions++;
+
+                if (!memberStat._counselorStats[counselor]) {
+                    memberStat._counselorStats[counselor] = { count: 0, lastDate: 0 };
+                }
+                const cStat = memberStat._counselorStats[counselor];
+                cStat.count++;
+                if (date.getTime() > cStat.lastDate) {
+                    cStat.lastDate = date.getTime();
+                }
+
+                const month = date.getMonth() + 1;
+                let finalType: 'inOffice' | 'visit' | 'online' | 'phone' | null = null;
+                if (isInOffice) finalType = 'inOffice';
+                else if (isVisit) finalType = 'visit';
+                else if (isOnline) finalType = 'online';
+                else if (isPhone) finalType = 'phone';
+
+                if (finalType) {
+                    memberStat.detailedSessions.push({
+                        month,
+                        category: row._category as 'individual' | 'resource',
+                        type: finalType
+                    });
+                }
+            }
         }
 
-        // Member Analysis Population - Enforce Column G (User specified G column)
-        const memberName = findValue(row, ['G', 'g', '성명', '대상자성명', '이름', '회원명', '대상자', '이용자명'], 6);
-        // 실제 MHIS 양식에서 회원등록번호는 F열이다. A열은 순번(No)이므로 등록번호로 쓰면 안 된다.
-        const registrationNoRaw = findValue(row, ['회원등록번호', '등록번호', 'registrationNo', 'membershipNo'], 5);
-        const registrationNo = normalizeMemberRegistrationNo(registrationNoRaw);
-
-        if (memberName && date) {
-            const trimmedMember = String(memberName).trim();
-            const trimmedRegNo = registrationNo;
-
-            if (!memberPerformanceMap[trimmedMember]) {
-                memberPerformanceMap[trimmedMember] = {
-                    memberName: trimmedMember,
-                    registrationNo: trimmedRegNo,
-                    department: '', // Will be determined by Main Counselor
-                    mainCounselor: '', // Will be calculated after processing all rows
-                    totalSessions: 0,
-                    detailedSessions: [],
-                    _counselorStats: {} // Temporary storage for logic
-                } as any;
-            }
-
-            const memberStat = memberPerformanceMap[trimmedMember] as any;
-            if (!memberStat.registrationNo && trimmedRegNo) {
-                memberStat.registrationNo = trimmedRegNo;
-            }
-            memberStat.totalSessions++;
-
-            // Track Counselor Stats for Primary determination
-            if (!memberStat._counselorStats[counselor]) {
-                memberStat._counselorStats[counselor] = { count: 0, lastDate: 0 };
-            }
-            const cStat = memberStat._counselorStats[counselor];
-            cStat.count++;
-            if (date.getTime() > cStat.lastDate) {
-                cStat.lastDate = date.getTime();
-            }
-
-            const month = date.getMonth() + 1;
-            let finalType: 'inOffice' | 'visit' | 'online' | 'phone' | null = null;
-            if (isInOffice) finalType = 'inOffice';
-            else if (isVisit) finalType = 'visit';
-            else if (isOnline) finalType = 'online';
-            else if (isPhone) finalType = 'phone';
-
-            // Only count if it's one of the tracked types
-            if (finalType) {
-                memberStat.detailedSessions.push({
-                    month,
-                    category: row._category as 'individual' | 'resource',
-                    type: finalType
-                });
-            }
+        // 브리핑 전용 세션 행 수집 (부재 건도 absent: true로 함께 수집)
+        if (memberNameStr && isoDate) {
+            const ageNum = ageRaw != null && !isNaN(Number(ageRaw)) ? Number(ageRaw) : undefined;
+            briefingRows.push({
+                counselor,
+                date: isoDate,
+                rawDate: dateRaw,
+                category: row._category,
+                type: sessionType || 'inOffice',
+                rawType: String(typeRaw || '').trim(),
+                emergency: isEmergency,
+                absent: isAbsent,
+                topic: String(topicRaw || '').trim() || (isAbsent ? '부재(미진행)' : '상담 진행'),
+                problemArea: problemAreaRaw ? String(problemAreaRaw).trim() : undefined,
+                needItem: needItemRaw ? String(needItemRaw).trim() : undefined,
+                content: contentRaw ? String(contentRaw).trim() : undefined,
+                memberName: memberNameStr,
+                normalizedName: normalizePersonName(memberNameStr),
+                gender: genderRaw ? String(genderRaw).trim() : undefined,
+                age: ageNum,
+                diagnosis: diagnosisRaw ? String(diagnosisRaw).trim() : undefined,
+                diagnosisCode: diagnosisCodeRaw ? String(diagnosisCodeRaw).trim() : undefined,
+            });
         }
     });
 
-    // Post-process: Determine Primary Caseworker
+    // MemberPerformance 주 상담자 산정
     Object.values(memberPerformanceMap).forEach((member: any) => {
         let maxCount = -1;
         let bestCounselor = '미지정';
         let bestDate = 0;
 
-        Object.entries(member._counselorStats).forEach(([cName, stats]: [string, any]) => {
-            // Logic: Max Count first, then Most Recent Date
+        Object.entries(member._counselorStats || {}).forEach(([cName, stats]: [string, any]) => {
             if (stats.count > maxCount) {
                 maxCount = stats.count;
                 bestCounselor = cName;
@@ -345,33 +495,25 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
             }
         });
 
-        // Assign Best Counselor (Name Only as per user request)
         member.mainCounselor = bestCounselor;
         member.department = counselorMap[bestCounselor] || '부서정보없음';
-        delete member._counselorStats; // Cleanup
+        delete member._counselorStats;
     });
 
-    // 2. Process General Counseling Data (File 3) - For 'allSessions' (General Analysis Tab)
-    // Mappings: N (Counselor), D (Date), AH (Type)
+    // 3. 일반상담 데이터 처리 (File 3)
     generalData.forEach((row: any) => {
         const counselorRaw = row['N'];
         if (!counselorRaw) return;
-
         const counselor = String(counselorRaw).trim();
-        // Skip header or invalid counselor
         if (!validCounselors.includes(counselor)) return;
 
         const dateRaw = row['D'];
         const date = parseDate(dateRaw);
         const isoDate = date && !isNaN(date.getTime()) ? date.toISOString().split('T')[0] : null;
-
-        // Skip if no valid date
         if (!isoDate) return;
 
         const typeRaw = String(row['AH'] || '').toLowerCase();
-
         let sessionType: 'inOffice' | 'visit' | 'online' | 'emergency' | 'phone' | null = null;
-
         if (typeRaw.includes('응급')) sessionType = 'emergency';
         else if (typeRaw.includes('내소')) sessionType = 'inOffice';
         else if (typeRaw.includes('방문') || typeRaw.includes('대면') || typeRaw.includes('출장') || typeRaw.includes('현장')) sessionType = 'visit';
@@ -386,29 +528,77 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
         }
     });
 
+    // 5. ISP수립 파일 파싱: 전 필드 열 매핑 이관 (설계서 §4.1)
+    const ispData = await readExcelFile(
+        fileMap['5.ISP수립'],
+        { header: 'A', defval: '' },
+        ['중증정신질환', 'ISP', '수립']
+    );
+
     const ispPlans: IspPlan[] = [];
     const ispExpiringMembers: ISPExpiringMember[] = [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    // ISP 재평가(재수립) 주기 — 실제 파일에 수립예정일이 없어 수립일 기준으로 만기를 산정한다.
     const ISP_REVIEW_CYCLE_DAYS = 180;
 
-    ispData.forEach((row: any, index: number) => {
-        const rawName = findValue(row, ['성명', '이름', '회원명'], 3); // D Column Fallback
-        const memberName = rawName ? String(rawName).trim() : '이름없음';
-        const normalizedName = normalizePersonName(rawName) || '이름없음';
-        
-        const registrationNoRaw = findValue(row, ['회원등록번호', '회원번호', '등록번호']);
-        const registrationNo = normalizeMemberRegistrationNo(registrationNoRaw);
-        
-        const managementCategoryRaw = findValue(row, ['관리구분', '서비스종류']);
-        const managementCategory = managementCategoryRaw ? String(managementCategoryRaw).trim() : '미분류';
-        
-        const establishedDateRaw = findValue(row, ['수립일', '등록일', '수립일자'], 6); // G Column Fallback
-        const establishedDate = parseDate(establishedDateRaw);
+    const needCols = ['R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AD', 'AE', 'AF', 'AG'];
 
-        // 1. Store Full ISP Plan with enriched metadata
+    ispData.forEach((row: any, arrayIndex: number) => {
+        const rawName = row['D'];
+        const memberName = rawName ? String(rawName).trim() : '';
+
+        // 헤더 행 스킵 (1·2행)
+        if (
+            !memberName ||
+            memberName === '이름' ||
+            memberName === '성명' ||
+            row['C'] === '회원등록번호' ||
+            row['C'] === '회원번호' ||
+            row['G'] === '수립일자' ||
+            row['G'] === '수립일' ||
+            row['R'] === '자살, 자해 및 타해 위험' ||
+            row['R'] === '자살·자해 및 타해 위험'
+        ) {
+            return;
+        }
+
+        const normalizedName = normalizePersonName(memberName);
+        const registrationNoRaw = row['C'];
+        const registrationNo = normalizeMemberRegistrationNo(registrationNoRaw);
+        const establishedDateRaw = row['G'];
+        const establishedDate = parseDate(establishedDateRaw);
+        const registrant = row['H'] ? String(row['H']).trim() : '';
+        const managementCategoryRaw = row['I'];
+        const managementCategory = managementCategoryRaw ? String(managementCategoryRaw).trim() : '미분류';
+        const gender = row['E'] ? String(row['E']).trim() : undefined;
+        const ageNum = row['F'] != null && !isNaN(Number(row['F'])) ? Number(row['F']) : undefined;
+
+        // 실제 Excel 행 번호 (0-based arrayIndex + 1)
+        const actualExcelRowNum = arrayIndex + 1;
+
         if (establishedDate) {
+            // J~O 자살정보 추출
+            const suicideInfo = {
+                riskFlag: row['J'] ? String(row['J']).trim() : '',
+                thoughtScore: row['K'] !== undefined ? row['K'] : '',
+                thoughtReason: row['L'] ? String(row['L']).trim() : '',
+                planFlag: row['M'] ? String(row['M']).trim() : '',
+                planMethod: row['N'] ? String(row['N']).trim() : '',
+                content: row['O'] ? String(row['O']).trim() : ''
+            };
+
+            // P열 ISP결과 원문
+            const ispResultText = row['P'] ? String(row['P']).trim() : '';
+
+            // Q열 장단기 목표 원문
+            const goalsRaw = row['Q'] ? String(row['Q']).trim() : '';
+
+            // R~AG 16개 영역 상태평가 점수
+            const needs = needCols.map((col, idx) => ({
+                label: ISP_NEED_LABELS[idx],
+                score: Number(row[col]) || 0
+            }));
+
             ispPlans.push({
                 registrationNo: registrationNoRaw ? String(registrationNoRaw).trim() : '',
                 normalizedRegistrationNo: registrationNo,
@@ -416,40 +606,145 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
                 normalizedName: normalizedName,
                 managementCategory: managementCategory,
                 establishedDate: establishedDate.toISOString().split('T')[0],
-                gender: findValue(row, ['성별']),
-                birthDate: findValue(row, ['생년월일']) ? parseDate(findValue(row, ['생년월일']))?.toISOString().split('T')[0] : undefined,
-                excelRowNumber: index + 2, // Assuming 1-based index + header row
-                parseStatus: 'success'
+                registrant: registrant,
+                gender: gender,
+                age: ageNum,
+                excelRowNumber: actualExcelRowNum,
+                parseStatus: 'success',
+                needs,
+                ispResultText,
+                goalsRaw,
+                suicideInfo
             });
-        }
 
-        // 2. Track Expiring Members
-        // 실제 MHIS ISP 파일에는 '수립예정일' 열이 없어, 재수립 도래일을 '수립일 + ISP 재평가 주기(180일)'로 산정한다.
-        // 도래일이 30일 이내이거나 이미 지난 건을 만기 임박으로 본다 (기존 수립예정일 기준 로직과 동일한 판정 방식).
-        const registrant = findValue(row, ['등록자', '담당자']) ? String(findValue(row, ['등록자', '담당자'])).trim() : null;
-
-        if (establishedDate && registrant && counselorMap[registrant]) {
-            const dueDate = new Date(establishedDate);
-            dueDate.setHours(0, 0, 0, 0);
-            dueDate.setDate(dueDate.getDate() + ISP_REVIEW_CYCLE_DAYS);
-            const timeDiff = dueDate.getTime() - today.getTime();
-            const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
-            if (daysDiff <= 30) {
-                ispExpiringMembers.push({
-                    id: registrationNo || `N/A-${index + 1}`, name: memberName,
-                    registrant: registrant, date: dueDate.toISOString().split('T')[0],
-                    daysPassed: -daysDiff, rowNum: index + 1
-                });
+            // 재수립 만기 판정 (기존 호환 유지)
+            if (registrant && counselorMap[registrant]) {
+                const dueDate = new Date(establishedDate);
+                dueDate.setHours(0, 0, 0, 0);
+                dueDate.setDate(dueDate.getDate() + ISP_REVIEW_CYCLE_DAYS);
+                const timeDiff = dueDate.getTime() - today.getTime();
+                const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
+                if (daysDiff <= 30) {
+                    ispExpiringMembers.push({
+                        id: registrationNo || `N/A-${actualExcelRowNum}`,
+                        name: memberName,
+                        registrant: registrant,
+                        date: dueDate.toISOString().split('T')[0],
+                        daysPassed: -daysDiff,
+                        rowNum: actualExcelRowNum
+                    });
+                }
             }
         }
     });
 
-    const memberPerformance: MemberPerformance[] = Object.values(memberPerformanceMap);
+    // 브리핑 회원 전용 컬렉션 구성 (설계서 §4.3, §5 조인 대비)
+    // ISP 등록자 목록을 인지하여 동일 이름 분리(동명이인) 지원
+    const ispRegistrantSetByNormName = new Map<string, Set<string>>();
+    ispPlans.forEach(plan => {
+        if (plan.registrant) {
+            if (!ispRegistrantSetByNormName.has(plan.normalizedName)) {
+                ispRegistrantSetByNormName.set(plan.normalizedName, new Set());
+            }
+            ispRegistrantSetByNormName.get(plan.normalizedName)!.add(plan.registrant);
+        }
+    });
+
+    // (정규화 이름, 담당자) 단위로 세션 묶음 생성
+    interface MemberCluster {
+        memberName: string;
+        normalizedName: string;
+        gender?: string;
+        age?: number;
+        diagnosis?: string;
+        diagnosisCode?: string;
+        mainCounselor: string;
+        sessions: BriefingSession[];
+        counselorCounts: Record<string, number>;
+    }
+
+    const clusterMap = new Map<string, MemberCluster>();
+
+    briefingRows.forEach(row => {
+        const normName = row.normalizedName;
+        const ispRegistrants = ispRegistrantSetByNormName.get(normName);
+
+        // 기본 클러스터 키 결정:
+        // 만약 해당 이름에 ISP 수립 등록자가 여럿 존재(동명이인)하고 세션의 상담사가 그중 하나와 일치하면 해당 등록자 클러스터로 배정
+        let targetCounselor = row.counselor;
+        if (ispRegistrants && ispRegistrants.size > 1) {
+            if (ispRegistrants.has(row.counselor)) {
+                targetCounselor = row.counselor;
+            }
+        }
+
+        const clusterKey = `${normName}::${targetCounselor}`;
+        if (!clusterMap.has(clusterKey)) {
+            clusterMap.set(clusterKey, {
+                memberName: row.memberName,
+                normalizedName: row.normalizedName,
+                gender: row.gender,
+                age: row.age,
+                diagnosis: row.diagnosis,
+                diagnosisCode: row.diagnosisCode,
+                mainCounselor: targetCounselor,
+                sessions: [],
+                counselorCounts: {}
+            });
+        }
+
+        const cluster = clusterMap.get(clusterKey)!;
+        if (!cluster.gender && row.gender) cluster.gender = row.gender;
+        if (!cluster.age && row.age) cluster.age = row.age;
+        if (!cluster.diagnosis && row.diagnosis) cluster.diagnosis = row.diagnosis;
+        if (!cluster.diagnosisCode && row.diagnosisCode) cluster.diagnosisCode = row.diagnosisCode;
+
+        cluster.counselorCounts[row.counselor] = (cluster.counselorCounts[row.counselor] || 0) + 1;
+        cluster.sessions.push({
+            date: row.date,
+            category: row.category,
+            type: row.type,
+            rawType: row.rawType,
+            counselor: row.counselor,
+            emergency: row.emergency,
+            absent: row.absent,
+            topic: row.topic,
+            problemArea: row.problemArea,
+            needItem: row.needItem,
+            content: row.content
+        });
+    });
+
+    // 주 상담자 확정 및 BriefingMember 배열 생성
+    const briefingMembers: BriefingMember[] = [];
+    clusterMap.forEach((cluster) => {
+        let maxCount = -1;
+        let bestCounselor = cluster.mainCounselor;
+        Object.entries(cluster.counselorCounts).forEach(([cName, cnt]) => {
+            if (cnt > maxCount) {
+                maxCount = cnt;
+                bestCounselor = cName;
+            }
+        });
+
+        briefingMembers.push({
+            memberName: cluster.memberName,
+            normalizedName: cluster.normalizedName,
+            gender: cluster.gender,
+            age: cluster.age,
+            diagnosis: cluster.diagnosis,
+            diagnosisCode: cluster.diagnosisCode,
+            mainCounselor: bestCounselor,
+            department: counselorMap[bestCounselor] || '부서정보없음',
+            sessions: cluster.sessions.sort((a, b) => (b.date > a.date ? 1 : -1))
+        });
+    });
 
     return {
         counselorPerformance: Object.values(counselorPerformance),
-        memberPerformance: memberPerformance,
+        memberPerformance: Object.values(memberPerformanceMap),
         ispExpiringMembers: ispExpiringMembers.sort((a, b) => a.daysPassed - b.daysPassed),
-        ispPlans: ispPlans
+        ispPlans: ispPlans,
+        briefingMembers: briefingMembers
     };
 };

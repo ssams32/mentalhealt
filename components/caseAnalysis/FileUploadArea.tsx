@@ -66,12 +66,12 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({ onFilesUpload, isLoadin
                         </h2>
                         <p className="text-slate-500 font-medium text-sm leading-relaxed max-w-lg">
                             분석할 엑셀 파일들을 이곳에 드래그하거나 선택해주세요.<br />
-                            <span className="text-slate-400 text-xs">지원 형식: .xlsx, .xls</span>
+                            <span className="text-slate-400 text-xs">개별상담내역, 자원조정내역, 일반상담(접수상담대장), ISP수립정보, 팀구별 파일 (지원: .xlsx, .xls)</span>
                         </p>
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                        {['개별상담', '자원조정', '일반상담', 'ISP', '팀구별'].map((tag, i) => (
+                        {['개별상담내역', '자원조정내역', '일반상담', 'ISP수립정보', '팀구별'].map((tag, i) => (
                             <span key={i} className="px-2.5 py-1 bg-slate-100 text-slate-500 text-[10px] font-bold rounded-full border border-slate-200">
                                 {tag}
                             </span>
