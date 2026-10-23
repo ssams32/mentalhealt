@@ -228,23 +228,21 @@ const joinBriefingData = (params) => {
 
     const ISP_REVIEW_CYCLE_DAYS = 180;
 
-    const ispGroupMap = new Map();
+    const ispPlansByName = new Map();
     (ispPlans || []).forEach(plan => {
         const normName = normalizePersonName(plan.memberName || plan.normalizedName);
-        const registrant = normalizePersonName(plan.registrant || '');
-        const key = `${normName}::${registrant}`;
-        if (!ispGroupMap.has(key)) ispGroupMap.set(key, []);
-        ispGroupMap.get(key).push(plan);
+        if (!ispPlansByName.has(normName)) ispPlansByName.set(normName, []);
+        ispPlansByName.get(normName).push(plan);
     });
-
     const ispRepresentativeMap = new Map();
-    ispGroupMap.forEach((plans, key) => {
+    ispPlansByName.forEach((plans, normName) => {
         const sorted = [...plans].sort((a, b) => {
             const da = a.establishedDate ? new Date(a.establishedDate).getTime() : 0;
             const db = b.establishedDate ? new Date(b.establishedDate).getTime() : 0;
             return db - da;
         });
-        ispRepresentativeMap.set(key, { latest: sorted[0], count: sorted.length });
+        const latest = sorted[0];
+        ispRepresentativeMap.set(`${normName}::${normalizePersonName(latest.registrant || '')}`, { latest, count: sorted.length });
     });
 
     // 2. 개입 회원 목록 정리: 이름 단위 그룹핑
@@ -670,7 +668,7 @@ test('ISP 전 필드 열 매핑 이관: C~AG 열 정확한 추출 및 16개 영�
 // =========================================================================
 console.log('\n📌 ③ 조인·판정 숫자 픽스처 대조');
 
-test('동명이인 분리 픽스처: 이름이 같아도 담당자(등록자)에 따라 2개 케이스로 분리', () => {
+test('ISP 중복 수립 픽스처: 같은 이름 수립이 여럿이면 최근 1건만 대상자로 (jun 지시)', () => {
     const mockIspPlans = [
         {
             memberName: '김철수',
@@ -685,7 +683,7 @@ test('동명이인 분리 픽스처: 이름이 같아도 담당자(등록자)에
             memberName: '김철수',
             normalizedName: '김철수',
             managementCategory: '유지관리',
-            establishedDate: '2026-08-01',
+            establishedDate: '2026-03-01',
             registrant: '박준호',
             needs: [{ label: '일상생활관리', score: 1 }],
             goalsRaw: '<장기목표>\n장기B\n<단기목표>\n단기B'
@@ -724,15 +722,10 @@ test('동명이인 분리 픽스처: 이름이 같아도 담당자(등록자)에
         today: new Date('2026-08-31')
     });
 
-    assert.strictEqual(joined.length, 2, '동명이인이 각각 분리되어 2명이 나와야 함');
-    const caseA = joined.find(j => j.counselor === '김민수');
-    const caseB = joined.find(j => j.counselor === '박준호');
-
-    assert.strictEqual(caseA.totalInterventionCount, 4);
-    assert.strictEqual(caseA.suitability, '적정');
-
-    assert.strictEqual(caseB.totalInterventionCount, 1);
-    assert.strictEqual(caseB.suitability, '적정');
+    assert.strictEqual(joined.length, 1, '같은 이름은 최근 수립 1건만 대상자가 되어야 함');
+    assert.strictEqual(joined[0].counselor, '김민수', '담당자는 최근 수립 등록자');
+    assert.strictEqual(joined[0].managementCategory, '집중관리', '관리구분도 최근 수립 기준');
+    assert.strictEqual(joined[0].totalInterventionCount, 5, '세션은 상담자 구분 없이 전부 합산');
 });
 
 test('부재(노쇼) 건 픽스처: 건수·적절성 판정에서 제외', () => {

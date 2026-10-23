@@ -324,6 +324,26 @@ export interface JoinedBriefingItem {
 /**
  * 조인 유틸 (순수 함수 — 설계서 §5)
  */
+/** 등퇴록대장 적용 시 풀브리핑에서 제외되는 인원 수 (이름 기준 최근 수립의 등록번호 대조) */
+export const countDeregisteredExclusions = (ispPlans: IspPlan[], deregisteredRegNos?: string[]): number => {
+    const deregSet = new Set((deregisteredRegNos || []).map(v => String(v).replace(/[^a-zA-Z0-9]/g, '')));
+    if (deregSet.size === 0) return 0;
+    const latestByName = new Map<string, IspPlan>();
+    (ispPlans || []).forEach(plan => {
+        const normName = normalizePersonName(plan.memberName || plan.normalizedName);
+        const cur = latestByName.get(normName);
+        if (!cur || new Date(plan.establishedDate || 0).getTime() > new Date(cur.establishedDate || 0).getTime()) {
+            latestByName.set(normName, plan);
+        }
+    });
+    let count = 0;
+    latestByName.forEach(plan => {
+        const reg = String(plan.registrationNo || '').replace(/[^a-zA-Z0-9]/g, '');
+        if (reg && deregSet.has(reg)) count++;
+    });
+    return count;
+};
+
 export const joinBriefingData = (params: {
     ispPlans: IspPlan[];
     briefingMembers: BriefingMember[];
@@ -340,27 +360,24 @@ export const joinBriefingData = (params: {
 
     const ISP_REVIEW_CYCLE_DAYS = 180;
 
-    // 1. ISP 수립 내역 정리: (정규화 이름 + 등록자) 그룹핑
-    const ispGroupMap = new Map<string, IspPlan[]>();
+    // 1. ISP 수립 내역 정리: 회원(이름) 단위로 묶어 가장 최근 수립 1건만 대표로 삼는다
+    // (2026-10-23 jun 지시: 수립내역에 같은 사람이 여러 건 있어도 최근 1건만 불러온다.
+    //  등록자가 다르다는 이유로 분리하면 대상자 수가 실제보다 부풀려진다.)
+    const ispPlansByName = new Map<string, IspPlan[]>();
     (ispPlans || []).forEach(plan => {
         const normName = normalizePersonName(plan.memberName || plan.normalizedName);
-        const registrant = normalizePersonName(plan.registrant || '');
-        const key = `${normName}::${registrant}`;
-        if (!ispGroupMap.has(key)) {
-            ispGroupMap.set(key, []);
-        }
-        ispGroupMap.get(key)!.push(plan);
+        if (!ispPlansByName.has(normName)) ispPlansByName.set(normName, []);
+        ispPlansByName.get(normName)!.push(plan);
     });
-
-    // 최신 수립일 1건 대표 추출
     const ispRepresentativeMap = new Map<string, { latest: IspPlan; count: number }>();
-    ispGroupMap.forEach((plans, key) => {
+    ispPlansByName.forEach((plans, normName) => {
         const sorted = [...plans].sort((a, b) => {
             const da = a.establishedDate ? new Date(a.establishedDate).getTime() : 0;
             const db = b.establishedDate ? new Date(b.establishedDate).getTime() : 0;
             return db - da; // 최신순
         });
-        ispRepresentativeMap.set(key, { latest: sorted[0], count: sorted.length });
+        const latest = sorted[0];
+        ispRepresentativeMap.set(`${normName}::${normalizePersonName(latest.registrant || '')}`, { latest, count: sorted.length });
     });
 
     // 2. 개입 회원 목록 정리: 이름 단위 그룹핑
