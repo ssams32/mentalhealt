@@ -243,7 +243,8 @@ const CaseAnalysisSystem: React.FC<CaseAnalysisSystemProps> = ({ currentUser }) 
             ispExpiringMembers: filteredISP,
             ispPlans: analysisResult?.ispPlans || [],
             briefingMembers: analysisResult?.briefingMembers || [],
-            briefingComments: analysisResult?.briefingComments || {}
+            briefingComments: analysisResult?.briefingComments || {},
+            deregisteredRegNos: analysisResult?.deregisteredRegNos || []
         };
     }, [analysisResult, selectedDepartments, selectedCounselors, dateRange]);
 

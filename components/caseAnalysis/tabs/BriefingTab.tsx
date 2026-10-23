@@ -54,7 +54,8 @@ export const BriefingTab: React.FC<BriefingTabProps> = ({
             briefingMembers: analysisResult?.briefingMembers || [],
             counselorMap,
             dateRange,
-            today: new Date()
+            today: new Date(),
+            deregisteredRegNos: analysisResult?.deregisteredRegNos || []
         });
     }, [analysisResult, counselorMap, dateRange]);
 
@@ -326,7 +327,7 @@ export const BriefingTab: React.FC<BriefingTabProps> = ({
             <div className="flex flex-wrap items-center justify-between text-xs text-[#5C6B76] bg-[#F7F6F2] px-3.5 py-2 rounded-lg border border-[#E4E1D9]">
                 <div className="flex items-center gap-2">
                     <span className="font-bold text-[#0E5E7E]">회의 기준:</span>
-                    <span>개별상담+자원조정 합산 (집중 월 4회 / 유지·일시 월 1회, 노쇼 건 제외).</span>
+                    <span>개별상담+자원조정 합산 (집중 월 4회 / 유지·일시 월 1회, 노쇼 건 제외). 등퇴록대장을 첨부하면 퇴록자는 목록에서 제외됩니다.</span>
                 </div>
                 <div className="text-[11px] text-[#8C6A1D]">
                     * 재수립 도래는 오늘 기준(수립+180일) 산정이며 선택 기간 필터와 무관합니다.

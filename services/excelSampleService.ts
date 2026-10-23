@@ -347,7 +347,29 @@ export const buildIspFile = (): [string, SheetSpec[]] => {
     ];
 };
 
-/** 샘플 양식 5종을 순차 다운로드한다 */
+/** 등퇴록대장 샘플 (MHIS 등퇴록 파일 구조: 시트 6종, 판정은 '퇴록_리스트' D열 회원등록번호) */
+const DEREG_HEADER = ['No', '기관명', '퇴록처리자', '회원등록번호', '신규사업구분', '회원명', '생년월일', '성별', '1순위 진단코드', '1순위 진단명', '연락처(자택)', '연락처(HP)', '퇴록일', '퇴록형태', '퇴록 세부항목', '퇴록 상세내용'];
+export const buildDeregistrationFile = (): [string, SheetSpec[]] => {
+    const m = MEMBERS['한미래'];
+    const deregRow = [
+        1, '00시정신건강복지센터', m.counselor, m.regNo, '', '한미래',
+        m.birth.replace(/-/g, ''), '여성', 'F41.9', m.diag, '--', '010-0000-0000',
+        '20260901', '서비스종결', '협의종결', '<서비스 종결 : 협의종결> - 서비스 욕구 낮아 협의 후 종결함.',
+    ];
+    return [
+        '4.등퇴록대장.xlsx',
+        [
+            ['기준일 회원수_리스트', [['No', '기관명', '회원등록번호', '회원명']]],
+            ['기준일 회원수_합계', [['구분', '인원']]],
+            ['퇴록_리스트', [DEREG_HEADER, deregRow]],
+            ['퇴록_합계', [['구분', '인원']]],
+            ['등록_리스트', [['No', '기관명', '회원등록번호', '회원명']]],
+            ['등록_합계', [['구분', '인원']]],
+        ],
+    ];
+};
+
+/** 샘플 양식 6종을 순차 다운로드한다 */
 export const downloadSampleExcelFiles = () => {
     const builders = [
         buildTeamFile,
@@ -355,6 +377,7 @@ export const downloadSampleExcelFiles = () => {
         buildResourceFile,
         buildGeneralFile,
         buildIspFile,
+        buildDeregistrationFile,
     ];
     builders.forEach((build, i) => {
         setTimeout(() => {

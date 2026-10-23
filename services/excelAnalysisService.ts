@@ -147,6 +147,15 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
         }
     }
 
+    // 선택 파일: 등퇴록대장 (파일명에 '등퇴록'이 있으면 먼저 선별 — 필수 아님)
+    {
+        const deregIdx = availableFiles.findIndex(file => /등퇴록|퇴록/.test(file.name));
+        if (deregIdx !== -1) {
+            fileMap['4.등퇴록대장'] = availableFiles[deregIdx];
+            availableFiles.splice(deregIdx, 1);
+        }
+    }
+
     // 2차: 미매칭 슬롯에 대해 시트명 기반 판별 (설계서 §2 확정 사실 반영)
     if (Object.keys(fileMap).length < 5 && availableFiles.length > 0) {
         const sheetMapList = await Promise.all(
@@ -182,6 +191,17 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
 
     if (missingFiles.length > 0) {
         throw new Error(`필수 파일 누락: ${missingFiles.join(', ')}`);
+    }
+
+    // 등퇴록대장 시트명 폴백: 파일명으로 못 잡았으면 남은 파일의 시트에서 '퇴록_리스트'를 찾는다
+    if (!fileMap['4.등퇴록대장'] && availableFiles.length > 0) {
+        for (const file of availableFiles) {
+            const sheets = await getWorkbookSheetNames(file);
+            if (sheets.some(name => name.includes('퇴록'))) {
+                fileMap['4.등퇴록대장'] = file;
+                break;
+            }
+        }
     }
 
     const findValue = (row: any, potentialKeys: string[], columnIndexFallback?: number): any => {
@@ -740,11 +760,32 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
         });
     });
 
+    // 등퇴록대장 파싱 (선택): 퇴록_리스트 D열 회원등록번호 수집 — 풀브리핑 퇴록자 제외용
+    const deregisteredRegNos: string[] = [];
+    if (fileMap['4.등퇴록대장']) {
+        const deregData = await readExcelFile(
+            fileMap['4.등퇴록대장'],
+            { header: 'A', defval: '' },
+            ['퇴록_리스트', '퇴록']
+        );
+        const seen = new Set<string>();
+        deregData.forEach((row: any) => {
+            const raw = row['D'];
+            if (raw == null || String(raw).trim() === '' || String(raw).trim() === '회원등록번호') return;
+            const no = normalizeMemberRegistrationNo(raw);
+            if (no && !seen.has(no)) {
+                seen.add(no);
+                deregisteredRegNos.push(no);
+            }
+        });
+    }
+
     return {
         counselorPerformance: Object.values(counselorPerformance),
         memberPerformance: Object.values(memberPerformanceMap),
         ispExpiringMembers: ispExpiringMembers.sort((a, b) => a.daysPassed - b.daysPassed),
         ispPlans: ispPlans,
-        briefingMembers: briefingMembers
+        briefingMembers: briefingMembers,
+        deregisteredRegNos: deregisteredRegNos
     };
 };

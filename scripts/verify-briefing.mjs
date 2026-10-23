@@ -222,6 +222,7 @@ const evaluateSuitability = (params) => {
 
 const joinBriefingData = (params) => {
     const { ispPlans, briefingMembers, counselorMap, dateRange } = params;
+    const deregSet = new Set((params.deregisteredRegNos || []).map(v => String(v).replace(/[^a-zA-Z0-9]/g, '')));
     const today = params.today ? new Date(params.today) : new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -349,7 +350,13 @@ const joinBriefingData = (params) => {
 
     const result = [];
 
-    workItems.forEach(({ id: itemId, normName, isp, member, joinStatus, counselorChanged, plansCount }) => {
+    const visibleWorkItems = workItems.filter(w => {
+        if (!w.isp || deregSet.size === 0) return true;
+        const reg = String(w.isp.registrationNo || '').replace(/[^a-zA-Z0-9]/g, '');
+        return !(reg && deregSet.has(reg));
+    });
+
+    visibleWorkItems.forEach(({ id: itemId, normName, isp, member, joinStatus, counselorChanged, plansCount }) => {
         const rawName = isp?.memberName || member?.memberName || normName;
         // 담당자: ISP 최근 수립의 등록자가 담당자다 (2026-10-23 jun 확정). ISP가 없을 때만 최다 상담자로 대체
         const mainCounselor = isp?.registrant || member?.mainCounselor || '미지정';
@@ -406,6 +413,7 @@ const joinBriefingData = (params) => {
             id: itemId,
             memberName: rawName,
             normalizedName: normName,
+            registrationNo: isp?.registrationNo || '',
             counselor: mainCounselor,
             registrant,
             department,
@@ -986,6 +994,25 @@ test('ISP 복수 수립 픽스처: 대표가 최근 수립으로 정해져야 �
     assert.strictEqual(joined[0].managementCategory, '집중관리', '관리구분도 최근 수립 기준');
     assert.strictEqual(joined[0].goalsRaw, '새목표', '목표도 최근 수립 원문');
     assert.strictEqual(joined[0].totalInterventionCount, 1, '세션은 그대로 연결');
+});
+
+
+// 13. 퇴록자 제외: 등록번호가 퇴록 목록에 있으면 풀브리핑에서 사라진다
+test('퇴록자 제외 픽스처: 등퇴록대장 등록번호와 ISP가 일치하면 제외', () => {
+    const ispPlans = [
+        { memberName: '퇴록자', normalizedName: '퇴록자', registrationNo: '20260115000001', registrant: '담당', managementCategory: '유지관리', establishedDate: '2026-01-05', needs: [], goalsRaw: '', ispResultText: '' },
+        { memberName: '재록자', normalizedName: '재록자', registrationNo: '20260115000002', registrant: '담당', managementCategory: '유지관리', establishedDate: '2026-01-05', needs: [], goalsRaw: '', ispResultText: '' }
+    ];
+    const briefingMembers = ['퇴록자', '재록자'].map(n => ({
+        memberName: n, normalizedName: n, mainCounselor: '담당', department: '증진팀',
+        sessions: [{ date: '2026-08-03', category: 'individual', counselor: '담당', absent: false }]
+    }));
+    const base = { ispPlans, briefingMembers, counselorMap: { 담당: '증진팀' }, dateRange: { start: '2026-08-01', end: '2026-08-31' }, today: new Date('2026-08-31') };
+    const without = joinBriefingData(base);
+    const withDereg = joinBriefingData({ ...base, deregisteredRegNos: ['20260115000001'] });
+    assert.strictEqual(without.length, 2, '등퇴록대장 미첨부 시 2명 모두 표시');
+    assert.strictEqual(withDereg.length, 1, '퇴록자 1명은 제외되어야 함');
+    assert.strictEqual(withDereg[0].registrationNo, '20260115000002', '남는 사람은 재록자');
 });
 
 console.log('\n====================================================');

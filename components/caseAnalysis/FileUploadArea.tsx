@@ -66,12 +66,12 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({ onFilesUpload, isLoadin
                         </h2>
                         <p className="text-slate-500 font-medium text-sm leading-relaxed max-w-lg">
                             분석할 엑셀 파일들을 이곳에 드래그하거나 선택해주세요.<br />
-                            <span className="text-slate-400 text-xs">개별상담내역, 자원조정내역, 일반상담(접수상담대장), ISP수립정보, 팀구별 파일 (지원: .xlsx, .xls)</span>
+                            <span className="text-slate-400 text-xs">개별상담내역, 자원조정내역, 일반상담(접수상담대장), ISP수립정보, 팀구별 파일 + 등퇴록대장(선택 — 풀브리핑 퇴록자 제외용. MHIS에서 성인+아동청소년+기타를 모두 조회해 하나의 엑셀 파일로 합쳐서 첨부) (지원: .xlsx, .xls)</span>
                         </p>
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                        {['개별상담내역', '자원조정내역', '일반상담', 'ISP수립정보', '팀구별'].map((tag, i) => (
+                        {['개별상담내역', '자원조정내역', '일반상담', 'ISP수립정보', '팀구별', '등퇴록대장'].map((tag, i) => (
                             <span key={i} className="px-2.5 py-1 bg-slate-100 text-slate-500 text-[10px] font-bold rounded-full border border-slate-200">
                                 {tag}
                             </span>
@@ -95,7 +95,7 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({ onFilesUpload, isLoadin
                             <Download size={14} />
                             샘플 양식 다운로드
                         </button>
-                        <span className="text-[11px] text-slate-500 font-medium">처음 사용하시면 샘플 파일 5종을 내려받아 양식을 확인하세요.</span>
+                        <span className="text-[11px] text-slate-500 font-medium">처음 사용하시면 샘플 파일 6종을 내려받아 양식을 확인하세요.</span>
                     </div>
                 </div>
 

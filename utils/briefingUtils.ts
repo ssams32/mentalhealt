@@ -330,8 +330,11 @@ export const joinBriefingData = (params: {
     counselorMap: Record<string, string>;
     dateRange: { start: string; end: string };
     today?: Date;
+    deregisteredRegNos?: string[];
 }): JoinedBriefingItem[] => {
     const { ispPlans, briefingMembers, counselorMap, dateRange } = params;
+    // 퇴록자 제외 (등퇴록대장 첨부 시): ISP 등록번호가 퇴록_리스트에 있으면 목록에서 뺀다
+    const deregSet = new Set((params.deregisteredRegNos || []).map(v => String(v).replace(/[^a-zA-Z0-9]/g, '')));
     const today = params.today ? new Date(params.today) : new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -472,7 +475,13 @@ export const joinBriefingData = (params: {
 
     const result: JoinedBriefingItem[] = [];
 
-    workItems.forEach(({ id: itemId, normName, isp, member, joinStatus, counselorChanged, plansCount }) => {
+    const visibleWorkItems = workItems.filter(w => {
+        if (!w.isp || deregSet.size === 0) return true;
+        const reg = String(w.isp.registrationNo || '').replace(/[^a-zA-Z0-9]/g, '');
+        return !(reg && deregSet.has(reg));
+    });
+
+    visibleWorkItems.forEach(({ id: itemId, normName, isp, member, joinStatus, counselorChanged, plansCount }) => {
         const rawName = isp?.memberName || member?.memberName || normName;
         // 담당자: ISP 최근 수립의 등록자가 담당자다 (2026-10-23 jun 확정). ISP가 없을 때만 최다 상담자로 대체
         const mainCounselor = isp?.registrant || member?.mainCounselor || '미지정';

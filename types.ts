@@ -509,6 +509,7 @@ export interface AnalysisResult {
     ispPlans: IspPlan[];
     ispAchievement?: any[]; // Defined as any[] for legacy support, use specialized types for new features
     briefingMembers?: BriefingMember[];
+    deregisteredRegNos?: string[]; // 등퇴록대장 퇴록_리스트의 회원등록번호(정규화) — 풀브리핑 제외용
     briefingComments?: Record<string, BriefingComment[]>;
 }
 
