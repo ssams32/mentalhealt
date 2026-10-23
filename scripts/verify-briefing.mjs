@@ -246,60 +246,119 @@ const joinBriefingData = (params) => {
         ispRepresentativeMap.set(key, { latest: sorted[0], count: sorted.length });
     });
 
-    const interventionMap = new Map();
+    // 2. 개입 회원 목록 정리: 이름 단위 그룹핑
+    // (2026-10-23 수정: 연결 키를 (이름+담당자) 쌍에서 이름 기준으로 교체.
+    //  ISP 등록자와 현재 주 상담자가 다르면(담당 변경 등) 세션이 전부 누락되던 문제 해결.
+    //  담당자는 속성이며, 주 상담자는 세션이 가장 많은 상담사로 정한다.)
+    const membersByName = new Map();
     (briefingMembers || []).forEach(m => {
         const normName = normalizePersonName(m.memberName || m.normalizedName);
-        const counselor = normalizePersonName(m.mainCounselor);
-        const key = `${normName}::${counselor}`;
-        interventionMap.set(key, m);
+        if (!membersByName.has(normName)) membersByName.set(normName, []);
+        membersByName.get(normName).push(m);
     });
 
-    const allKeys = new Set();
-    ispRepresentativeMap.forEach((_, k) => allKeys.add(k));
-    interventionMap.forEach((_, k) => allKeys.add(k));
+    const ispGroupsByName = new Map();
+    ispRepresentativeMap.forEach((entry, key) => {
+        const normName = key.split('::')[0];
+        if (!ispGroupsByName.has(normName)) ispGroupsByName.set(normName, []);
+        ispGroupsByName.get(normName).push({ key, latest: entry.latest, count: entry.count });
+    });
+
+    // 상담자별로 갈라진 동일 회원의 개입 묶음을 하나로 합친다
+    const mergeMembers = (list) => {
+        const sessions = list.flatMap(m => m.sessions || []);
+        const counts = new Map();
+        sessions.forEach(s => {
+            if (s.counselor) counts.set(s.counselor, (counts.get(s.counselor) || 0) + 1);
+        });
+        let mainCounselor = list[0].mainCounselor;
+        let max = -1;
+        counts.forEach((cnt, cName) => {
+            if (cnt > max) { max = cnt; mainCounselor = cName; }
+        });
+        const base = list.find(m => m.mainCounselor === mainCounselor) || list[0];
+        return {
+            ...base,
+            mainCounselor,
+            gender: list.find(m => m.gender)?.gender,
+            age: list.find(m => m.age)?.age,
+            diagnosis: list.find(m => m.diagnosis)?.diagnosis,
+            diagnosisCode: list.find(m => m.diagnosisCode)?.diagnosisCode,
+            sessions
+        };
+    };
+
+    const workItems = [];
+
+    const allNames = new Set();
+    ispGroupsByName.forEach((_, n) => allNames.add(n));
+    membersByName.forEach((_, n) => allNames.add(n));
+
+    allNames.forEach(normName => {
+        const groups = ispGroupsByName.get(normName) || [];
+        const members = membersByName.get(normName) || [];
+
+        // 동명이인: ISP 등록자가 여럿이고 개입도 상담자별로 갈라지면 등록자=주상담자 쌍으로 분리한다
+        if (groups.length > 1 && members.length > 1) {
+            const usedGroups = new Set();
+            const usedMembers = new Set();
+            members.forEach(m => {
+                const g = groups.find(g => !usedGroups.has(g.key) && normalizePersonName(g.latest.registrant || '') === normalizePersonName(m.mainCounselor));
+                if (g) {
+                    usedGroups.add(g.key);
+                    usedMembers.add(m);
+                    workItems.push({ id: g.key, normName, isp: g.latest, plansCount: g.count, member: m, joinStatus: '확정연결', counselorChanged: false });
+                }
+            });
+            groups.filter(g => !usedGroups.has(g.key)).forEach(g => {
+                workItems.push({ id: g.key, normName, isp: g.latest, plansCount: g.count, member: undefined, joinStatus: '개입없음', counselorChanged: false });
+            });
+            const rest = members.filter(m => !usedMembers.has(m));
+            if (rest.length) {
+                const merged = mergeMembers(rest);
+                workItems.push({ id: `${normName}::${normalizePersonName(merged.mainCounselor)}`, normName, isp: undefined, plansCount: 0, member: merged, joinStatus: 'ISP미수립', counselorChanged: false });
+            }
+            return;
+        }
+
+        const member = members.length ? mergeMembers(members) : undefined;
+
+        // ISP 대표 선택: 수립이 여럿이면 담당자 매칭과 무관하게 가장 최근 수립을 대표로 한다
+        // (2026-10-23 jun 확정: ISP 담당자는 최근 수립한 사람으로 정해진다)
+        let chosen;
+        if (groups.length) {
+            chosen = [...groups].sort((a, b) => new Date(b.latest.establishedDate || 0).getTime() - new Date(a.latest.establishedDate || 0).getTime())[0];
+        }
+
+        let joinStatus = '확정연결';
+        if (chosen && !member) joinStatus = '개입없음';
+        else if (!chosen && member) joinStatus = 'ISP미수립';
+
+        const counselorChanged = !!(chosen && member && normalizePersonName(chosen.latest.registrant || '') !== normalizePersonName(member.mainCounselor));
+
+        workItems.push({
+            id: chosen ? chosen.key : `${normName}::${normalizePersonName(member.mainCounselor)}`,
+            normName,
+            isp: chosen?.latest,
+            plansCount: chosen?.count || 0,
+            member,
+            joinStatus,
+            counselorChanged
+        });
+    });
 
     const result = [];
 
-    allKeys.forEach(key => {
-        const [normName, cName] = key.split('::');
-        const ispEntry = ispRepresentativeMap.get(key);
-        const memberEntry = interventionMap.get(key);
-
-        let isp = ispEntry?.latest;
-        let member = memberEntry;
-
-        let joinStatus = '확정연결';
-        let counselorChanged = false;
-
-        if (isp && !member) {
-            let altMember;
-            interventionMap.forEach((m, altKey) => {
-                if (altKey.startsWith(`${normName}::`)) altMember = m;
-            });
-
-            if (altMember) {
-                const genderMatch = !isp.gender || !altMember.gender || isp.gender === altMember.gender;
-                const ageMatch = !isp.age || !altMember.age || Math.abs(isp.age - altMember.age) <= 2;
-                if (genderMatch && ageMatch && !ispRepresentativeMap.has(`${normName}::${normalizePersonName(altMember.mainCounselor)}`)) {
-                    member = altMember;
-                    counselorChanged = true;
-                    joinStatus = '확정연결';
-                } else {
-                    joinStatus = '개입없음';
-                }
-            } else {
-                joinStatus = '개입없음';
-            }
-        } else if (!isp && member) {
-            joinStatus = 'ISP미수립';
-        }
-
+    workItems.forEach(({ id: itemId, normName, isp, member, joinStatus, counselorChanged, plansCount }) => {
         const rawName = isp?.memberName || member?.memberName || normName;
-        const mainCounselor = member?.mainCounselor || isp?.registrant || cName || '미지정';
+        // 담당자: ISP 최근 수립의 등록자가 담당자다 (2026-10-23 jun 확정). ISP가 없을 때만 최다 상담자로 대체
+        const mainCounselor = isp?.registrant || member?.mainCounselor || '미지정';
         const registrant = isp?.registrant || '';
         const department = member?.department || counselorMap[mainCounselor] || counselorMap[registrant] || '부서정보없음';
         const managementCategory = isp?.managementCategory || '미분류';
+        const normCat = normalizeManagementCategory(managementCategory);
         const establishedDate = isp?.establishedDate || '';
+
 
         let isExpiring = false;
         let daysUntilReview = 9999;
@@ -344,7 +403,7 @@ const joinBriefingData = (params) => {
         });
 
         result.push({
-            id: key,
+            id: itemId,
             memberName: rawName,
             normalizedName: normName,
             counselor: mainCounselor,
@@ -839,6 +898,94 @@ test('엑셀 4개 열 구성 및 수퍼비전 내용 결합(작성자 표기, �
     XLSX.utils.book_append_sheet(wb, ws, '풀브리핑_수퍼비전');
     const out = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
     assert(out && out.length > 0, '엑셀 바이너리 정상 생성');
+});
+
+test('담당 변경 픽스처: ISP 등록자와 현재 상담자가 달라도 세션이 연결되어야 함', () => {
+    const ispPlans = [
+        { memberName: '이영자', normalizedName: '이영자', registrationNo: '2026-002', registrant: '옛담당', managementCategory: '일시관리', establishedDate: '2026-01-20', needs: [], goalsRaw: '', ispResultText: '' }
+    ];
+    const briefingMembers = [
+        {
+            memberName: '이영자', normalizedName: '이영자', mainCounselor: '현담당', department: '증진팀',
+            sessions: [
+                { date: '2026-08-03', category: 'individual', counselor: '현담당', absent: false },
+                { date: '2026-08-17', category: 'resource', counselor: '현담당', absent: false }
+            ]
+        }
+    ];
+    const joined = joinBriefingData({
+        ispPlans, briefingMembers,
+        counselorMap: { 현담당: '증진팀', 옛담당: '증진팀' },
+        dateRange: { start: '2026-08-01', end: '2026-08-31' },
+        today: new Date('2026-08-31')
+    });
+    assert.strictEqual(joined.length, 1, '대상자 1명으로 합쳐져야 함');
+    assert.strictEqual(joined[0].totalInterventionCount, 2, '세션 2건이 연결되어야 함');
+    assert.strictEqual(joined[0].joinStatus, '확정연결');
+    assert.strictEqual(joined[0].counselorChanged, true, '등록자≠주상담자이면 담당 변경 표시');
+    assert.strictEqual(joined[0].counselor, '옛담당', '담당자는 ISP 수립 등록자로 표시');
+});
+
+test('복수 상담사 분산 픽스처: 상담자별로 갈라진 세션이 회원 단위로 합산되어야 함', () => {
+    const ispPlans = [
+        { memberName: '박민준', normalizedName: '박민준', registrationNo: '2026-003', registrant: '상담자A', managementCategory: '집중관리', establishedDate: '2026-01-05', needs: [], goalsRaw: '', ispResultText: '' }
+    ];
+    const briefingMembers = [
+        {
+            memberName: '박민준', normalizedName: '박민준', mainCounselor: '상담자A', department: '회복팀',
+            sessions: [
+                { date: '2026-08-04', category: 'individual', counselor: '상담자A', absent: false },
+                { date: '2026-08-11', category: 'individual', counselor: '상담자A', absent: false }
+            ]
+        },
+        {
+            memberName: '박민준', normalizedName: '박민준', mainCounselor: '상담자B', department: '회복팀',
+            sessions: [
+                { date: '2026-08-06', category: 'individual', counselor: '상담자B', absent: false },
+                { date: '2026-08-13', category: 'individual', counselor: '상담자B', absent: false },
+                { date: '2026-08-20', category: 'resource', counselor: '상담자B', absent: false },
+                { date: '2026-08-27', category: 'individual', counselor: '상담자B', absent: false }
+            ]
+        }
+    ];
+    const joined = joinBriefingData({
+        ispPlans, briefingMembers,
+        counselorMap: { 상담자A: '회복팀', 상담자B: '회복팀' },
+        dateRange: { start: '2026-08-01', end: '2026-08-31' },
+        today: new Date('2026-08-31')
+    });
+    assert.strictEqual(joined.length, 1, '같은 회원은 1명으로 합쳐져야 함');
+    assert.strictEqual(joined[0].totalInterventionCount, 6, '두 상담사 세션 합산 6건');
+    assert.strictEqual(joined[0].individualCount, 5);
+    assert.strictEqual(joined[0].resourceCount, 1);
+    assert.strictEqual(joined[0].counselor, '상담자A', '담당자는 세션 최다자가 아니라 ISP 등록자');
+});
+
+test('ISP 복수 수립 픽스처: 대표가 최근 수립으로 정해져야 함 (담당자 매칭 무관)', () => {
+    const ispPlans = [
+        { memberName: '최지영', normalizedName: '최지영', registrationNo: '2026-004', registrant: '옛담당', managementCategory: '유지관리', establishedDate: '2026-01-05', needs: [], goalsRaw: '옛목표', ispResultText: '' },
+        { memberName: '최지영', normalizedName: '최지영', registrationNo: '2026-004', registrant: '새담당', managementCategory: '집중관리', establishedDate: '2026-06-01', needs: [], goalsRaw: '새목표', ispResultText: '' }
+    ];
+    const briefingMembers = [
+        {
+            memberName: '최지영', normalizedName: '최지영', mainCounselor: '옛담당', department: '증진팀',
+            sessions: [
+                { date: '2026-08-03', category: 'individual', counselor: '옛담당', absent: false }
+            ]
+        }
+    ];
+    const joined = joinBriefingData({
+        ispPlans, briefingMembers,
+        counselorMap: { 옛담당: '증진팀', 새담당: '증진팀' },
+        dateRange: { start: '2026-08-01', end: '2026-08-31' },
+        today: new Date('2026-08-31')
+    });
+    assert.strictEqual(joined.length, 1, '회원 1명으로 합쳐져야 함');
+    assert.strictEqual(joined[0].establishedDate, '2026-06-01', '최근 수립일이 대표여야 함');
+    assert.strictEqual(joined[0].registrant, '새담당', 'ISP 담당자는 최근 수립한 사람');
+    assert.strictEqual(joined[0].managementCategory, '집중관리', '관리구분도 최근 수립 기준');
+    assert.strictEqual(joined[0].goalsRaw, '새목표', '목표도 최근 수립 원문');
+    assert.strictEqual(joined[0].totalInterventionCount, 1, '세션은 그대로 연결');
 });
 
 console.log('\n====================================================');

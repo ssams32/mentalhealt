@@ -360,67 +360,122 @@ export const joinBriefingData = (params: {
         ispRepresentativeMap.set(key, { latest: sorted[0], count: sorted.length });
     });
 
-    // 2. 개입 회원 목록 정리: (정규화 이름 + 주상담사) 매핑
-    const interventionMap = new Map<string, BriefingMember>();
+    // 2. 개입 회원 목록 정리: 이름 단위 그룹핑
+    // (2026-10-23 수정: 연결 키를 (이름+담당자) 쌍에서 이름 기준으로 교체.
+    //  ISP 등록자와 현재 주 상담자가 다르면(담당 변경 등) 세션이 전부 누락되던 문제 해결.
+    //  담당자는 속성이며, 주 상담자는 세션이 가장 많은 상담사로 정한다.)
+    const membersByName = new Map<string, BriefingMember[]>();
     (briefingMembers || []).forEach(m => {
         const normName = normalizePersonName(m.memberName || m.normalizedName);
-        const counselor = normalizePersonName(m.mainCounselor);
-        const key = `${normName}::${counselor}`;
-        interventionMap.set(key, m);
+        if (!membersByName.has(normName)) membersByName.set(normName, []);
+        membersByName.get(normName)!.push(m);
     });
 
-    // 3. 양쪽 키 집합 구성
-    const allKeys = new Set<string>();
-    ispRepresentativeMap.forEach((_, k) => allKeys.add(k));
-    interventionMap.forEach((_, k) => allKeys.add(k));
+    const ispGroupsByName = new Map<string, Array<{ key: string; latest: IspPlan; count: number }>>();
+    ispRepresentativeMap.forEach((entry, key) => {
+        const normName = key.split('::')[0];
+        if (!ispGroupsByName.has(normName)) ispGroupsByName.set(normName, []);
+        ispGroupsByName.get(normName)!.push({ key, latest: entry.latest, count: entry.count });
+    });
+
+    // 상담자별로 갈라진 동일 회원의 개입 묶음을 하나로 합친다
+    const mergeMembers = (list: BriefingMember[]): BriefingMember => {
+        const sessions = list.flatMap(m => m.sessions || []);
+        const counts = new Map<string, number>();
+        sessions.forEach(s => {
+            if (s.counselor) counts.set(s.counselor, (counts.get(s.counselor) || 0) + 1);
+        });
+        let mainCounselor = list[0].mainCounselor;
+        let max = -1;
+        counts.forEach((cnt, cName) => {
+            if (cnt > max) { max = cnt; mainCounselor = cName; }
+        });
+        const base = list.find(m => m.mainCounselor === mainCounselor) || list[0];
+        return {
+            ...base,
+            mainCounselor,
+            gender: list.find(m => m.gender)?.gender,
+            age: list.find(m => m.age)?.age,
+            diagnosis: list.find(m => m.diagnosis)?.diagnosis,
+            diagnosisCode: list.find(m => m.diagnosisCode)?.diagnosisCode,
+            sessions
+        };
+    };
+
+    interface JoinWorkItem {
+        id: string;
+        normName: string;
+        isp?: IspPlan;
+        plansCount: number;
+        member?: BriefingMember;
+        joinStatus: '확정연결' | '개입없음' | 'ISP미수립' | '확인필요';
+        counselorChanged: boolean;
+    }
+    const workItems: JoinWorkItem[] = [];
+
+    const allNames = new Set<string>();
+    ispGroupsByName.forEach((_, n) => allNames.add(n));
+    membersByName.forEach((_, n) => allNames.add(n));
+
+    allNames.forEach(normName => {
+        const groups = ispGroupsByName.get(normName) || [];
+        const members = membersByName.get(normName) || [];
+
+        // 동명이인: ISP 등록자가 여럿이고 개입도 상담자별로 갈라지면 등록자=주상담자 쌍으로 분리한다
+        if (groups.length > 1 && members.length > 1) {
+            const usedGroups = new Set<string>();
+            const usedMembers = new Set<BriefingMember>();
+            members.forEach(m => {
+                const g = groups.find(g => !usedGroups.has(g.key) && normalizePersonName(g.latest.registrant || '') === normalizePersonName(m.mainCounselor));
+                if (g) {
+                    usedGroups.add(g.key);
+                    usedMembers.add(m);
+                    workItems.push({ id: g.key, normName, isp: g.latest, plansCount: g.count, member: m, joinStatus: '확정연결', counselorChanged: false });
+                }
+            });
+            groups.filter(g => !usedGroups.has(g.key)).forEach(g => {
+                workItems.push({ id: g.key, normName, isp: g.latest, plansCount: g.count, member: undefined, joinStatus: '개입없음', counselorChanged: false });
+            });
+            const rest = members.filter(m => !usedMembers.has(m));
+            if (rest.length) {
+                const merged = mergeMembers(rest);
+                workItems.push({ id: `${normName}::${normalizePersonName(merged.mainCounselor)}`, normName, isp: undefined, plansCount: 0, member: merged, joinStatus: 'ISP미수립', counselorChanged: false });
+            }
+            return;
+        }
+
+        const member = members.length ? mergeMembers(members) : undefined;
+
+        // ISP 대표 선택: 수립이 여럿이면 담당자 매칭과 무관하게 가장 최근 수립을 대표로 한다
+        // (2026-10-23 jun 확정: ISP 담당자는 최근 수립한 사람으로 정해진다)
+        let chosen: { key: string; latest: IspPlan; count: number } | undefined;
+        if (groups.length) {
+            chosen = [...groups].sort((a, b) => new Date(b.latest.establishedDate || 0).getTime() - new Date(a.latest.establishedDate || 0).getTime())[0];
+        }
+
+        let joinStatus: JoinWorkItem['joinStatus'] = '확정연결';
+        if (chosen && !member) joinStatus = '개입없음';
+        else if (!chosen && member) joinStatus = 'ISP미수립';
+
+        const counselorChanged = !!(chosen && member && normalizePersonName(chosen.latest.registrant || '') !== normalizePersonName(member.mainCounselor));
+
+        workItems.push({
+            id: chosen ? chosen.key : `${normName}::${normalizePersonName(member!.mainCounselor)}`,
+            normName,
+            isp: chosen?.latest,
+            plansCount: chosen?.count || 0,
+            member,
+            joinStatus,
+            counselorChanged
+        });
+    });
 
     const result: JoinedBriefingItem[] = [];
 
-    allKeys.forEach(key => {
-        const [normName, cName] = key.split('::');
-        const ispEntry = ispRepresentativeMap.get(key);
-        const memberEntry = interventionMap.get(key);
-
-        let isp = ispEntry?.latest;
-        let member = memberEntry;
-
-        let joinStatus: '확정연결' | '개입없음' | 'ISP미수립' | '확인필요' = '확정연결';
-        let counselorChanged = false;
-
-        // ISP만 있고 개입 없는 경우
-        if (isp && !member) {
-            // 다른 상담사로 개입된 동일 이름이 있는지 확인 (담당 변경 가능성 탐색)
-            let altMember: BriefingMember | undefined;
-            interventionMap.forEach((m, altKey) => {
-                if (altKey.startsWith(`${normName}::`)) {
-                    altMember = m;
-                }
-            });
-
-            if (altMember) {
-                // 동일 이름에 다른 상담사 개입이 존재함
-                // 보조 식별자(나이, 성별) 대조
-                const genderMatch = !isp.gender || !altMember.gender || isp.gender === altMember.gender;
-                const ageMatch = !isp.age || !altMember.age || Math.abs(isp.age - altMember.age) <= 2;
-
-                if (genderMatch && ageMatch && !ispRepresentativeMap.has(`${normName}::${normalizePersonName(altMember.mainCounselor)}`)) {
-                    // 담당 변경으로 연결
-                    member = altMember;
-                    counselorChanged = true;
-                    joinStatus = '확정연결';
-                } else {
-                    joinStatus = '개입없음';
-                }
-            } else {
-                joinStatus = '개입없음';
-            }
-        } else if (!isp && member) {
-            // 개입만 있고 ISP 없는 경우
-            joinStatus = 'ISP미수립';
-        }
-
+    workItems.forEach(({ id: itemId, normName, isp, member, joinStatus, counselorChanged, plansCount }) => {
         const rawName = isp?.memberName || member?.memberName || normName;
-        const mainCounselor = member?.mainCounselor || isp?.registrant || cName || '미지정';
+        // 담당자: ISP 최근 수립의 등록자가 담당자다 (2026-10-23 jun 확정). ISP가 없을 때만 최다 상담자로 대체
+        const mainCounselor = isp?.registrant || member?.mainCounselor || '미지정';
         const registrant = isp?.registrant || '';
         const department = member?.department || counselorMap[mainCounselor] || counselorMap[registrant] || '부서정보없음';
         const managementCategory = isp?.managementCategory || '미분류';
@@ -504,7 +559,7 @@ export const joinBriefingData = (params: {
         const latestSessionDate = validInRangeSessions.length > 0 ? validInRangeSessions[0].date : null;
 
         result.push({
-            id: key,
+            id: itemId,
             memberName: rawName,
             normalizedName: normName,
             registrationNo: rawRegNo,
@@ -542,7 +597,7 @@ export const joinBriefingData = (params: {
             latestSessionDate,
             joinStatus,
             counselorChanged,
-            previousPlansCount: Math.max(0, (ispEntry?.count || 1) - 1)
+            previousPlansCount: Math.max(0, plansCount - 1)
         });
     });
 
