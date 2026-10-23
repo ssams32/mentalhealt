@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Upload, FileUp, FileSpreadsheet, AlertCircle, CheckCircle2, Download } from 'lucide-react';
+import { Upload, FileUp, FileSpreadsheet, AlertCircle, AlertTriangle, CheckCircle2, Download } from 'lucide-react';
 import { downloadSampleExcelFiles } from '../../services/excelSampleService';
 
 interface FileUploadAreaProps {
@@ -76,6 +76,14 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({ onFilesUpload, isLoadin
                                 {tag}
                             </span>
                         ))}
+                    </div>
+
+                    <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5">
+                        <AlertTriangle size={15} className="text-amber-500 shrink-0 mt-0.5" />
+                        <p className="text-[11px] leading-relaxed text-amber-800 font-medium">
+                            모든 엑셀 파일은 <span className="font-bold">Excel 통합 문서(*.xlsx)</span> 형식으로 저장한 뒤 업로드해 주세요.
+                            다른 형식(한셀·CSV 등)으로 저장된 파일은 분석이 되지 않거나 오류가 발생할 수 있습니다.
+                        </p>
                     </div>
 
                     <div className="flex items-center gap-3 pt-1">
