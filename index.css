@@ -10,6 +10,61 @@
         --glass-bg: rgba(255, 255, 255, 0.7);
         --glass-border: rgba(255, 255, 255, 0.5);
         --premium-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.08);
+
+        /* 황금비(φ) 공통 디자인 토큰 */
+        /* 1. 간격 (--space-*) — Fibonacci */
+        --space-1: 4px;
+        --space-2: 8px;
+        --space-3: 13px;
+        --space-4: 13px;
+        --space-5: 21px;
+        --space-6: 21px;
+        --space-7: 34px;
+        --space-8: 34px;
+        --space-10: 55px;
+        --space-12: 55px;
+        --space-16: 89px;
+
+        /* 2. 폰트 (--font-*) — 모듈러 스케일 기준 13px × φ */
+        --font-xs: 8px;
+        --font-sm: 13px;
+        --font-base: 13px;
+        --font-lg: 16px;
+        --font-xl: 21px;
+        --font-2xl: 26px;
+        --font-3xl: 34px;
+        --font-4xl: 44px;
+        --font-5xl: 55px;
+
+        /* 3. 레이아웃 폭 (--sidebar-*, --content-*, --header-*) */
+        --sidebar-w-expanded: 288px;
+        --sidebar-w-collapsed: 96px;
+        --sidebar-gap: 13px;
+        --content-max: 1280px;
+        --content-padding-mobile: 13px;
+        --content-padding-desktop: 21px;
+        --header-height-mobile: 44px;
+        --header-height-desktop: 55px;
+
+        /* 4. 카드/행/모달 */
+        --card-radius-sm: 12px;
+        --card-radius-md: 16px;
+        --card-radius-lg: 20px;
+        --card-radius-xl: 24px;
+        --card-padding-sm: 13px;
+        --card-padding-md: 21px;
+        --card-padding-lg: 21px;
+        --row-height-sm: 34px;
+        --row-height-md: 44px;
+        --row-height-lg: 55px;
+        --modal-w-sm: 340px;
+        --modal-w-md: 448px;
+        --modal-w-lg: 672px;
+        --modal-w-xl: 912px;
+        --modal-w-2xl: 1152px;
+        --modal-w-full: calc(100vw - 68px);
+        --modal-max-h: calc(100vh - 89px);
+        --modal-padding: 21px;
     }
 
     body {
@@ -226,8 +281,8 @@
 
 /* 예산관리 수기 내역 모달 컨테이너 및 테이블 스크롤/헤더 고정 */
 .budget-manual-modal-container {
-  width: min(960px, calc(100vw - 48px)) !important;
-  max-height: calc(100vh - 80px) !important;
+  width: min(912px, calc(100vw - 48px)) !important;
+  max-height: calc(100vh - 89px) !important;
 }
 
 .manual-budget-table-scroll {

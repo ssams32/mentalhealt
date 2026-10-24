@@ -81,24 +81,32 @@ const CounselorPerformanceTab: React.FC<CounselorPerformanceTabProps> = ({ data,
         return { stats, total: totalStats };
     }, [data, dateRange]);
 
-    const chartHeight = Math.max(600, data.length * 40);
+    const chartHeight = Math.max(500, data.length * 44);
 
     // [Stabilization] Memoize Chart Options to prevent flickering/re-creation loops
     const chartOptions = useMemo(() => ({
         indexAxis: 'y' as const,
-        scales: { x: { stacked: true }, y: { stacked: true } },
+        scales: {
+            x: { stacked: true, ticks: { font: { size: 13 } } },
+            y: { stacked: true, ticks: { font: { size: 13 } } }
+        },
         plugins: {
+            legend: {
+                labels: {
+                    font: { size: 13 }
+                }
+            },
             datalabels: {
                 display: true,
                 color: 'white',
-                font: { weight: 'bold' as const, size: 10 },
+                font: { weight: 'bold' as const, size: 13 },
                 formatter: (value: any) => value > 0 ? value : ''
             }
         }
     }), []);
 
     return (
-        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+        <div className="space-y-[var(--space-7,34px)] animate-in fade-in slide-in-from-bottom-2 duration-500">
             {/* Chart Section */}
             <div style={{ height: `${chartHeight}px` }}> {/* Height controlled by content */}
                 <AnalysisChart
@@ -111,7 +119,7 @@ const CounselorPerformanceTab: React.FC<CounselorPerformanceTabProps> = ({ data,
 
             {/* Table Section */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                <div className="px-6 py-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 bg-slate-50/50">
+                <div className="p-[21px] border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 bg-slate-50/50">
                     <div className="flex items-center gap-2">
                         <span className="w-1 h-4 bg-indigo-500 rounded-full"></span>
                         <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide">대면 실적 분석 (내소 + 방문)</h3>

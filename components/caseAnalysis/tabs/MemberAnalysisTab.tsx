@@ -651,7 +651,7 @@ const MemberAnalysisTab: React.FC<MemberAnalysisTabProps> = ({ data }) => {
         const formatCount = (val: number) => (val > 0 ? val : '-');
 
         return (
-            <div className="m-4 bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-8">
+            <div className="m-[21px] bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-100 space-y-[var(--space-7,34px)]">
                 {/* Header Section */}
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -659,7 +659,7 @@ const MemberAnalysisTab: React.FC<MemberAnalysisTabProps> = ({ data }) => {
                             <FileText className="w-5 h-5 text-indigo-500" />
                         </div>
                         <div>
-                            <h4 className="text-sm font-black text-slate-800 tracking-tight">
+                            <h4 className="text-[16px] font-black text-slate-800 tracking-tight">
                                 {record.memberName} 회원 {year}년 상세 분석 리포트
                             </h4>
                             <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Granular Performance Analysis Matrix</p>
@@ -675,7 +675,7 @@ const MemberAnalysisTab: React.FC<MemberAnalysisTabProps> = ({ data }) => {
                 <div className="space-y-3">
                     <div className="flex items-center gap-2 mb-1">
                         <div className="w-1 h-3 bg-blue-500 rounded-full" />
-                        <span className="text-xs font-black text-slate-700">상담 실적 분석 (개별상담)</span>
+                        <span className="text-[16px] font-black text-slate-700">상담 실적 분석 (개별상담)</span>
                     </div>
                     <div className="overflow-x-auto rounded-2xl border border-slate-100">
                         <table className="w-full text-[11px] border-collapse">
@@ -721,7 +721,7 @@ const MemberAnalysisTab: React.FC<MemberAnalysisTabProps> = ({ data }) => {
                 <div className="space-y-3">
                     <div className="flex items-center gap-2 mb-1">
                         <div className="w-1 h-3 bg-purple-500 rounded-full" />
-                        <span className="text-xs font-black text-slate-700">자원조정 분석</span>
+                        <span className="text-[16px] font-black text-slate-700">자원조정 분석</span>
                     </div>
                     <div className="overflow-x-auto rounded-2xl border border-slate-100">
                         {Object.keys(matrix.resourceRows).length > 0 ? (
@@ -773,7 +773,7 @@ const MemberAnalysisTab: React.FC<MemberAnalysisTabProps> = ({ data }) => {
                 <div className="space-y-3">
                     <div className="flex items-center gap-2 mb-1">
                         <div className="w-1 h-3 bg-emerald-500 rounded-full" />
-                        <span className="text-xs font-black text-slate-700">ISP 실적 분석 Matrix</span>
+                        <span className="text-[16px] font-black text-slate-700">ISP 실적 분석 Matrix</span>
                         {!ispEvaluation && <span className="text-[10px] text-slate-400 font-medium ml-2">(데이터 로드 필요)</span>}
                     </div>
                     <div className="overflow-x-auto rounded-2xl border border-slate-100">
@@ -1215,24 +1215,24 @@ const MemberAnalysisTab: React.FC<MemberAnalysisTabProps> = ({ data }) => {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+            <div className="flex flex-wrap items-center justify-between gap-[21px] bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-100">
                 <div className="flex items-center gap-4">
                     <div className="p-3 bg-blue-50 rounded-2xl">
                         <UserCheck className="w-6 h-6 text-blue-600" />
                     </div>
                     <div>
-                        <h2 className="text-lg font-black text-slate-800">회원별 ISP 실적 분석</h2>
-                        <p className="text-xs text-slate-400 font-medium">ISP 수립 주기와 실제 개입 실적을 비교 분석합니다.</p>
+                        <h2 className="text-[21px] font-black text-slate-800">회원별 ISP 실적 분석</h2>
+                        <p className="text-[13px] text-slate-400 font-medium">ISP 수립 주기와 실제 개입 실적을 비교 분석합니다.</p>
                     </div>
                 </div>
                 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-[21px]">
                     <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-2xl border border-slate-200 shadow-sm transition-all hover:border-blue-300 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
                         <Search className="w-4 h-4 text-slate-400" />
                         <Input 
                             placeholder="회원명, 등록번호, 상담자 검색" 
                             variant="borderless"
-                            className="text-xs font-bold w-48 p-0"
+                            className="text-[13px] font-bold w-48 sm:w-[340px] p-0"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             allowClear
@@ -1242,7 +1242,7 @@ const MemberAnalysisTab: React.FC<MemberAnalysisTabProps> = ({ data }) => {
                             value={searchScope}
                             onChange={(val: any) => setSearchScope(val)}
                             variant="borderless"
-                            className="text-xs font-black text-blue-600 min-w-[100px]"
+                            className="text-[13px] font-black text-blue-600 min-w-[100px]"
                             options={[
                                 { value: 'ALL', label: '전체' },
                                 { value: 'MEMBER', label: '회원명' },
@@ -1254,11 +1254,11 @@ const MemberAnalysisTab: React.FC<MemberAnalysisTabProps> = ({ data }) => {
                     </div>
 
                     <div className="flex items-center gap-3 bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-2">분석 연도</span>
+                        <span className="text-[13px] font-black text-slate-400 uppercase tracking-wider ml-2">분석 연도</span>
                         <Select 
                             value={selectedYear} 
                             variant="borderless"
-                            className="font-bold text-slate-700"
+                            className="text-[13px] font-bold text-slate-700"
                             onChange={(val) => {
                                 setSelectedYear(val);
                             }}

@@ -238,8 +238,8 @@ export const ISPAnalyzerPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen p-8 bg-gradient-to-br from-slate-900 to-slate-800 text-white overflow-y-auto">
-            <div className="max-w-5xl mx-auto space-y-8">
+        <div className="min-h-screen p-[21px] bg-gradient-to-br from-slate-900 to-slate-800 text-white overflow-y-auto">
+            <div className="max-w-4xl mx-auto space-y-[21px]">
 
                 {/* Header */}
                 <header className="text-center space-y-2">
@@ -250,14 +250,14 @@ export const ISPAnalyzerPage: React.FC = () => {
                 </header>
 
                 {/* API Key */}
-                <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl p-6">
+                <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl p-[21px]">
                     <label className="block text-sm font-medium text-slate-300 mb-2">Google Gemini API Key</label>
                     <input
                         type="password"
                         value={apiKey}
                         onChange={(e) => setApiKey(e.target.value)}
                         placeholder="sk-..."
-                        className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 transition-colors"
+                        className="w-full bg-black/20 border border-white/10 rounded-lg px-[13px] py-[8px] text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 transition-colors"
                     />
                     <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
                         <Lock size={12} /> 키는 저장되지 않으며, 현재 세션의 메모리에서만 사용됩니다.
@@ -265,9 +265,9 @@ export const ISPAnalyzerPage: React.FC = () => {
                 </div>
 
                 {/* File Uploads */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-[13px]">
                     {/* ISP */}
-                    <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl p-6 hover:bg-white/10 transition-colors">
+                    <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl p-[21px] hover:bg-white/10 transition-colors">
                         <div className="flex items-center gap-3 text-blue-300 mb-4">
                             <FileText />
                             <h3 className="font-semibold">1. ISP 파일 업로드</h3>
@@ -283,7 +283,7 @@ export const ISPAnalyzerPage: React.FC = () => {
                     </div>
 
                     {/* Counsel */}
-                    <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl p-6 hover:bg-white/10 transition-colors">
+                    <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl p-[21px] hover:bg-white/10 transition-colors">
                         <div className="flex items-center gap-3 text-green-300 mb-4">
                             <FileText />
                             <h3 className="font-semibold">2. 상담/자원 파일 업로드</h3>
@@ -301,7 +301,7 @@ export const ISPAnalyzerPage: React.FC = () => {
 
                 {/* Processing Status */}
                 {status !== 'idle' && (
-                    <div className="bg-black/30 rounded-xl p-6 border border-white/10 space-y-4">
+                    <div className="bg-black/30 rounded-xl p-[21px] border border-white/10 space-y-4">
                         <div className="flex justify-between items-center text-sm">
                             <span className="font-medium text-violet-300">
                                 {status === 'completed' ? '분석 완료' : `분석 중... ${currentId}`}

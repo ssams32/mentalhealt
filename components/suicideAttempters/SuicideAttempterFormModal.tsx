@@ -290,9 +290,9 @@ const SuicideAttempterFormModal: React.FC<SuicideAttempterFormModalProps> = ({
 
     return (
         <>
-            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-opacity duration-300">
-                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col transform transition-all duration-300 scale-100">
-                    <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10">
+            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-[var(--modal-padding)] transition-opacity duration-300">
+                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-[var(--modal-w-lg)] max-h-[var(--modal-max-h)] overflow-hidden flex flex-col transform transition-all duration-300 scale-100">
+                    <div className="p-[var(--modal-padding)] border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10">
                         <div>
                             <h2 className="text-2xl font-black text-slate-900 tracking-tight">
                                 {isEditing ? '자살시도자 정보 수정' : '자살시도자 신규 등록'}

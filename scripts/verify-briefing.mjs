@@ -335,6 +335,24 @@ const joinBriefingData = (params) => {
 
         const counselorChanged = !!(chosen && member && normalizePersonName(chosen.latest.registrant || '') !== normalizePersonName(member.mainCounselor));
 
+        const planHistory = [...(ispPlansByName.get(normName) || [])]
+            .sort((a, b) => new Date(b.establishedDate || 0).getTime() - new Date(a.establishedDate || 0).getTime())
+            .map(plan => {
+                const g = parseGoals(plan.goalsRaw);
+                const needs = plan.needs || [];
+                return {
+                    establishedDate: plan.establishedDate || '',
+                    registrant: plan.registrant || '',
+                    managementCategory: plan.managementCategory || '미분류',
+                    longTermGoal: g.longTermGoal,
+                    shortTermGoal: g.shortTermGoal,
+                    isGoalSplit: g.isSplit,
+                    ispResultText: plan.ispResultText || '',
+                    unmetNeeds: needs.filter(n => n.score >= 1),
+                    allNeeds: needs
+                };
+            });
+
         workItems.push({
             id: chosen ? chosen.key : `${normName}::${normalizePersonName(member.mainCounselor)}`,
             normName,
@@ -342,7 +360,8 @@ const joinBriefingData = (params) => {
             plansCount: chosen?.count || 0,
             member,
             joinStatus,
-            counselorChanged
+            counselorChanged,
+            planHistory
         });
     });
 
@@ -354,7 +373,7 @@ const joinBriefingData = (params) => {
         return !(reg && deregSet.has(reg));
     });
 
-    visibleWorkItems.forEach(({ id: itemId, normName, isp, member, joinStatus, counselorChanged, plansCount }) => {
+    visibleWorkItems.forEach(({ id: itemId, normName, isp, member, joinStatus, counselorChanged, plansCount, planHistory }) => {
         const rawName = isp?.memberName || member?.memberName || normName;
         // 담당자: ISP 최근 수립의 등록자가 담당자다 (2026-10-23 jun 확정). ISP가 없을 때만 최다 상담자로 대체
         const mainCounselor = isp?.registrant || member?.mainCounselor || '미지정';
@@ -432,7 +451,8 @@ const joinBriefingData = (params) => {
             isExcessive: suitabilityEval.isExcessive,
             suitabilityEval,
             joinStatus,
-            counselorChanged
+            counselorChanged,
+            planHistory: planHistory || []
         });
     });
 
@@ -1006,6 +1026,27 @@ test('퇴록자 제외 픽스처: 등퇴록대장 등록번호와 ISP가 일치�
     assert.strictEqual(without.length, 2, '등퇴록대장 미첨부 시 2명 모두 표시');
     assert.strictEqual(withDereg.length, 1, '퇴록자 1명은 제외되어야 함');
     assert.strictEqual(withDereg[0].registrationNo, '20260115000002', '남는 사람은 재록자');
+});
+
+
+// 14. 수립 이력: 전 수립 건이 최근순으로 실려야 한다
+test('수립 이력 픽스처: 3건 수립 시 planHistory 최근순 3건 + 대표=최근', () => {
+    const ispPlans = [
+        { memberName: '홍길동', normalizedName: '홍길동', registrationNo: '2026-100', registrant: '담당A', managementCategory: '유지관리', establishedDate: '2025-01-10', needs: [], goalsRaw: '목표1', ispResultText: '결과1' },
+        { memberName: '홍길동', normalizedName: '홍길동', registrationNo: '2026-100', registrant: '담당B', managementCategory: '집중관리', establishedDate: '2026-07-01', needs: [], goalsRaw: '목표3', ispResultText: '결과3' },
+        { memberName: '홍길동', normalizedName: '홍길동', registrationNo: '2026-100', registrant: '담당A', managementCategory: '유지관리', establishedDate: '2025-08-15', needs: [], goalsRaw: '목표2', ispResultText: '결과2' }
+    ];
+    const joined = joinBriefingData({
+        ispPlans, briefingMembers: [],
+        counselorMap: {}, dateRange: { start: '2026-08-01', end: '2026-08-31' }, today: new Date('2026-08-31')
+    });
+    assert.strictEqual(joined.length, 1, '대상자는 1명');
+    assert.strictEqual(joined[0].planHistory.length, 3, '이력 3건');
+    assert.strictEqual(joined[0].planHistory[0].establishedDate, '2026-07-01', '이력 첫 건=최근');
+    assert.strictEqual(joined[0].planHistory[0].registrant, '담당B');
+    assert.strictEqual(joined[0].planHistory[1].establishedDate, '2025-08-15');
+    assert.strictEqual(joined[0].planHistory[2].establishedDate, '2025-01-10');
+    assert.strictEqual(joined[0].planHistory[2].ispResultText, '결과1');
 });
 
 console.log('\n====================================================');

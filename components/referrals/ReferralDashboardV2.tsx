@@ -636,7 +636,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
     const renderSidebarList = () => (
         <div className={`flex flex-col bg-white border-r border-slate-200 h-full transition-all duration-300 ease-in-out shrink-0 ${selectedReferralId ? 'w-0 hidden lg:w-[440px] lg:flex' : 'w-full flex'}`}>
             {/* List Header & Filters */}
-            <div className="flex-none p-4 space-y-3 border-b border-slate-100/80 bg-slate-50/50 backdrop-blur-sm sticky top-0 z-10">
+            <div className="flex-none p-[var(--space-5)] space-y-[var(--space-3)] border-b border-slate-100/80 bg-slate-50/50 backdrop-blur-sm sticky top-0 z-10">
                 <div className="flex items-center justify-between">
                     <h2 className="text-lg font-black text-slate-800 tracking-tight flex items-center gap-2">
                         <List size={20} className="text-indigo-600" />
@@ -677,7 +677,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                 <div className="relative group px-1">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={16} />
                     <input
-                        className="w-full pl-10 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all shadow-sm placeholder:text-slate-400"
+                        className="w-full pl-10 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl text-[length:var(--font-base)] font-medium outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all shadow-sm placeholder:text-slate-400"
                         placeholder="이름, 번호, 기관, 담당자 검색..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
@@ -691,7 +691,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                         disabled={!canSelectTeam}
                         onChange={(e) => setSelectedTeam(e.target.value as any)}
                         title={!canSelectTeam ? `부서 선택 권한이 제한되어 소속팀(${currentUser?.team || '지정팀'})으로 고정됩니다.` : '팀 선택'}
-                        className={`px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 focus:border-indigo-500 outline-none shadow-sm min-w-[80px] ${!canSelectTeam ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' : ''}`}
+                        className={`px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-[length:var(--font-base)] font-bold text-slate-600 focus:border-indigo-500 outline-none shadow-sm min-w-[80px] ${!canSelectTeam ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' : ''}`}
                     >
                         {canSelectTeam && <option value="all">전체 팀</option>}
                         {getTeams().map(t => <option key={t} value={t}>{t}</option>)}
@@ -700,7 +700,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                     <select
                         value={criFilter}
                         onChange={(e) => setCriFilter(e.target.value as any)}
-                        className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 focus:border-indigo-500 outline-none shadow-sm min-w-[80px]"
+                        className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-[length:var(--font-base)] font-bold text-slate-600 focus:border-indigo-500 outline-none shadow-sm min-w-[80px]"
                     >
                         <option value="all">위험도 전체</option>
                         {Object.entries(CRI_LEVELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -708,7 +708,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
 
                     <button
                         onClick={() => setShowNambu(!showNambu)}
-                        className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all whitespace-nowrap ${showNambu ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-500'}`}
+                        className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[length:var(--font-base)] font-bold transition-all whitespace-nowrap ${showNambu ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-500'}`}
                     >
                         {showNambu ? <CheckCircle2 size={12} /> : <div className="w-3 h-3 rounded-full border border-slate-300" />}
                         남부
@@ -745,7 +745,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
 
 
             {/* List Content */}
-            <div className="flex-1 overflow-y-auto px-4 py-2 space-y-3 bg-slate-50/30 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto px-4 py-2 space-y-[var(--space-3)] bg-slate-50/30 custom-scrollbar">
                 {isLoading && uniqueAllReferrals.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-48 text-slate-400 gap-2.5">
                         <div className="w-7 h-7 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
@@ -765,7 +765,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                             <div
                                 key={getReferralKey(referral)}
                                 onClick={() => setSelectedReferralId(getReferralKey(referral))}
-                                className={`group relative p-4 rounded-xl border transition-all cursor-pointer hover:shadow-md mx-1 ${isSelected
+                                className={`group relative p-[var(--card-padding-md)] rounded-xl border transition-all cursor-pointer hover:shadow-md mx-1 ${isSelected
                                     ? 'bg-white border-indigo-500 ring-[3px] ring-indigo-500/10 shadow-sm z-10'
                                     : 'bg-white border-slate-100 hover:border-indigo-200 hover:bg-slate-50/50'
                                     }`}
@@ -795,7 +795,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                                 </div>
 
                                 <div className="flex justify-between items-center mb-1">
-                                    <h3 className={`font-bold text-base ${isSelected ? 'text-slate-900' : 'text-slate-800'}`}>
+                                    <h3 className={`font-bold text-[length:var(--font-lg)] ${isSelected ? 'text-slate-900' : 'text-slate-800'}`}>
                                         {referral.name}
                                     </h3>
                                     <div className="flex items-center gap-1.5 shrink-0">
@@ -812,7 +812,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                                     </div>
                                 </div>
 
-                                <div className="flex items-center gap-2 text-xs text-slate-500 mb-2">
+                                <div className="flex items-center gap-2 text-[length:var(--font-base)] text-slate-500 mb-2">
                                     <span>{referral.gender === '남성' ? '남' : referral.gender === '여성' ? '여' : (referral.gender || '-')}</span>
                                     <span className="w-0.5 h-2 bg-slate-300 rounded-full"></span>
                                     <span>{referral.age}세</span>
@@ -890,7 +890,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
             </div>
 
             {/* Sidebar Footer (Add Button) */}
-            <div className="p-4 border-t border-slate-200 bg-white sticky bottom-0 z-10">
+            <div className="p-[var(--space-5)] border-t border-slate-200 bg-white sticky bottom-0 z-10">
                 <button
                     onClick={() => setIsAddModalOpen(true)}
                     className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white p-3 rounded-xl font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 hover:shadow-indigo-300 transition-all transform active:scale-95"
@@ -904,7 +904,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
 
     // 2. Main Editor Area
     const renderMainEditor = () => (
-        <div className={`flex-1 flex flex-col bg-slate-50/50 h-full overflow-hidden relative ${selectedReferralId ? 'flex' : 'hidden lg:flex'}`}>
+        <div className={`flex-1 flex flex-col bg-slate-50/50 h-full overflow-hidden relative p-[var(--content-padding-desktop)] ${selectedReferralId ? 'flex' : 'hidden lg:flex'}`}>
             {/* Mobile Back Button Header */}
             <div className={`lg:hidden flex items-center p-4 bg-white border-b border-slate-200 ${!selectedReferralId ? 'hidden' : ''}`}>
                 <button
@@ -1010,9 +1010,9 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
 
             {/* Template Modal */}
             {isTemplateModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-                        <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-[var(--modal-padding)] animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[var(--modal-w-lg)] overflow-hidden flex flex-col max-h-[var(--modal-max-h)]">
+                        <div className="p-[var(--modal-padding)] border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
                             <h3 className="font-black text-slate-800 flex items-center gap-2 text-lg">
                                 <FileText size={20} className="text-indigo-600" />
                                 상담 양식 템플릿
@@ -1021,7 +1021,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                                 <X size={20} />
                             </button>
                         </div>
-                        <div className="p-4 space-y-3 overflow-y-auto bg-slate-50/30">
+                        <div className="p-[var(--modal-padding)] space-y-3 overflow-y-auto bg-slate-50/30">
                             <button
                                 onClick={() => handleApplyTemplate(`[초기 면접]
 1. 자살시도력:
@@ -1070,9 +1070,9 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
 
             {/* Print Options Modal */}
             {isPrintModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
-                        <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-[var(--modal-padding)] animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[var(--modal-max-h)] overflow-hidden flex flex-col">
+                        <div className="p-[var(--modal-padding)] border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
                             <h3 className="font-black text-slate-800 flex items-center gap-2 text-lg">
                                 <Printer size={20} className="text-indigo-600" />
                                 의뢰대장 출력 옵션
@@ -1081,7 +1081,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                                 <X size={20} />
                             </button>
                         </div>
-                        <div className="p-6 space-y-4">
+                        <div className="p-[var(--modal-padding)] space-y-4">
                             <p className="text-sm font-semibold text-slate-600 leading-relaxed text-center">
                                 선택된 대상자 <span className="text-indigo-600 font-bold">{selectedReferrals.length}명</span>을 출력합니다.
                             </p>
@@ -1104,7 +1104,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                                 </p>
                             </div>
                         </div>
-                        <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-2">
+                        <div className="p-[var(--modal-padding)] border-t border-slate-100 bg-slate-50/50 flex justify-end gap-2">
                             <button
                                 type="button"
                                 onClick={handleClosePrintModal}

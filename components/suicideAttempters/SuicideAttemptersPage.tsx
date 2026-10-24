@@ -216,7 +216,7 @@ const SuicideAttemptersPage: React.FC<SuicideAttemptersPageProps> = ({
                     <div className="flex items-center gap-2">
                         <button
                             onClick={() => setShowFilters(!showFilters)}
-                            className={`flex items-center gap-2 px-3 py-2 md:py-1.5 rounded-xl font-black text-[10px] md:text-[10px] transition-all border ${showFilters ? 'bg-indigo-600 text-white border-indigo-700 shadow-md' : 'bg-white text-indigo-500 border-indigo-100 hover:bg-indigo-50'}`}
+                            className={`flex items-center gap-2 px-[var(--space-3)] py-[var(--space-2)] rounded-xl font-black text-[10px] md:text-[10px] transition-all border ${showFilters ? 'bg-indigo-600 text-white border-indigo-700 shadow-md' : 'bg-white text-indigo-500 border-indigo-100 hover:bg-indigo-50'}`}
                         >
                             <Filter size={14} />
                             <span>{showFilters ? '필터 검색 닫기' : '상세 필터 검색'}</span>
@@ -233,15 +233,15 @@ const SuicideAttemptersPage: React.FC<SuicideAttemptersPageProps> = ({
                     )}
                 </div>
 
-                <div className={`${showFilters ? 'grid' : 'hidden'} lg:grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-1.5 p-3 bg-white rounded-2xl border border-slate-100 shadow-lg transition-all`}>
+                <div className={`${showFilters ? 'grid' : 'hidden'} lg:grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-[var(--space-3)] p-[var(--space-3)] bg-white rounded-2xl border border-slate-100 shadow-lg transition-all`}>
                     {/* Compact Search */}
                     <div className="flex flex-col gap-1 col-span-2 md:col-span-1">
-                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1">대상자 검색</label>
+                        <label className="text-[length:var(--font-xs)] font-black text-slate-400 uppercase ml-1">대상자 검색</label>
                         <div className="relative group">
                             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-500 transition-colors" />
                             <input
                                 type="text"
-                                className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[11px] font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-400 transition-all font-sans"
+                                className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[length:var(--font-base)] font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-400 transition-all font-sans"
                                 placeholder="이름..."
                                 value={searchInput}
                                 onChange={handleSearchChange}
@@ -250,20 +250,20 @@ const SuicideAttemptersPage: React.FC<SuicideAttemptersPageProps> = ({
                     </div>
                     {/* Compact Date Range */}
                     <div className="col-span-2 md:col-span-1 lg:col-span-1 flex flex-col gap-1">
-                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1">접수 기간</label>
+                        <label className="text-[length:var(--font-xs)] font-black text-slate-400 uppercase ml-1">접수 기간</label>
                         <div className="flex items-center gap-1 bg-slate-50/80 px-2 py-1.5 rounded-xl border border-slate-100 shadow-inner">
-                            <input type="date" className="bg-transparent border-none focus:ring-0 text-[10px] font-black text-slate-700 p-0 flex-1 min-w-0 font-sans" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                            <input type="date" className="bg-transparent border-none focus:ring-0 text-[length:var(--font-base)] font-black text-slate-700 p-0 flex-1 min-w-0 font-sans" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
                             <span className="text-slate-300">~</span>
-                            <input type="date" className="bg-transparent border-none focus:ring-0 text-[10px] font-black text-slate-700 p-0 flex-1 min-w-0 font-sans" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                            <input type="date" className="bg-transparent border-none focus:ring-0 text-[length:var(--font-base)] font-black text-slate-700 p-0 flex-1 min-w-0 font-sans" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
                         </div>
                     </div>
                     {/* Optimized Agency & Target Filters */}
                     <div className="flex flex-col gap-1 col-span-1">
-                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1">의뢰 기관</label>
+                        <label className="text-[length:var(--font-xs)] font-black text-slate-400 uppercase ml-1">의뢰 기관</label>
                         <select
                             value={agencyFilter}
                             onChange={(e) => setAgencyFilter(e.target.value)}
-                            className="w-full bg-slate-50/80 border border-slate-100 text-slate-700 text-[11px] font-black rounded-xl px-3 py-2 appearance-none focus:ring-4 focus:ring-indigo-50/30 outline-none font-sans cursor-pointer hover:bg-white transition-all shadow-sm"
+                            className="w-full bg-slate-50/80 border border-slate-100 text-slate-700 text-[length:var(--font-base)] font-black rounded-xl px-3 py-2 appearance-none focus:ring-4 focus:ring-indigo-50/30 outline-none font-sans cursor-pointer hover:bg-white transition-all shadow-sm"
                         >
                             <option value="all">📁 전체 기관</option>
                             <option value="police">🚨 경찰</option>
@@ -278,32 +278,32 @@ const SuicideAttemptersPage: React.FC<SuicideAttemptersPageProps> = ({
                     </div>
                     {/* Compact Assignee */}
                     <div className="flex flex-col gap-1 col-span-1">
-                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1">담당자</label>
-                        <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className="w-full bg-slate-50/80 border border-slate-100 text-slate-700 text-[10px] font-black rounded-xl px-3 py-2 appearance-none focus:ring-4 focus:ring-indigo-50/30 outline-none font-sans">
+                        <label className="text-[length:var(--font-xs)] font-black text-slate-400 uppercase ml-1">담당자</label>
+                        <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className="w-full bg-slate-50/80 border border-slate-100 text-slate-700 text-[length:var(--font-base)] font-black rounded-xl px-3 py-2 appearance-none focus:ring-4 focus:ring-indigo-50/30 outline-none font-sans">
                             <option value="all">전체</option>
                             {assigneeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                         </select>
                     </div>
                     {/* Compact Target */}
                     <div className="flex flex-col gap-1 col-span-1">
-                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1">구분</label>
-                        <select value={targetFilter} onChange={(e) => setTargetFilter(e.target.value)} className="w-full bg-slate-50/80 border border-slate-100 text-slate-700 text-[10px] font-black rounded-xl px-3 py-2 appearance-none focus:ring-4 focus:ring-indigo-50/30 outline-none font-sans">
+                        <label className="text-[length:var(--font-xs)] font-black text-slate-400 uppercase ml-1">구분</label>
+                        <select value={targetFilter} onChange={(e) => setTargetFilter(e.target.value)} className="w-full bg-slate-50/80 border border-slate-100 text-slate-700 text-[length:var(--font-base)] font-black rounded-xl px-3 py-2 appearance-none focus:ring-4 focus:ring-indigo-50/30 outline-none font-sans">
                             <option value="all">전체</option>
                             {INFO_TARGET_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                         </select>
                     </div>
                     {/* Compact Region */}
                     <div className="flex flex-col gap-1 col-span-1">
-                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1">지역</label>
-                        <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} className="w-full bg-slate-50/80 border border-slate-100 text-slate-700 text-[10px] font-black rounded-xl px-3 py-2 appearance-none focus:ring-4 focus:ring-indigo-50/30 outline-none font-sans">
+                        <label className="text-[length:var(--font-xs)] font-black text-slate-400 uppercase ml-1">지역</label>
+                        <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} className="w-full bg-slate-50/80 border border-slate-100 text-slate-700 text-[length:var(--font-base)] font-black rounded-xl px-3 py-2 appearance-none focus:ring-4 focus:ring-indigo-50/30 outline-none font-sans">
                             <option value="all">전체</option>
                             {getRegions().map(opt => <option key={opt} value={opt}>{opt}</option>)}
                         </select>
                     </div>
                     {/* Compact Processing Status */}
                     <div className="flex flex-col gap-1 col-span-1">
-                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1">조치 결과</label>
-                        <select value={processingStatusFilter} onChange={(e) => setProcessingStatusFilter(e.target.value)} className="w-full bg-slate-50/80 border border-slate-100 text-slate-700 text-[10px] font-black rounded-xl px-3 py-2 appearance-none focus:ring-4 focus:ring-indigo-50/30 outline-none font-sans">
+                        <label className="text-[length:var(--font-xs)] font-black text-slate-400 uppercase ml-1">조치 결과</label>
+                        <select value={processingStatusFilter} onChange={(e) => setProcessingStatusFilter(e.target.value)} className="w-full bg-slate-50/80 border border-slate-100 text-slate-700 text-[length:var(--font-base)] font-black rounded-xl px-3 py-2 appearance-none focus:ring-4 focus:ring-indigo-50/30 outline-none font-sans">
                             <option value="all">전체 내역</option>
                             {PROCESSING_STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                         </select>
@@ -311,7 +311,7 @@ const SuicideAttemptersPage: React.FC<SuicideAttemptersPageProps> = ({
                 </div>
             </div>
 
-            <div className="overflow-y-auto max-h-[72vh] custom-scrollbar pr-2 pb-4">
+            <div className="overflow-y-auto max-h-[72vh] custom-scrollbar pr-[var(--space-3)] pb-[var(--space-5)]">
                 <SuicideAttempterTable
                     data={filteredReferrals}
                     onEdit={handleEdit}
@@ -327,8 +327,8 @@ const SuicideAttemptersPage: React.FC<SuicideAttemptersPageProps> = ({
                 />
             </div>
 
-            <div className="mt-4 flex items-center justify-between px-6 py-4 bg-white/50 backdrop-blur-sm rounded-3xl border border-slate-100">
-                <div className="text-xs font-black text-slate-400">
+            <div className="mt-4 flex items-center justify-between px-[var(--space-5)] py-[var(--space-3)] bg-white/50 backdrop-blur-sm rounded-3xl border border-slate-100">
+                <div className="text-[length:var(--font-base)] font-black text-slate-400">
                     Showing <span className="text-slate-900">All</span> of <span className="text-slate-900">{filteredReferrals.length}</span> records
                 </div>
             </div>

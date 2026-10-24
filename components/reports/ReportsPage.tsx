@@ -255,7 +255,7 @@ const SuicideDonutChart = React.memo(({ title, data, colors, chartId, downloadIm
     const isEmpty = !data || data.length === 0 || totalN === 0;
     
     return (
-        <div id={chartId} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-[400px]">
+        <div id={chartId} className="bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-100 flex flex-col h-[400px]">
             <div className="w-full flex justify-between items-center mb-4">
                 <div className="flex items-center gap-2">
                     <h4 className="text-sm font-bold text-slate-700">{title}</h4>
@@ -382,19 +382,19 @@ const SuicideReportDashboard = React.memo(({ stats, downloadImage, downloadExcel
     ];
 
     return (
-        <div className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-[34px]">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-[13px]">
                 <SuicideDonutChart title="처리구분별 분포" data={processingDistribution} colors={COLORS_PROCESS} chartId="suicide-chart-processing" downloadImage={downloadImage} downloadExcel={downloadExcel} />
                 <SuicideDonutChart title="등록 여부별 분포" data={registrationDistribution} colors={COLORS_REG} chartId="suicide-chart-registration" downloadImage={downloadImage} downloadExcel={downloadExcel} />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-[13px]">
                 {quarters.map((q, idx) => (
-                    <div key={idx} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex flex-col justify-between transition-all hover:shadow-md">
+                    <div key={idx} className="bg-white rounded-[24px] p-[21px] shadow-sm border border-slate-100 flex flex-col justify-between transition-all hover:shadow-md">
                         <div>
-                            <h4 className={`text-sm font-bold mb-4 ${q.color.split(' ')[1]}`}>{q.label}</h4>
+                            <h4 className={`text-[16px] font-bold mb-4 ${q.color.split(' ')[1]}`}>{q.label}</h4>
                             <div className="flex items-baseline gap-1 mb-6">
-                                <span className="text-4xl font-extrabold text-slate-800">{q.data.total}</span>
+                                <span className="text-[44px] font-extrabold text-slate-800 leading-none">{q.data.total}</span>
                                 <span className="text-sm text-slate-500">건</span>
                             </div>
                         </div>
@@ -420,7 +420,7 @@ const SuicideReportDashboard = React.memo(({ stats, downloadImage, downloadExcel
                 ))}
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden p-4">
+            <div className="bg-white rounded-[24px] shadow-sm border border-slate-200 overflow-hidden p-[21px]">
                 <div className="flex justify-between items-center mb-4">
                     <h3 className="text-lg font-bold text-slate-700">상세 통계</h3>
                     <div className="flex gap-2">
@@ -489,7 +489,7 @@ const SegmentSummaryPanel = React.memo(({
   hasUsersMap: boolean;
 }) => {
   return (
-    <div className="bg-white p-8 rounded-[2.5rem] border-2 border-slate-50 shadow-sm mb-12 animate-load no-print" style={{ animationDelay: '0.35s' }}>
+    <div className="bg-white p-[21px] rounded-[24px] border-2 border-slate-50 shadow-sm mb-[34px] animate-load no-print" style={{ animationDelay: '0.35s' }}>
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div>
           <h3 className="text-xl font-black text-slate-800 tracking-tight">남부 의뢰 대상자 세부분류 통계</h3>
@@ -595,7 +595,7 @@ const ReportPieChart = React.memo(({ title, data, colorIndexOffset = 0, download
     const isEmpty = !data || data.length === 0;
 
     return (
-        <div id={chartId} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col h-[400px] chart-wrapper max-w-[100vw] overflow-hidden">
+        <div id={chartId} className="bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-200 flex flex-col h-[400px] chart-wrapper max-w-[100vw] overflow-hidden">
             <div className="flex justify-between items-center mb-4">
                 <h3 className="text-sm md:text-lg font-bold text-slate-700 truncate">{title}</h3>
                 {!isEmpty && (
@@ -658,7 +658,7 @@ const ReportBarChart = React.memo(({ title, data, color = "#8884d8", downloadIma
     const isEmpty = !data || data.length === 0;
 
     return (
-        <div id={chartId} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col h-[400px]">
+        <div id={chartId} className="bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-200 flex flex-col h-[400px]">
             <div className="flex justify-between items-center mb-4">
                 <h3 className="text-sm md:text-lg font-bold text-slate-700 truncate">{title}</h3>
                 {!isEmpty && (
@@ -1355,8 +1355,8 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
             </div>
 
             {/* Quick Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 animate-load no-print" style={{ animationDelay: '0.2s' }}>
-                <div className="bg-white p-8 rounded-[2.5rem] border-2 border-slate-50 shadow-sm flex items-center justify-between group hover:border-indigo-100 transition-all duration-500">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-[13px] mb-[34px] animate-load no-print" style={{ animationDelay: '0.2s' }}>
+                <div className="bg-white p-[21px] rounded-[24px] border-2 border-slate-50 shadow-sm flex items-center justify-between group hover:border-indigo-100 transition-all duration-500">
                     <div>
                         <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">전체 의뢰</p>
                         <h4 className="text-3xl font-black text-slate-900 tracking-tighter">{filteredReferrals.length}</h4>
@@ -1365,7 +1365,7 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
                         <Users size={24} />
                     </div>
                 </div>
-                <div className="bg-white p-8 rounded-[2.5rem] border-2 border-slate-50 shadow-sm flex items-center justify-between group hover:border-rose-100 transition-all duration-500">
+                <div className="bg-white p-[21px] rounded-[24px] border-2 border-slate-50 shadow-sm flex items-center justify-between group hover:border-rose-100 transition-all duration-500">
                     <div>
                         <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">자살 시도자</p>
                         <h4 className="text-3xl font-black text-slate-900 tracking-tighter">{filteredSaReferrals.length}</h4>
@@ -1374,7 +1374,7 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
                         <TrendingUp size={24} />
                     </div>
                 </div>
-                <div className="bg-white p-8 rounded-[2.5rem] border-2 border-slate-50 shadow-sm flex items-center justify-between group hover:border-emerald-100 transition-all duration-500">
+                <div className="bg-white p-[21px] rounded-[24px] border-2 border-slate-50 shadow-sm flex items-center justify-between group hover:border-emerald-100 transition-all duration-500">
                     <div>
                         <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">종결율</p>
                         <h4 className="text-3xl font-black text-slate-900 tracking-tighter">
@@ -1394,7 +1394,7 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
             />
 
             {/* Navigation Tabs */}
-            <div className="flex items-center gap-2 bg-slate-200/50 backdrop-blur-md p-1.5 rounded-[2rem] border-2 border-white/50 w-fit mb-12 animate-load no-print" style={{ animationDelay: '0.3s' }}>
+            <div className="flex items-center gap-2 bg-slate-200/50 backdrop-blur-md p-1.5 rounded-[2rem] border-2 border-white/50 w-fit mb-[34px] animate-load no-print" style={{ animationDelay: '0.3s' }}>
                 {[
                     { id: 'all', label: '일반 의뢰', icon: '📊' },
                     { id: 'suicide', label: '자살시도자', icon: '🚨' },
@@ -1441,9 +1441,9 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
                         downloadTableAsExcel={downloadTableAsExcel}
                     />
                 ) : (
-                    <div className="space-y-12 pb-20">
+                    <div className="space-y-[34px] pb-20">
                         {/* Interactive Chart Grid */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-[13px]">
                             {activeTab === 'nambu' && (
                                 <ReportPieChart title={`${getSubTeamParent()} 세부 분류 현황`} data={filteredReferrals} dataKey="subTeam" type="pie" downloadImage={downloadImage} downloadExcel={downloadExcel} />
                             )}
@@ -1458,8 +1458,8 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
 
 
                         {/* Data Tables (Summary) */}
-                        <div className="space-y-8">
-                            <div className="bg-white p-10 rounded-[3rem] border-2 border-slate-50 shadow-sm overflow-hidden">
+                        <div className="space-y-[34px]">
+                            <div className="bg-white p-[21px] rounded-[24px] border-2 border-slate-50 shadow-sm overflow-hidden">
                                 <div className="flex justify-between items-center mb-10">
                                     <h3 className="text-2xl font-black text-slate-900 tracking-tight">담당자별 의뢰 개입현황</h3>
                                     <span className="text-xs font-black text-slate-400 uppercase bg-slate-50 px-3 py-1 rounded-full">Report Ready</span>
@@ -1502,7 +1502,7 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
                                 </div>
                             </div>
 
-                            <div className="bg-white p-10 rounded-[3rem] border-2 border-slate-50 shadow-sm overflow-hidden">
+                            <div className="bg-white p-[21px] rounded-[24px] border-2 border-slate-50 shadow-sm overflow-hidden">
                                 <h3 className="text-2xl font-black text-slate-900 mb-10 tracking-tight">지역 / 월별 추이 분석</h3>
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-[11px] border-collapse">
@@ -1541,7 +1541,7 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
                         </div>
 
                         {/* 지역 / 연령별 현황 테이블 */}
-                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                        <div className="bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-200">
                             <h3 className="text-lg font-bold text-slate-700 mb-4">지역 / 연령별 현황</h3>
                             <div className="overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0">
                                 <div className="md:hidden text-right text-xs text-slate-400 mb-1 flex items-center justify-end gap-1">

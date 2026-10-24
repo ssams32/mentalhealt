@@ -55,7 +55,7 @@ export const ReportPieChart = React.memo(({ title, data, colorIndexOffset = 0, d
     const isEmpty = !data || data.length === 0;
 
     return (
-        <div id={chartId} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col h-[400px] chart-wrapper max-w-[100vw] overflow-hidden">
+        <div id={chartId} className="bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-200 flex flex-col h-[400px] chart-wrapper max-w-[100vw] overflow-hidden">
             <div className="flex justify-between items-center mb-4">
                 <h3 className="text-sm md:text-lg font-bold text-slate-700 truncate">{title}</h3>
                 {!isEmpty && (
@@ -119,7 +119,7 @@ export const ReportBarChart = React.memo(({ title, data, color = "#8884d8", down
     const isEmpty = !data || data.length === 0;
 
     return (
-        <div id={chartId} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col h-[400px]">
+        <div id={chartId} className="bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-200 flex flex-col h-[400px]">
             <div className="flex justify-between items-center mb-4">
                 <h3 className="text-sm md:text-lg font-bold text-slate-700 truncate">{title}</h3>
                 {!isEmpty && (
@@ -343,7 +343,7 @@ export default function SurveyCharts({ imports }: SurveyChartsProps) {
     const monthlyTrendData = useMemo(() => aggregateMonthlyTrend(validUniqueItems), [validUniqueItems]);
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-[13px]">
             <ReportPieChart
                 title="상담신청/미신청 분포"
                 data={consultationData}

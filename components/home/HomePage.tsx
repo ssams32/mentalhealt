@@ -138,16 +138,16 @@ const HomePage: React.FC<HomePageProps> = ({
     }) => (
         <button
             onClick={onClick}
-            className={`bento-card group relative p-6 text-left w-full overflow-hidden hover:ring-2 hover:ring-${color}-500/20`}
+            className={`bento-card group relative p-[var(--card-padding-md)] rounded-[var(--card-radius-lg)] text-left w-full overflow-hidden hover:ring-2 hover:ring-${color}-500/20`}
         >
             <div className={`absolute -right-4 -top-4 w-32 h-32 bg-${color}-50 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-500 blur-2xl`} />
             <div className="relative z-10">
-                <div className={`w-12 h-12 rounded-xl bg-${color}-50 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300`}>
+                <div className={`w-[44px] h-[44px] rounded-xl bg-${color}-50 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300`}>
                     <Icon className={`text-${color}-600`} size={24} />
                 </div>
-                <div className="text-3xl font-black text-slate-800 mb-1 tracking-tight">{value.toLocaleString()}</div>
-                <div className="text-sm font-bold text-slate-500">{title}</div>
-                {subValue && <div className="text-xs text-slate-400 mt-1 font-medium">{subValue}</div>}
+                <div className="text-[length:var(--font-3xl)] font-black text-slate-800 mb-1 tracking-tight">{value.toLocaleString()}</div>
+                <div className="text-[length:var(--font-base)] font-bold text-slate-500">{title}</div>
+                {subValue && <div className="text-[length:var(--font-base)] text-slate-400 mt-1 font-medium">{subValue}</div>}
             </div>
             <div className={`absolute bottom-4 right-4 w-8 h-8 rounded-full bg-${color}-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-2 group-hover:translate-y-0`}>
                 <ArrowRight className={`text-${color}-600`} size={14} />
@@ -156,16 +156,16 @@ const HomePage: React.FC<HomePageProps> = ({
     );
 
     return (
-        <div className="h-full overflow-y-auto bg-transparent p-6 animate-entrance">
+        <div className="h-full overflow-y-auto bg-transparent p-[var(--content-padding-desktop)] animate-entrance">
             {/* Header */}
-            <div className="mb-8 pl-1">
+            <div className="mb-[var(--space-7)] pl-1">
                 <div className="flex items-center gap-3 mb-6">
                     <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg text-white font-black text-xl">
                         {(getOrgShortName() || 'IC').slice(0, 2)}
                     </div>
                     <div>
                         <h2 className="text-sm font-bold text-indigo-600 uppercase tracking-widest">{getOrgShortName()}</h2>
-                        <h1 className="text-3xl font-black text-slate-900 tracking-tight">의뢰관리 시스템 대시보드</h1>
+                        <h1 className="text-[length:var(--font-3xl)] font-black text-slate-900 tracking-tight">의뢰관리 시스템 대시보드</h1>
                     </div>
                 </div>
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -173,13 +173,13 @@ const HomePage: React.FC<HomePageProps> = ({
                         <h2 className="text-2xl font-black text-slate-800 mb-2 tracking-tight">
                             안녕하세요, {currentUser?.name || '사용자'}님 👋
                         </h2>
-                        <p className="text-slate-500 font-medium">오늘도 안전한 하루 되세요.</p>
+                        <p className="text-[length:var(--font-lg)] text-slate-500 font-medium">오늘도 안전한 하루 되세요.</p>
                     </div>
                 </div>
             </div>
 
             {/* 🌐 홈페이지 의뢰 영역 (단 1회 렌더링) */}
-            <div className="mb-8">
+            <div className="mb-[var(--space-7)]">
                 {/* 1. 2026년 9월 홈페이지 의뢰 요약 배너 */}
                 <SeptemberWebsiteReferralBanner
                     websiteReferralItems={activeWebsiteItems}
@@ -222,7 +222,7 @@ const HomePage: React.FC<HomePageProps> = ({
             </div>
 
             {/* 📊 통계 섹션 (단 1회 렌더링, 중복 수치 카드 제거) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-[var(--space-5)] mb-[var(--space-7)]">
                 <StatCard
                     title="전체 의뢰"
                     value={stats.total}

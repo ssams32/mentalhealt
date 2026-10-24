@@ -282,120 +282,120 @@ const DataManagementPage: React.FC<DataManagementPageProps> = ({ referrals, suic
 
     return (
         <PageContainer title="데이터 관리" subtitle="시스템 데이터 백업 및 엑셀 다운로드">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between h-64">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-[21px]">
+                <div className="bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-100 flex flex-col justify-between h-64">
                     <div>
                         <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center text-2xl mb-4"><i className="fas fa-file-excel"></i></div>
                         <h3 className="text-xl font-extrabold text-slate-900 mb-2">일반의뢰 엑셀</h3>
-                        <p className="text-slate-500 text-sm">일반 의뢰 목록을 엑셀 파일(.xlsx)로 다운로드합니다.</p>
+                        <p className="text-slate-500 text-[13px]">일반 의뢰 목록을 엑셀 파일(.xlsx)로 다운로드합니다.</p>
                     </div>
                     <button onClick={() => handleDownloadExcel(false)} className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-bold hover:bg-emerald-600 transition shadow-lg shadow-emerald-500/20">다운로드 시작</button>
                 </div>
-                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between h-64">
+                <div className="bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-100 flex flex-col justify-between h-64">
                     <div>
                         <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center text-2xl mb-4"><i className="fas fa-file-excel"></i></div>
                         <h3 className="text-xl font-extrabold text-slate-900 mb-2">자살시도자 엑셀</h3>
-                        <p className="text-slate-500 text-sm">자살시도자 목록을 엑셀 파일(.xlsx)로 다운로드합니다.</p>
+                        <p className="text-slate-500 text-[13px]">자살시도자 목록을 엑셀 파일(.xlsx)로 다운로드합니다.</p>
                     </div>
                     <button onClick={() => handleDownloadExcel(true)} className="w-full py-4 bg-rose-500 text-white rounded-2xl font-bold hover:bg-rose-600 transition shadow-lg shadow-rose-500/20">다운로드 시작</button>
                 </div>
-                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between h-64">
+                <div className="bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-100 flex flex-col justify-between h-64">
                     <div>
                         <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center text-2xl mb-4"><i className="fas fa-code"></i></div>
                         <h3 className="text-xl font-extrabold text-slate-900 mb-2">일반의뢰 JSON 백업</h3>
-                        <p className="text-slate-500 text-sm">일반 의뢰 데이터를 JSON 형식으로 백업합니다.</p>
+                        <p className="text-slate-500 text-[13px]">일반 의뢰 데이터를 JSON 형식으로 백업합니다.</p>
                     </div>
                     <button onClick={() => handleDownloadJson(false)} className="w-full py-4 bg-blue-500 text-white rounded-2xl font-bold hover:bg-blue-600 transition shadow-lg shadow-blue-500/20">백업 파일 생성</button>
                 </div>
-                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between h-64">
+                <div className="bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-100 flex flex-col justify-between h-64">
                     <div>
                         <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center text-2xl mb-4"><i className="fas fa-code"></i></div>
                         <h3 className="text-xl font-extrabold text-slate-900 mb-2">자살시도자 JSON 백업</h3>
-                        <p className="text-slate-500 text-sm">자살시도자 데이터를 JSON 형식으로 백업합니다.</p>
+                        <p className="text-slate-500 text-[13px]">자살시도자 데이터를 JSON 형식으로 백업합니다.</p>
                     </div>
                     <button onClick={() => handleDownloadJson(true)} className="w-full py-4 bg-indigo-500 text-white rounded-2xl font-bold hover:bg-indigo-600 transition shadow-lg shadow-indigo-500/20">백업 파일 생성</button>
                 </div>
             </div>
-            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
+            <div className="bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-100">
                 <div className="flex items-center gap-3 mb-6">
                     <div className="w-12 h-12 bg-slate-100 text-slate-600 rounded-2xl flex items-center justify-center text-2xl"><i className="fas fa-folder-open"></i></div>
                     <div>
                         <h3 className="text-lg font-extrabold text-slate-900">서버 저장 경로</h3>
-                        <p className="text-slate-500 text-sm">서버가 알려준 실제 저장 위치입니다.</p>
+                        <p className="text-slate-500 text-[13px]">서버가 알려준 실제 저장 위치입니다.</p>
                     </div>
                 </div>
                 {storagePaths ? (
                     <dl className="space-y-4">
                         <div>
-                            <dt className="text-sm font-bold text-slate-500 mb-1">백업 경로</dt>
-                            <dd className="text-sm font-mono font-semibold text-slate-800 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 break-all">{storagePaths.backupDir}</dd>
+                            <dt className="text-[13px] font-bold text-slate-500 mb-1">백업 경로</dt>
+                            <dd className="text-[13px] font-mono font-semibold text-slate-800 bg-slate-50 border border-slate-100 rounded-xl px-[13px] py-[8px] break-all">{storagePaths.backupDir}</dd>
                         </div>
                         <div>
-                            <dt className="text-sm font-bold text-slate-500 mb-1">데이터 경로</dt>
-                            <dd className="text-sm font-mono font-semibold text-slate-800 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 break-all">{storagePaths.dataDir}</dd>
+                            <dt className="text-[13px] font-bold text-slate-500 mb-1">데이터 경로</dt>
+                            <dd className="text-[13px] font-mono font-semibold text-slate-800 bg-slate-50 border border-slate-100 rounded-xl px-[13px] py-[8px] break-all">{storagePaths.dataDir}</dd>
                         </div>
                         <div>
-                            <dt className="text-sm font-bold text-slate-500 mb-1">첨부파일 경로</dt>
-                            <dd className="text-sm font-mono font-semibold text-slate-800 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 break-all">{storagePaths.attachmentsDir}</dd>
+                            <dt className="text-[13px] font-bold text-slate-500 mb-1">첨부파일 경로</dt>
+                            <dd className="text-[13px] font-mono font-semibold text-slate-800 bg-slate-50 border border-slate-100 rounded-xl px-[13px] py-[8px] break-all">{storagePaths.attachmentsDir}</dd>
                         </div>
                     </dl>
                 ) : (
-                    <p className="text-slate-500 text-sm">{storagePathsFailed ? '서버에서 경로 정보를 불러오지 못했습니다. 서버 연결 상태를 확인해 주세요.' : '경로 정보를 불러오는 중입니다.'}</p>
+                    <p className="text-slate-500 text-[13px]">{storagePathsFailed ? '서버에서 경로 정보를 불러오지 못했습니다. 서버 연결 상태를 확인해 주세요.' : '경로 정보를 불러오는 중입니다.'}</p>
                 )}
             </div>
             {backupTargets && backupTargets.length > 0 && (
-                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
+                <div className="bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-100">
                     <div className="flex items-center gap-3 mb-6">
                         <div className="w-12 h-12 bg-violet-100 text-violet-600 rounded-2xl flex items-center justify-center text-2xl"><i className="fas fa-hard-drive"></i></div>
                         <div>
                             <h3 className="text-lg font-extrabold text-slate-900">백업 대상 지정</h3>
-                            <p className="text-slate-500 text-sm">서버에 연결된 저장소 중에서 골라, 데이터 스냅샷을 그 대상으로 복사합니다.</p>
+                            <p className="text-slate-500 text-[13px]">서버에 연결된 저장소 중에서 골라, 데이터 스냅샷을 그 대상으로 복사합니다.</p>
                         </div>
                     </div>
 
-                    <div className="space-y-3 mb-6">
-                        <label className="flex items-center gap-3 p-4 rounded-2xl border border-slate-200 cursor-pointer hover:bg-slate-50">
+                    <div className="space-y-[13px] mb-[21px]">
+                        <label className="flex items-center gap-3 p-[13px] rounded-2xl border border-slate-200 cursor-pointer hover:bg-slate-50">
                             <input type="radio" name="backup-target" checked={selectedTargetId === null} onChange={() => setSelectedTargetId(null)} className="w-4 h-4 accent-violet-600" />
-                            <span className="text-sm font-bold text-slate-700">지정 안 함</span>
+                            <span className="text-[13px] font-bold text-slate-700">지정 안 함</span>
                         </label>
                         {backupTargets.map(t => (
-                            <label key={t.id} className="flex items-start gap-3 p-4 rounded-2xl border border-slate-200 cursor-pointer hover:bg-slate-50">
+                            <label key={t.id} className="flex items-start gap-3 p-[13px] rounded-2xl border border-slate-200 cursor-pointer hover:bg-slate-50">
                                 <input type="radio" name="backup-target" checked={selectedTargetId === t.id} onChange={() => setSelectedTargetId(t.id)} className="w-4 h-4 mt-1 accent-violet-600" />
                                 <span className="flex-1 min-w-0">
                                     <span className="flex items-center gap-2 flex-wrap">
-                                        <span className="text-sm font-bold text-slate-800">{t.name}</span>
+                                        <span className="text-[13px] font-bold text-slate-800">{t.name}</span>
                                         {t.available ? (
-                                            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">사용 가능</span>
+                                            <span className="text-[13px] font-bold px-[8px] py-[4px] rounded-full bg-emerald-100 text-emerald-700">사용 가능</span>
                                         ) : (
-                                            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">사용 불가</span>
+                                            <span className="text-[13px] font-bold px-[8px] py-[4px] rounded-full bg-rose-100 text-rose-700">사용 불가</span>
                                         )}
                                     </span>
-                                    <span className="block text-xs font-mono text-slate-500 mt-1 break-all">{t.hostPath || t.path}</span>
-                                    <span className="block text-xs text-slate-500 mt-1">여유 공간: {formatFreeSpace(t.freeBytes)}</span>
+                                    <span className="block text-[13px] font-mono text-slate-500 mt-1 break-all">{t.hostPath || t.path}</span>
+                                    <span className="block text-[13px] text-slate-500 mt-1">여유 공간: {formatFreeSpace(t.freeBytes)}</span>
                                     {!t.available && t.reason && (
-                                        <span className="block text-xs font-semibold text-rose-600 mt-1">{t.reason}</span>
+                                        <span className="block text-[13px] font-semibold text-rose-600 mt-1">{t.reason}</span>
                                     )}
                                 </span>
                             </label>
                         ))}
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                        <label className="flex items-center gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-100 cursor-pointer">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-[21px] mb-[21px]">
+                        <label className="flex items-center gap-3 p-[21px] rounded-[24px] bg-slate-50 border border-slate-100 cursor-pointer">
                             <input type="checkbox" checked={backupAutoEnabled} onChange={e => setBackupAutoEnabled(e.target.checked)} className="w-4 h-4 accent-violet-600" />
-                            <span className="text-sm font-bold text-slate-700">자동 백업 사용</span>
+                            <span className="text-[13px] font-bold text-slate-700">자동 백업 사용</span>
                         </label>
-                        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                            <label className="block text-xs font-bold text-slate-500 mb-1">자동 백업 시각</label>
-                            <input type="time" value={backupAutoTime} onChange={e => setBackupAutoTime(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-800" />
+                        <div className="p-[21px] rounded-[24px] bg-slate-50 border border-slate-100">
+                            <label className="block text-[13px] font-bold text-slate-500 mb-1">자동 백업 시각</label>
+                            <input type="time" value={backupAutoTime} onChange={e => setBackupAutoTime(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl px-[13px] py-[8px] text-[13px] font-semibold text-slate-800" />
                         </div>
-                        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                            <label className="block text-xs font-bold text-slate-500 mb-1">보관 개수 (1~365)</label>
-                            <input type="number" min={1} max={365} value={backupRetentionCount} onChange={e => setBackupRetentionCount(Number(e.target.value))} className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-800" />
+                        <div className="p-[21px] rounded-[24px] bg-slate-50 border border-slate-100">
+                            <label className="block text-[13px] font-bold text-slate-500 mb-1">보관 개수 (1~365)</label>
+                            <input type="number" min={1} max={365} value={backupRetentionCount} onChange={e => setBackupRetentionCount(Number(e.target.value))} className="w-full bg-white border border-slate-200 rounded-xl px-[13px] py-[8px] text-[13px] font-semibold text-slate-800" />
                         </div>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                    <div className="flex flex-col sm:flex-row gap-3 mb-[13px]">
                         <button onClick={saveBackupSettings} disabled={backupBusy !== null} className="flex-1 py-3.5 bg-slate-800 text-white rounded-2xl font-bold hover:bg-slate-900 transition disabled:opacity-50">
                             {backupBusy === 'save' ? '저장 중...' : '설정 저장'}
                         </button>
@@ -405,11 +405,11 @@ const DataManagementPage: React.FC<DataManagementPageProps> = ({ referrals, suic
                     </div>
 
                     {backupMessage && (
-                        <p className={`text-sm font-semibold rounded-xl px-4 py-3 mb-4 ${backupMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>{backupMessage.text}</p>
+                        <p className={`text-[13px] font-semibold rounded-xl px-[13px] py-[8px] mb-[13px] ${backupMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>{backupMessage.text}</p>
                     )}
 
                     {runStatus && runStatus.state !== 'idle' && (
-                        <div className="text-sm rounded-xl px-4 py-3 mb-4 bg-slate-50 border border-slate-100">
+                        <div className="text-[13px] rounded-xl px-[13px] py-[8px] mb-[13px] bg-slate-50 border border-slate-100">
                             {runStatus.state === 'running' && <p className="font-semibold text-slate-700">백업 실행 중입니다. 시작: {formatDateTime(runStatus.startedAt)}</p>}
                             {runStatus.state === 'done' && <p className="font-semibold text-emerald-700">백업 완료: 파일 {runStatus.copiedFiles}개 · {(runStatus.copiedBytes / 1024 / 1024).toFixed(1)} MB 복사됨 ({formatDateTime(runStatus.finishedAt)})</p>}
                             {runStatus.state === 'error' && <p className="font-semibold text-rose-700">백업 실패: {runStatus.error || '알 수 없는 오류'} ({formatDateTime(runStatus.finishedAt)})</p>}
@@ -417,7 +417,7 @@ const DataManagementPage: React.FC<DataManagementPageProps> = ({ referrals, suic
                     )}
 
                     {backupSettings && backupSettings.lastRunAt && (
-                        <dl className="text-sm space-y-1">
+                        <dl className="text-[13px] space-y-1">
                             <div className="flex gap-2">
                                 <dt className="font-bold text-slate-500 w-24 shrink-0">마지막 실행</dt>
                                 <dd className="text-slate-800 font-semibold">{formatDateTime(backupSettings.lastRunAt)} · {backupTargetName(backupSettings.lastRunTargetId)} · {backupSettings.lastRunResult === 'success' ? '성공' : '실패'}</dd>
@@ -432,9 +432,9 @@ const DataManagementPage: React.FC<DataManagementPageProps> = ({ referrals, suic
                     )}
                 </div>
             )}
-            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
+            <div className="bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-100">
                 <h3 className="text-lg font-extrabold text-slate-900 mb-6">데이터 요약</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-[21px]">
                     <StatCard title="총 의뢰" value={referrals.length} color="bg-indigo-500" />
                     <StatCard title="자살시도자" value={suicideAttempterReferrals.length} color="bg-rose-500" />
                 </div>

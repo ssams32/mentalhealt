@@ -36,7 +36,7 @@ const ReferralFormModal: React.FC<ReferralFormModalProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-50 overflow-y-auto py-4 sm:py-10 animate-in fade-in duration-300">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-50 overflow-y-auto p-[var(--modal-padding)] animate-in fade-in duration-300">
             {/* 
                 Modal Container: 
                 - Rounded corners: rounded-[2rem] to match Bento style
@@ -46,7 +46,7 @@ const ReferralFormModal: React.FC<ReferralFormModalProps> = ({
                   Let's use bg-white to be safe, or transparent if Editor handles it. 
                   Editor has `bg-white` and `mode='modal'` prop.
             */}
-            <div className="bg-white/95 w-full max-w-6xl h-full max-h-[95vh] rounded-[2rem] shadow-2xl overflow-hidden relative flex flex-col animate-in zoom-in-95 duration-300 ring-1 ring-white/20">
+            <div className="bg-white/95 w-full max-w-[var(--modal-w-lg)] h-full max-h-[var(--modal-max-h)] rounded-[2rem] shadow-2xl overflow-hidden relative flex flex-col animate-in zoom-in-95 duration-300 ring-1 ring-white/20">
                 {/* Close Button Absolute Positioned (Optional, Editor has cancel button but this is global close) */}
                 <button
                     onClick={onClose}

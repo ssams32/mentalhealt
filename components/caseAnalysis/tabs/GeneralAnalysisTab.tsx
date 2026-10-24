@@ -111,6 +111,10 @@ const GeneralAnalysisTab: React.FC<GeneralAnalysisTabProps> = ({ data, dateRange
 
     // [Stabilization] Memoize Chart Options to prevent flickering/re-creation loops
     const typeChartOptions = useMemo(() => ({
+        scales: {
+            x: { ticks: { font: { size: 13 } } },
+            y: { ticks: { font: { size: 13 } } }
+        },
         plugins: {
             legend: { display: false },
             datalabels: {
@@ -118,7 +122,7 @@ const GeneralAnalysisTab: React.FC<GeneralAnalysisTabProps> = ({ data, dateRange
                 color: '#1e293b',
                 anchor: 'end' as const,
                 align: 'top' as const,
-                font: { weight: 'bold' as const },
+                font: { weight: 'bold' as const, size: 13 },
                 formatter: (value: any) => value > 0 ? value : ''
             }
         }
@@ -131,13 +135,13 @@ const GeneralAnalysisTab: React.FC<GeneralAnalysisTabProps> = ({ data, dateRange
                 labels: {
                     boxWidth: 12,
                     padding: 15,
-                    font: { size: 11, weight: 600 }
+                    font: { size: 13, weight: 600 }
                 }
             },
             datalabels: {
                 display: true,
                 color: 'white',
-                font: { weight: 'bold' as const },
+                font: { weight: 'bold' as const, size: 13 },
                 formatter: (value: any) => value > 0 ? value : ''
             }
         }
@@ -145,22 +149,30 @@ const GeneralAnalysisTab: React.FC<GeneralAnalysisTabProps> = ({ data, dateRange
 
     const counselorChartOptions = useMemo(() => ({
         indexAxis: 'y' as const,
-        scales: { x: { stacked: true }, y: { stacked: true } },
+        scales: {
+            x: { stacked: true, ticks: { font: { size: 13 } } },
+            y: { stacked: true, ticks: { font: { size: 13 } } }
+        },
         plugins: {
-            legend: { position: 'bottom' as const },
+            legend: {
+                position: 'bottom' as const,
+                labels: {
+                    font: { size: 13 }
+                }
+            },
             datalabels: {
                 display: true,
                 color: 'white',
-                font: { weight: 'bold' as const, size: 10 },
+                font: { weight: 'bold' as const, size: 13 },
                 formatter: (value: any) => value > 0 ? value : ''
             }
         }
     }), []);
 
     return (
-        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+        <div className="space-y-[var(--space-7,34px)] animate-in fade-in slide-in-from-bottom-2 duration-500">
             {/* Top Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-[21px]">
                 <div className="h-[400px]">
                     <AnalysisChart
                         title={`상담 유형별 건수 (${dateRange.start} ~ ${dateRange.end})`}

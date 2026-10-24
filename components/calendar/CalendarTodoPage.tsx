@@ -146,9 +146,9 @@ export function CalendarTodoPage({ currentUser, showToast }: CalendarTodoPagePro
     };
 
     return (
-        <div className="flex h-full bg-slate-50 gap-6 p-6 overflow-hidden">
+        <div className="flex h-full bg-slate-50 gap-[21px] p-[21px] overflow-hidden">
             {/* 왼쪽: ToDo 리스트 */}
-            <div className="w-80 bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col h-full">
+            <div className="w-[clamp(340px,calc((100vh-32px)*0.382),560px)] shrink-0 bg-white rounded-[24px] shadow-sm border border-slate-200 p-[21px] flex flex-col h-full" style={{ width: 'clamp(340px, calc((100vh - 32px) * 0.382), 560px)' }}>
                 <h3 className="text-lg font-extrabold text-slate-800 mb-4 flex items-center gap-2">
                     <CheckCircle2 className="text-green-500" /> 할 일 목록
                 </h3>
@@ -167,9 +167,9 @@ export function CalendarTodoPage({ currentUser, showToast }: CalendarTodoPagePro
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto space-y-2">
+                <div className="flex-1 overflow-y-auto space-y-[8px]">
                     {todos.map(todo => (
-                        <div key={todo.id} className={`group flex items-center gap-3 p-3 rounded-xl border transition-all ${todo.isCompleted ? 'bg-slate-50 border-slate-100' : 'bg-white border-slate-200 hover:border-green-300'}`}>
+                        <div key={todo.id} className={`group flex items-center gap-3 p-[13px] rounded-xl border transition-all ${todo.isCompleted ? 'bg-slate-50 border-slate-100' : 'bg-white border-slate-200 hover:border-green-300'}`}>
                             <button onClick={() => toggleTodo(todo)} className={`shrink-0 ${todo.isCompleted ? 'text-green-500' : 'text-slate-300 hover:text-green-500'}`}>
                                 {todo.isCompleted ? <CheckCircle2 size={20} /> : <Circle size={20} />}
                             </button>
@@ -193,7 +193,7 @@ export function CalendarTodoPage({ currentUser, showToast }: CalendarTodoPagePro
             </div>
 
             {/* 오른쪽: FullCalendar */}
-            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 overflow-hidden flex flex-col">
+            <div className="flex-1 bg-white rounded-[24px] shadow-sm border border-slate-200 p-[21px] overflow-hidden flex flex-col">
                 <FullCalendar
                     plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin]}
                     headerToolbar={{

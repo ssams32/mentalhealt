@@ -46,9 +46,9 @@ const AnalysisDashboard: React.FC<AnalysisDashboardProps> = ({
     const [activeTabId, setActiveTabId] = useState(TABS[0].id);
 
     return (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="space-y-[var(--space-7,34px)] animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Header / Actions Card */}
-            <div className="flex flex-col sm:flex-row justify-between items-center bg-white p-5 rounded-2xl shadow-sm border border-slate-100 gap-4">
+            <div className="flex flex-col sm:flex-row justify-between items-center bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-100 gap-[21px]">
                 <div className="flex items-center gap-3">
                     <div className="p-2 bg-indigo-100 text-indigo-600 rounded-xl">
                         <PieChart size={20} />

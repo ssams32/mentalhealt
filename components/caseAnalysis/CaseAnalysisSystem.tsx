@@ -251,7 +251,7 @@ const CaseAnalysisSystem: React.FC<CaseAnalysisSystemProps> = ({ currentUser }) 
 
     return (
         <PageContainer title="사례 분석 시스템" subtitle="엑셀 데이터 리포트 및 심층 분석">
-            <div className="space-y-8 pb-20">
+            <div className="space-y-[var(--space-7,34px)] pb-20">
 
                 {/* 1. File Upload Section */}
                 <div className="animate-in fade-in slide-in-from-top-4 duration-500">
@@ -287,7 +287,7 @@ const CaseAnalysisSystem: React.FC<CaseAnalysisSystemProps> = ({ currentUser }) 
 
                 {/* 2. Results Dashboard */}
                 {!isAnalyzing && !analyzeError && filteredResults && (
-                    <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 space-y-6">
+                    <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 space-y-[var(--space-7,34px)]">
                         <FilterControls
                             departments={availableDepartments}
                             counselors={availableCounselors}

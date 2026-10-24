@@ -597,10 +597,10 @@ function ManualEntryModal({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 font-sans">
-            <div className="bg-white rounded-2xl shadow-2xl budget-manual-modal-container flex flex-col overflow-hidden animate-scale-in">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 font-sans p-[21px]">
+            <div className="bg-white rounded-2xl shadow-2xl budget-manual-modal-container flex flex-col overflow-hidden animate-scale-in w-full max-w-[912px] max-h-[calc(100vh-89px)]">
                 {/* Header */}
-                <div className="p-6 bg-black text-white flex justify-between items-center">
+                <div className="p-[21px] bg-black text-white flex justify-between items-center">
                     <div>
                         <h3 className="font-black text-2xl tracking-tight">{title}</h3>
                         <p className="text-gray-400 text-sm mt-1">지출 내역 수기 관리</p>
@@ -610,8 +610,8 @@ function ManualEntryModal({
 
                 <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
                     {/* Summary & Actions */}
-                    <div className="p-6 pb-2">
-                        <div className="flex justify-between items-center bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-4">
+                    <div className="p-[21px] pb-2">
+                        <div className="flex justify-between items-center bg-white p-[21px] rounded-[24px] shadow-sm border border-gray-100 mb-4">
                             <div>
                                 <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">총 지출액 (현재 목록)</span>
                                 <div className="flex items-baseline gap-1">
@@ -751,7 +751,7 @@ function ManualEntryModal({
                     </div>
                 </div>
 
-                <div className="p-5 border-t border-gray-100 bg-white flex items-center justify-between z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                <div className="p-[21px] border-t border-gray-100 bg-white flex items-center justify-between z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
                     <div className="flex items-center gap-2 text-[11px] font-bold">
                         {isAutoSaving ? (
                             <div className="flex items-center gap-1.5 text-blue-500 animate-pulse">
@@ -2315,7 +2315,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
     return (
         <div className="flex-1 h-full flex flex-col bg-[#f5f5f7] font-sans text-gray-900 overflow-hidden min-h-0">
             {/* Header */}
-            <div className="bg-white/80 backdrop-blur-md border-b border-gray-200 p-4 md:p-6 shrink-0 z-10">
+            <div className="bg-white/80 backdrop-blur-md border-b border-gray-200 p-[21px] shrink-0 z-10">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 md:mb-6 gap-4">
                     <div className="flex items-center gap-4">
                         <div className="w-12 h-12 bg-black text-white rounded-xl flex items-center justify-center shadow-lg shrink-0">
@@ -2386,7 +2386,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                     <div className="flex bg-gray-100 p-1 rounded-xl w-full md:w-auto">
                         <button
                             onClick={() => setActiveTab('status')}
-                            className={`flex-1 md:flex-none px-4 md:px-6 py-2 md:py-2.5 text-xs md:text-sm font-bold rounded-lg transition-all duration-300 ${activeTab === 'status' ? 'bg-white text-black shadow-md scale-100 md:scale-105' : 'text-gray-500 hover:text-gray-900'}`}
+                            className={`flex-1 md:flex-none px-[13px] py-[8px] text-[13px] font-bold rounded-lg transition-all duration-300 ${activeTab === 'status' ? 'bg-white text-black shadow-md scale-100 md:scale-105' : 'text-gray-500 hover:text-gray-900'}`}
                         >
                             예산 현황
                         </button>
@@ -2398,7 +2398,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                     setFilter(prev => ({ ...prev, budgetItem: [] }));
                                 }
                             }}
-                            className={`flex-1 md:flex-none px-4 md:px-6 py-2 md:py-2.5 text-xs md:text-sm font-bold rounded-lg transition-all duration-300 ${activeTab === 'history' ? 'bg-white text-black shadow-md scale-100 md:scale-105' : 'text-gray-500 hover:text-gray-900'}`}
+                            className={`flex-1 md:flex-none px-[13px] py-[8px] text-[13px] font-bold rounded-lg transition-all duration-300 ${activeTab === 'history' ? 'bg-white text-black shadow-md scale-100 md:scale-105' : 'text-gray-500 hover:text-gray-900'}`}
                         >
                             품의 내역 <span className="ml-1 opacity-50 text-[10px]">({transactions.length.toLocaleString()})</span>
                         </button>
@@ -2406,7 +2406,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                             onClick={() => {
                                 setActiveTab('manual');
                             }}
-                            className={`flex-1 md:flex-none px-4 md:px-6 py-2 md:py-2.5 text-xs md:text-sm font-bold rounded-lg transition-all duration-300 ${activeTab === 'manual' ? 'bg-white text-black shadow-md scale-100 md:scale-105' : 'text-gray-500 hover:text-gray-900'}`}
+                            className={`flex-1 md:flex-none px-[13px] py-[8px] text-[13px] font-bold rounded-lg transition-all duration-300 ${activeTab === 'manual' ? 'bg-white text-black shadow-md scale-100 md:scale-105' : 'text-gray-500 hover:text-gray-900'}`}
                         >
                             수기 내역 <span className="ml-1 opacity-50 text-[10px]">({(Object.values(budgetPlans) as BudgetPlan[]).reduce((sum, p) => sum + (p.manualEntries?.length || 0), 0)})</span>
                         </button>
@@ -2416,7 +2416,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                         <div className="flex gap-1">
                             <button
                                 onClick={() => setFilter({ ...filter, department: undefined })}
-                                className={`px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-[10px] md:text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap ${!filter.department || filter.department.length === 0 ? 'bg-black text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}`}
+                                className={`px-[13px] py-[8px] rounded-lg text-[13px] font-bold uppercase tracking-wider transition-all whitespace-nowrap ${!filter.department || filter.department.length === 0 ? 'bg-black text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}`}
                             >
                                 ALL
                             </button>
@@ -2424,7 +2424,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                 <button
                                     key={team}
                                     onClick={() => setFilter({ ...filter, department: [team] })}
-                                    className={`px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-[10px] md:text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap ${filter.department?.includes(team) && filter.department.length === 1 ? 'bg-black text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}`}
+                                    className={`px-[13px] py-[8px] rounded-lg text-[13px] font-bold uppercase tracking-wider transition-all whitespace-nowrap ${filter.department?.includes(team) && filter.department.length === 1 ? 'bg-black text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}`}
                                 >
                                     {team}
                                 </button>
@@ -2461,11 +2461,11 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 flex overflow-hidden p-4 md:p-6 gap-4 md:gap-6 relative">
+                <div className="flex-1 flex overflow-hidden p-[21px] gap-[21px] relative">
                     {activeTab === 'status' &&
                         <div className="flex-1 flex flex-col gap-4 overflow-hidden min-h-0">
                             {/* Hierarchy Control Bar */}
-                            <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex items-center justify-between z-20">
+                            <div className="bg-white rounded-[24px] p-[21px] shadow-sm border border-gray-100 flex items-center justify-between z-20">
                                 <div className="flex items-center gap-3">
                                     <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
                                         <div className={`w-2 h-2 rounded-full ${isHierarchyEditMode ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`} />
@@ -2532,7 +2532,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                             </div>
 
                             {/* Summary Cards */}
-                            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex-none z-10 hidden md:block">
+                            <div className="bg-white rounded-[24px] p-[21px] shadow-sm border border-gray-100 flex-none z-10 hidden md:block">
                                 <div className="flex items-center justify-between gap-4 mb-4 pb-4 border-b border-gray-100">
                                     <div className="flex items-center gap-4">
                                         <h2 className="text-lg font-black text-gray-800 flex items-center gap-2">
@@ -2556,20 +2556,20 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-4 gap-4">
-                                    <div className="bg-gray-50 flex flex-col p-4 rounded-xl">
+                                <div className="grid grid-cols-4 gap-[13px]">
+                                    <div className="bg-gray-50 flex flex-col p-[21px] rounded-xl">
                                         <span className="text-xs font-bold mb-1 text-gray-400">총 예산액</span>
                                         <span className="text-lg font-black font-mono tracking-tight">{totalSummary.totalBudget.toLocaleString()}</span>
                                     </div>
-                                    <div className="bg-gray-50 flex flex-col p-4 rounded-xl">
+                                    <div className="bg-gray-50 flex flex-col p-[21px] rounded-xl">
                                         <span className="text-xs font-bold mb-1 text-gray-400">총 지출액</span>
                                         <span className="text-lg font-black font-mono tracking-tight text-red-500">{totalSummary.totalSpent.toLocaleString()}</span>
                                     </div>
-                                    <div className="bg-gray-50 flex flex-col p-4 rounded-xl">
+                                    <div className="bg-gray-50 flex flex-col p-[21px] rounded-xl">
                                         <span className="text-xs font-bold mb-1 text-gray-400">잔액</span>
                                         <span className="text-lg font-black font-mono tracking-tight text-blue-600">{totalSummary.balance.toLocaleString()}</span>
                                     </div>
-                                    <div className="bg-gray-50 flex flex-col p-4 rounded-xl">
+                                    <div className="bg-gray-50 flex flex-col p-[21px] rounded-xl">
                                         <span className="text-xs font-bold mb-1 text-gray-400">집행률</span>
                                         <div className="flex items-end gap-2">
                                             <span className={`text-lg font-black font-mono tracking-tight ${totalSummary.ratio > 90 ? 'text-red-500' : 'text-green-500'}`}>
@@ -2593,7 +2593,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                         <table className="w-full text-sm border-collapse min-w-[1000px]">
                                             <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
                                                 <tr>
-                                                    <th className="px-4 py-3 text-left font-bold text-gray-500 whitespace-nowrap w-[25%]">예산 항목</th>
+                                                    <th className="px-4 py-3 text-left font-bold text-gray-500 whitespace-nowrap w-[clamp(280px,calc((100vh-32px)*0.382),560px)]" style={{ width: 'clamp(280px, calc((100vh - 32px) * 0.382), 560px)' }}>예산 항목</th>
                                                     <th className="px-4 py-3 text-right font-bold text-gray-500 whitespace-nowrap w-[12%]">예산액</th>
                                                     <th className="px-4 py-3 text-right font-bold text-gray-500 whitespace-nowrap w-[12%]">지출액</th>
                                                     <th className="px-4 py-3 text-right font-bold text-gray-500 whitespace-nowrap w-[12%]">잔액</th>
@@ -2781,7 +2781,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                         <div className="flex-1 flex flex-col gap-4 overflow-hidden min-h-0">
 
                             {/* 1. Real-time Summary Box */}
-                            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 shrink-0">
+                            <div className="bg-white rounded-[24px] p-[21px] shadow-sm border border-gray-100 shrink-0">
                                 <div className="flex justify-between items-end">
                                     <div>
                                         <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-1">💰 실시간 지출 요약</h2>
@@ -2814,10 +2814,10 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
 
                             {/* 2. Action Bar & Table */}
                             <HCard className="flex-1 flex flex-col bg-transparent shadow-none md:bg-white md:shadow-md border-none min-h-0">
-                                <div className="p-4 border-b border-gray-100 flex flex-col bg-gray-50 gap-3 md:flex-row md:items-center md:gap-0">
+                                <div className="p-[21px] border-b border-gray-100 flex flex-col bg-gray-50 gap-3 md:flex-row md:items-center md:gap-0">
                                     <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 flex-1 w-full md:w-auto">
                                         {/* Search Input - Full width on mobile */}
-                                        <div className="relative w-full md:w-96">
+                                        <div className="relative w-full md:w-[clamp(280px,calc((100vh-32px)*0.382),560px)]" style={{ width: 'clamp(280px, calc((100vh - 32px) * 0.382), 560px)' }}>
                                             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                                             <input
                                                 type="text"

@@ -20,11 +20,11 @@ const SummaryCards: React.FC<SummaryCardsProps> = ({ counselorData }) => {
     const generalRatio = grandTotal > 0 ? Math.round((generalTotal / grandTotal) * 100) : 0;
 
     return (
-        <div className="mb-8">
-            <h2 className="text-xl font-black text-slate-800 mb-5 tracking-tight">분석결과 요약</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="mb-[var(--space-7,34px)]">
+            <h2 className="text-[21px] font-black text-slate-800 mb-[21px] tracking-tight">분석결과 요약</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-[21px]">
                 {/* Card 1: 등록자 상담 건수 (Primary) */}
-                <div className="relative bg-white rounded-2xl p-6 border-2 border-indigo-100 shadow-sm hover:shadow-lg transition-all duration-300 group overflow-hidden">
+                <div className="relative bg-white rounded-[24px] p-[21px] border-2 border-indigo-100 shadow-sm hover:shadow-lg transition-all duration-300 group overflow-hidden">
                     <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-indigo-50 to-transparent rounded-bl-[3rem] opacity-60 group-hover:opacity-100 transition-opacity"></div>
                     <div className="relative z-10">
                         <div className="flex items-center mb-4">
@@ -32,10 +32,10 @@ const SummaryCards: React.FC<SummaryCardsProps> = ({ counselorData }) => {
                                 <FileSignature className="text-indigo-600" size={22} />
                             </div>
                         </div>
-                        <p className="text-sm font-bold text-slate-500 mb-1">등록자 상담 건수 (개별+자원조정)</p>
+                        <p className="text-[13px] font-bold text-slate-500 mb-1">등록자 상담 건수 (개별+자원조정)</p>
                         <div className="flex items-baseline gap-2">
-                            <span className="text-4xl font-black text-slate-900">{registrantTotal.toLocaleString()}</span>
-                            <span className="text-base font-bold text-indigo-500">{registrantRatio}%</span>
+                            <span className="text-[34px] font-black text-slate-900">{registrantTotal.toLocaleString()}</span>
+                            <span className="text-[16px] font-bold text-indigo-500">{registrantRatio}%</span>
                         </div>
                         <div className="mt-3 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                             <div className="h-full bg-indigo-500 rounded-full transition-all duration-1000" style={{ width: `${registrantRatio}%` }}></div>
@@ -44,7 +44,7 @@ const SummaryCards: React.FC<SummaryCardsProps> = ({ counselorData }) => {
                 </div>
 
                 {/* Card 2: 일반 상담 건수 (Secondary) */}
-                <div className="relative bg-white rounded-2xl p-6 border-2 border-emerald-100 shadow-sm hover:shadow-lg transition-all duration-300 group overflow-hidden">
+                <div className="relative bg-white rounded-[24px] p-[21px] border-2 border-emerald-100 shadow-sm hover:shadow-lg transition-all duration-300 group overflow-hidden">
                     <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-emerald-50 to-transparent rounded-bl-[3rem] opacity-60 group-hover:opacity-100 transition-opacity"></div>
                     <div className="relative z-10">
                         <div className="flex items-center mb-4">
@@ -52,10 +52,10 @@ const SummaryCards: React.FC<SummaryCardsProps> = ({ counselorData }) => {
                                 <MessageSquare className="text-emerald-600" size={22} />
                             </div>
                         </div>
-                        <p className="text-sm font-bold text-slate-500 mb-1">일반상담 건수</p>
+                        <p className="text-[13px] font-bold text-slate-500 mb-1">일반상담 건수</p>
                         <div className="flex items-baseline gap-2">
-                            <span className="text-4xl font-black text-slate-900">{generalTotal.toLocaleString()}</span>
-                            <span className="text-base font-bold text-emerald-500">{generalRatio}%</span>
+                            <span className="text-[34px] font-black text-slate-900">{generalTotal.toLocaleString()}</span>
+                            <span className="text-[16px] font-bold text-emerald-500">{generalRatio}%</span>
                         </div>
                         <div className="mt-3 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                             <div className="h-full bg-emerald-500 rounded-full transition-all duration-1000" style={{ width: `${generalRatio}%` }}></div>
@@ -64,7 +64,7 @@ const SummaryCards: React.FC<SummaryCardsProps> = ({ counselorData }) => {
                 </div>
 
                 {/* Card 3: 총 상담 건수 */}
-                <div className="relative bg-white rounded-2xl p-6 border-2 border-slate-100 shadow-sm hover:shadow-lg transition-all duration-300 group overflow-hidden">
+                <div className="relative bg-white rounded-[24px] p-[21px] border-2 border-slate-100 shadow-sm hover:shadow-lg transition-all duration-300 group overflow-hidden">
                     <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-slate-50 to-transparent rounded-bl-[3rem] opacity-60 group-hover:opacity-100 transition-opacity"></div>
                     <div className="relative z-10">
                         <div className="flex items-center justify-between mb-4">
@@ -72,14 +72,14 @@ const SummaryCards: React.FC<SummaryCardsProps> = ({ counselorData }) => {
                                 <BarChart3 className="text-slate-600" size={22} />
                             </div>
                         </div>
-                        <p className="text-sm font-bold text-slate-500 mb-1">총 상담 건수</p>
-                        <span className="text-4xl font-black text-slate-900">{grandTotal.toLocaleString()}</span>
-                        <p className="text-xs text-slate-500 mt-2 font-medium">등록자 + 일반 합계</p>
+                        <p className="text-[13px] font-bold text-slate-500 mb-1">총 상담 건수</p>
+                        <span className="text-[34px] font-black text-slate-900">{grandTotal.toLocaleString()}</span>
+                        <p className="text-[13px] text-slate-500 mt-2 font-medium">등록자 + 일반 합계</p>
                     </div>
                 </div>
 
                 {/* Card 4: 총 상담자 수 */}
-                <div className="relative bg-white rounded-2xl p-6 border-2 border-slate-100 shadow-sm hover:shadow-lg transition-all duration-300 group overflow-hidden">
+                <div className="relative bg-white rounded-[24px] p-[21px] border-2 border-slate-100 shadow-sm hover:shadow-lg transition-all duration-300 group overflow-hidden">
                     <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-amber-50 to-transparent rounded-bl-[3rem] opacity-60 group-hover:opacity-100 transition-opacity"></div>
                     <div className="relative z-10">
                         <div className="flex items-center justify-between mb-4">
@@ -87,9 +87,9 @@ const SummaryCards: React.FC<SummaryCardsProps> = ({ counselorData }) => {
                                 <Users className="text-amber-600" size={22} />
                             </div>
                         </div>
-                        <p className="text-sm font-bold text-slate-500 mb-1">총 상담자 수</p>
-                        <span className="text-4xl font-black text-slate-900">{totalCounselors.toLocaleString()}</span>
-                        <p className="text-xs text-slate-500 mt-2 font-medium">분석 기간 내 활동</p>
+                        <p className="text-[13px] font-bold text-slate-500 mb-1">총 상담자 수</p>
+                        <span className="text-[34px] font-black text-slate-900">{totalCounselors.toLocaleString()}</span>
+                        <p className="text-[13px] text-slate-500 mt-2 font-medium">분석 기간 내 활동</p>
                     </div>
                 </div>
             </div>

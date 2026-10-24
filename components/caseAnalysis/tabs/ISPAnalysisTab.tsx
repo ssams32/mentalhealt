@@ -70,45 +70,45 @@ const ISPAnalysisTab: React.FC = () => {
     };
 
     const StatCard = ({ label, value, color, icon: Icon }: { label: string, value: string, color: string, icon: any }) => (
-        <div className={`p-6 rounded-2xl border transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${color === 'indigo' ? 'bg-indigo-50/50 border-indigo-100 text-indigo-900 ring-indigo-200' :
+        <div className={`p-[21px] rounded-[24px] border transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${color === 'indigo' ? 'bg-indigo-50/50 border-indigo-100 text-indigo-900 ring-indigo-200' :
                 color === 'emerald' ? 'bg-emerald-50/50 border-emerald-100 text-emerald-900 ring-emerald-200' :
                     color === 'amber' ? 'bg-amber-50/50 border-amber-100 text-amber-900 ring-amber-200' :
                         'bg-rose-50/50 border-rose-100 text-rose-900 ring-rose-200 ring-2 ring-offset-2'
             }`}>
             <div className="flex items-center justify-between mb-2">
-                <span className={`text-[10px] font-black uppercase tracking-wider ${color === 'indigo' ? 'text-indigo-500' :
+                <span className={`text-[13px] font-black uppercase tracking-wider ${color === 'indigo' ? 'text-indigo-500' :
                         color === 'emerald' ? 'text-emerald-500' :
                             color === 'amber' ? 'text-amber-500' :
                                 'text-rose-500'
                     }`}>{label}</span>
-                <Icon size={16} className={`opacity-50 ${color === 'indigo' ? 'text-indigo-500' :
+                <Icon size={21} className={`opacity-50 ${color === 'indigo' ? 'text-indigo-500' :
                         color === 'emerald' ? 'text-emerald-500' :
                             color === 'amber' ? 'text-amber-500' :
                                 'text-rose-500'
                     }`} />
             </div>
-            <p className="text-3xl font-black">{value}</p>
+            <p className="text-[34px] font-black">{value}</p>
         </div>
     );
 
     return (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500 pb-20">
+        <div className="space-y-[var(--space-7,34px)] animate-in fade-in slide-in-from-bottom-2 duration-500 pb-20">
             {/* 1. ISP Compliance Evaluation Section */}
-            <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100">
-                <header className="mb-10 text-center max-w-2xl mx-auto">
-                    <h2 className="text-2xl font-black text-slate-800 mb-2">ISP 수립 및 준수율 평가</h2>
-                    <p className="text-slate-500 text-sm font-medium leading-relaxed">
+            <div className="bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-100">
+                <header className="mb-[var(--space-7,34px)] text-center max-w-2xl mx-auto">
+                    <h2 className="text-[26px] font-black text-slate-800 mb-2">ISP 수립 및 준수율 평가</h2>
+                    <p className="text-slate-500 text-[13px] font-medium leading-relaxed">
                         기준일 회원 및 퇴록 내역을 바탕으로 180일 주기를 준수했는지 자동 계산합니다.
                     </p>
                 </header>
 
-                <div className="flex justify-center mb-10">
+                <div className="flex justify-center mb-[var(--space-7,34px)]">
                     <button
                         onClick={handleRunAnalysis}
                         disabled={isAnalyzing}
                         className="
                             relative disabled:opacity-70 disabled:cursor-not-allowed
-                            bg-slate-900 hover:bg-indigo-600 text-white font-bold py-4 px-10 rounded-2xl shadow-xl shadow-slate-200 
+                            bg-slate-900 hover:bg-indigo-600 text-white font-bold text-[16px] py-[13px] px-[34px] rounded-[24px] shadow-xl shadow-slate-200 
                             flex items-center gap-3 transition-all duration-300 active:scale-95 group hover:shadow-indigo-200 hover:-translate-y-1
                         "
                     >
@@ -119,7 +119,7 @@ const ISPAnalysisTab: React.FC = () => {
                             </>
                         ) : (
                             <>
-                                <Play size={20} className="group-hover:translate-x-0.5 transition-transform text-indigo-300 group-hover:text-white" fill="currentColor" />
+                                <Play size={21} className="group-hover:translate-x-0.5 transition-transform text-indigo-300 group-hover:text-white" fill="currentColor" />
                                 ISP 준수율 평가 실행
                             </>
                         )}
@@ -127,7 +127,7 @@ const ISPAnalysisTab: React.FC = () => {
                 </div>
 
                 {summary && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-in zoom-in-95 duration-500">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-[21px] animate-in zoom-in-95 duration-500">
                         <StatCard label="분모 대상자" value={`${summary.denominator}명`} color="indigo" icon={Users} />
                         <StatCard label="분자 (준수자)" value={`${summary.numerator}명`} color="emerald" icon={CheckCircleIcon} />
                         <StatCard label="ISP 준수율" value={summary.rate} color="amber" icon={Target} />
@@ -137,14 +137,14 @@ const ISPAnalysisTab: React.FC = () => {
             </div>
 
             {/* 2. ISP Intervention Achievement (Monthly) Section */}
-            <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100">
-                <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+            <div className="bg-white p-[21px] rounded-[24px] shadow-sm border border-slate-100">
+                <div className="flex flex-col md:flex-row md:items-center justify-between mb-[var(--space-7,34px)] gap-[21px]">
                     <div>
                         <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
-                            <TrendingUp className="text-indigo-600" />
+                            <TrendingUp size={21} className="text-indigo-600" />
                             ISP 수립 관리구분 대비 개입 달성도
                         </h3>
-                        <p className="text-slate-500 text-xs font-medium mt-1">
+                        <p className="text-slate-500 text-[13px] font-medium mt-1">
                             관리구분별(집중/일시) 목표 상담 횟수 충족 여부를 확인합니다.
                         </p>
                     </div>
@@ -154,7 +154,7 @@ const ISPAnalysisTab: React.FC = () => {
                             type="month"
                             value={selectedMonth}
                             onChange={(e) => setSelectedMonth(e.target.value)}
-                            className="bg-transparent border-none text-sm font-bold text-slate-700 focus:ring-0 p-2 cursor-pointer"
+                            className="bg-transparent border-none text-[13px] font-bold text-slate-700 focus:ring-0 p-2 cursor-pointer"
                         />
                         <button 
                             onClick={loadAchievements}
@@ -207,7 +207,7 @@ const ISPAnalysisTab: React.FC = () => {
                                         </td>
                                         <td className="py-4 text-center">
                                             <div className="flex items-center justify-center gap-2">
-                                                <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                                <div className="w-16 h-[8px] bg-slate-200 rounded-full overflow-hidden">
                                                     <div 
                                                         className={`h-full transition-all duration-1000 ${
                                                             item.status === 'success' ? 'bg-emerald-500' : 'bg-rose-400'
@@ -257,13 +257,13 @@ const ISPAnalysisTab: React.FC = () => {
             </div>
 
             {/* 3. Detailed Criteria (existing) */}
-            <div className="bg-slate-50 p-8 rounded-[2rem] border border-slate-100">
-                <h3 className="font-black text-slate-700 mb-6 flex items-center gap-2 text-sm uppercase tracking-wide">
+            <div className="bg-slate-50 p-[21px] rounded-[24px] border border-slate-100">
+                <h3 className="font-black text-slate-700 mb-6 flex items-center gap-2 text-[16px] uppercase tracking-wide">
                     <AlertCircleIcon size={16} className="text-amber-500" /> 상세 평가 기준
                 </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-xs text-slate-600">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-[21px] text-[13px] text-slate-600">
                     <div className="space-y-3">
-                        <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm">
+                        <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm text-[16px]">
                             <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-[10px]">1</span>
                             집중관리 기준
                         </div>
@@ -272,7 +272,7 @@ const ISPAnalysisTab: React.FC = () => {
                         </p>
                     </div>
                     <div className="space-y-3">
-                        <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm">
+                        <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm text-[16px]">
                             <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-[10px]">2</span>
                             일시관리 기준
                         </div>
@@ -281,7 +281,7 @@ const ISPAnalysisTab: React.FC = () => {
                         </p>
                     </div>
                     <div className="space-y-3">
-                        <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm">
+                        <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm text-[16px]">
                             <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-[10px]">3</span>
                             데이터 집계 방식
                         </div>
@@ -291,12 +291,12 @@ const ISPAnalysisTab: React.FC = () => {
                     </div>
                 </div>
                 <div className="mt-8 pt-6 border-t border-slate-200">
-                    <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm text-xs mb-5">
+                    <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm text-[16px] mb-5">
                         자살 사례 위험도 기준 (MHIS)
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-xs text-slate-600">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-[21px] text-[13px] text-slate-600">
                         <div className="space-y-3">
-                            <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm">
+                            <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm text-[16px]">
                                 <span className="w-5 h-5 rounded-full bg-rose-100 text-rose-500 flex items-center justify-center text-[10px]">고</span>
                                 고위험군 기준
                             </div>
@@ -305,7 +305,7 @@ const ISPAnalysisTab: React.FC = () => {
                             </p>
                         </div>
                         <div className="space-y-3">
-                            <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm">
+                            <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm text-[16px]">
                                 <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-[10px]">중</span>
                                 중위험군 기준
                             </div>
@@ -314,7 +314,7 @@ const ISPAnalysisTab: React.FC = () => {
                             </p>
                         </div>
                         <div className="space-y-3">
-                            <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm">
+                            <div className="flex items-center gap-2 font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-100 w-fit shadow-sm text-[16px]">
                                 <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px]">저</span>
                                 저위험군 기준
                             </div>

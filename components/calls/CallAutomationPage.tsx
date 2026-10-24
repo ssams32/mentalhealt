@@ -307,7 +307,7 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
     return (
         <div className="flex flex-col h-full bg-slate-50 overflow-hidden">
             {/* 1. Header & Quick Actions */}
-            <div className="bg-white border-b border-slate-200 px-6 py-4 shadow-sm">
+            <div className="bg-white border-b border-slate-200 p-[21px] shadow-sm">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
                         <div className="flex items-center gap-2">
@@ -354,10 +354,10 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
                 </div>
 
                 {/* 2. Metrics Bar */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mt-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-[13px] mt-[13px]">
                     <div 
                         onClick={() => setActiveTab('all')}
-                        className={`p-3 rounded-xl border transition cursor-pointer ${activeTab === 'all' ? 'bg-violet-50/70 border-violet-300 shadow-sm' : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/60'}`}
+                        className={`p-[21px] rounded-[24px] border transition cursor-pointer ${activeTab === 'all' ? 'bg-violet-50/70 border-violet-300 shadow-sm' : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/60'}`}
                     >
                         <div className="flex items-center justify-between">
                             <span className="text-xs font-medium text-slate-500">전체 수신</span>
@@ -368,7 +368,7 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
 
                     <div 
                         onClick={() => setActiveTab('pending')}
-                        className={`p-3 rounded-xl border transition cursor-pointer ${activeTab === 'pending' ? 'bg-amber-50 border-amber-300 shadow-sm ring-1 ring-amber-400' : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/60'}`}
+                        className={`p-[21px] rounded-[24px] border transition cursor-pointer ${activeTab === 'pending' ? 'bg-amber-50 border-amber-300 shadow-sm ring-1 ring-amber-400' : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/60'}`}
                     >
                         <div className="flex items-center justify-between">
                             <span className="text-xs font-semibold text-amber-700">분류 대기</span>
@@ -382,7 +382,7 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
 
                     <div 
                         onClick={() => setActiveTab('administrative')}
-                        className={`p-3 rounded-xl border transition cursor-pointer ${activeTab === 'administrative' ? 'bg-blue-50 border-blue-300 shadow-sm' : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/60'}`}
+                        className={`p-[21px] rounded-[24px] border transition cursor-pointer ${activeTab === 'administrative' ? 'bg-blue-50 border-blue-300 shadow-sm' : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/60'}`}
                     >
                         <div className="flex items-center justify-between">
                             <span className="text-xs font-medium text-blue-600">행정전화</span>
@@ -393,7 +393,7 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
 
                     <div 
                         onClick={() => setActiveTab('individual')}
-                        className={`p-3 rounded-xl border transition cursor-pointer ${activeTab === 'individual' ? 'bg-emerald-50 border-emerald-300 shadow-sm' : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/60'}`}
+                        className={`p-[21px] rounded-[24px] border transition cursor-pointer ${activeTab === 'individual' ? 'bg-emerald-50 border-emerald-300 shadow-sm' : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/60'}`}
                     >
                         <div className="flex items-center justify-between">
                             <span className="text-xs font-medium text-emerald-600">개별상담</span>
@@ -404,7 +404,7 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
 
                     <div 
                         onClick={() => setActiveTab('intake')}
-                        className={`p-3 rounded-xl border transition cursor-pointer ${activeTab === 'intake' ? 'bg-cyan-50 border-cyan-300 shadow-sm' : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/60'}`}
+                        className={`p-[21px] rounded-[24px] border transition cursor-pointer ${activeTab === 'intake' ? 'bg-cyan-50 border-cyan-300 shadow-sm' : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/60'}`}
                     >
                         <div className="flex items-center justify-between">
                             <span className="text-xs font-medium text-cyan-600">접수상담</span>
@@ -420,37 +420,37 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
                     <div className="flex items-center gap-1 overflow-x-auto pb-1 md:pb-0">
                         <button
                             onClick={() => setActiveTab('pending')}
-                            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition whitespace-nowrap ${activeTab === 'pending' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
+                            className={`px-[13px] py-[8px] text-xs font-semibold rounded-lg transition whitespace-nowrap ${activeTab === 'pending' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
                         >
                             분류 대기 ({stats?.pendingClassification || 0})
                         </button>
                         <button
                             onClick={() => setActiveTab('all')}
-                            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition whitespace-nowrap ${activeTab === 'all' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                            className={`px-[13px] py-[8px] text-xs font-medium rounded-lg transition whitespace-nowrap ${activeTab === 'all' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
                         >
                             전체 수신함
                         </button>
                         <button
                             onClick={() => setActiveTab('administrative')}
-                            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition whitespace-nowrap ${activeTab === 'administrative' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                            className={`px-[13px] py-[8px] text-xs font-medium rounded-lg transition whitespace-nowrap ${activeTab === 'administrative' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
                         >
                             행정전화 ({stats?.administrative || 0})
                         </button>
                         <button
                             onClick={() => setActiveTab('individual')}
-                            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition whitespace-nowrap ${activeTab === 'individual' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                            className={`px-[13px] py-[8px] text-xs font-medium rounded-lg transition whitespace-nowrap ${activeTab === 'individual' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
                         >
                             개별상담 ({stats?.individualCounseling || 0})
                         </button>
                         <button
                             onClick={() => setActiveTab('intake')}
-                            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition whitespace-nowrap ${activeTab === 'intake' ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                            className={`px-[13px] py-[8px] text-xs font-medium rounded-lg transition whitespace-nowrap ${activeTab === 'intake' ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
                         >
                             접수상담 ({stats?.intakeCounseling || 0})
                         </button>
                         <button
                             onClick={() => setActiveTab('completed')}
-                            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition whitespace-nowrap ${activeTab === 'completed' ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                            className={`px-[13px] py-[8px] text-xs font-medium rounded-lg transition whitespace-nowrap ${activeTab === 'completed' ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
                         >
                             처리 완료
                         </button>
@@ -485,7 +485,7 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
             {/* 4. Split Workspace (Left: Call List, Right: Inspector & Audio Player) */}
             <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
                 {/* Left Panel: Call List */}
-                <div className="lg:w-7/12 flex-1 flex flex-col border-r border-slate-200 bg-white overflow-hidden">
+                <div className="lg:w-7/12 min-w-[340px] flex-1 flex flex-col border-r border-slate-200 bg-white overflow-hidden">
                     <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
                         {loading && calls.length === 0 ? (
                             <div className="flex items-center justify-center h-48 text-slate-400 text-xs">
@@ -595,11 +595,11 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
                 </div>
 
                 {/* Right Panel: Call Details, Audio Player, Classification & Actions */}
-                <div className="lg:w-5/12 bg-slate-50 flex flex-col overflow-y-auto">
+                <div className="lg:w-5/12 min-w-[340px] bg-slate-50 flex flex-col overflow-y-auto">
                     {selectedCall ? (
-                        <div className="p-6 space-y-6">
+                        <div className="p-[21px] space-y-[13px]">
                             {/* Audio Player Card */}
-                            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                            <div className="bg-white p-[21px] rounded-[24px] border border-slate-200 shadow-sm space-y-[13px]">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                         <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
@@ -663,7 +663,7 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
                             </div>
 
                             {/* Classification Actions Card */}
-                            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                            <div className="bg-white p-[21px] rounded-[24px] border border-slate-200 shadow-sm space-y-[13px]">
                                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                                     <div className="flex items-center gap-2">
                                         <Tag className="w-4 h-4 text-slate-500" />
@@ -762,7 +762,7 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
                             </div>
 
                             {/* Staff Assignment Card */}
-                            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                            <div className="bg-white p-[21px] rounded-[24px] border border-slate-200 shadow-sm space-y-[13px]">
                                 <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
                                     <div className="flex items-center gap-2">
                                         <UserCheck className="w-4 h-4 text-slate-500" />
@@ -814,7 +814,7 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
                             </div>
 
                             {/* Referral Integration Card */}
-                            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                            <div className="bg-white p-[21px] rounded-[24px] border border-slate-200 shadow-sm space-y-[13px]">
                                 <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
                                     <div className="flex items-center gap-2">
                                         <Link2 className="w-4 h-4 text-purple-600" />
@@ -864,8 +864,8 @@ export const CallAutomationPage: React.FC<CallAutomationPageProps> = ({
 
             {/* 5. Link Referral Modal */}
             {isLinkModalOpen && (
-                <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-lg w-full overflow-hidden flex flex-col max-h-[85vh]">
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-[21px]">
+                    <div className="bg-white rounded-[24px] shadow-xl border border-slate-200 max-w-[672px] w-full overflow-hidden flex flex-col max-h-[calc(100vh-89px)] p-[21px]">
                         <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
                             <div className="flex items-center gap-2">
                                 <Link2 className="w-5 h-5 text-purple-600" />

@@ -362,9 +362,9 @@ const DocumentAttachmentModal: React.FC<DocumentAttachmentModalProps> = ({
 
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in touch-none">
-            <div className="bg-white rounded-2xl shadow-2xl w-[900px] h-[800px] flex flex-col overflow-hidden max-w-full max-h-full m-4">
+            <div className="bg-white rounded-[24px] shadow-2xl w-[912px] h-[calc(100vh-89px)] p-[21px] flex flex-col overflow-hidden max-w-full max-h-full m-4">
                 {/* Header */}
-                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <div className="p-[21px] border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                     <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
                         <FileText className="text-blue-600" />
                         공문 및 서류 관리
@@ -375,12 +375,12 @@ const DocumentAttachmentModal: React.FC<DocumentAttachmentModalProps> = ({
                 </div>
 
                 {/* Tabs */}
-                <div className="flex border-b border-slate-100 px-4 overflow-x-auto">
+                <div className="flex border-b border-slate-100 px-[21px] overflow-x-auto">
                     {(['upload', 'preview', 'notes'] as const).map(tab => (
                         <button
                             key={tab}
                             onClick={() => setActiveTab(tab)}
-                            className={`px-6 py-3 text-sm font-bold transition-colors relative whitespace-nowrap ${activeTab === tab ? 'text-blue-600' : 'text-slate-500 hover:text-slate-700'
+                            className={`px-[21px] py-[13px] text-sm font-bold transition-colors relative whitespace-nowrap ${activeTab === tab ? 'text-blue-600' : 'text-slate-500 hover:text-slate-700'
                                 }`}
                         >
                             {tab === 'upload' && '파일 업로드/목록'}
@@ -394,7 +394,7 @@ const DocumentAttachmentModal: React.FC<DocumentAttachmentModalProps> = ({
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 overflow-hidden p-6 bg-slate-50/30 relative">
+                <div className="flex-1 overflow-hidden p-[21px] bg-slate-50/30 relative">
                     {/* Upload Loading Overlay */}
                     {isUploading && (
                         <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center">
@@ -412,7 +412,7 @@ const DocumentAttachmentModal: React.FC<DocumentAttachmentModalProps> = ({
                     {activeTab === 'upload' && (
                         <div className="h-full flex flex-col gap-6">
                             {/* Upload Area */}
-                            <div className="border-2 border-dashed border-slate-300 rounded-2xl p-8 flex flex-col items-center justify-center bg-white hover:bg-slate-50 transition-colors cursor-pointer group relative">
+                            <div className="border-2 border-dashed border-slate-300 rounded-[24px] p-[21px] flex flex-col items-center justify-center bg-white hover:bg-slate-50 transition-colors cursor-pointer group relative">
                                 <input
                                     type="file"
                                     multiple
@@ -430,7 +430,7 @@ const DocumentAttachmentModal: React.FC<DocumentAttachmentModalProps> = ({
                             {/* File List */}
                             <div className="flex-1 overflow-y-auto space-y-3">
                                 {attachments.map(file => (
-                                    <div key={file.id} className="bg-white p-4 rounded-xl border border-slate-200 flex items-center justify-between shadow-sm hover:shadow-md transition-shadow">
+                                    <div key={file.id} className="bg-white p-[13px] rounded-xl border border-slate-200 flex items-center justify-between shadow-sm hover:shadow-md transition-shadow">
                                         <div className="flex items-center gap-4">
                                             <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
                                                 {file.type.includes('image') ? <ImageIcon size={20} className="text-purple-500" /> : <FileText size={20} className="text-blue-500" />}
@@ -470,7 +470,7 @@ const DocumentAttachmentModal: React.FC<DocumentAttachmentModalProps> = ({
                     {activeTab === 'preview' && (
                         <div className="h-full flex flex-col lg:flex-row gap-6">
                             {/* File List Sidebar */}
-                            <div className="w-full lg:w-64 border-r border-slate-200 pr-4 overflow-y-auto max-h-[200px] lg:max-h-full">
+                            <div className="w-full lg:w-[clamp(280px,calc((100vh-32px)*0.382),560px)] shrink-0 border-r border-slate-200 pr-[13px] overflow-y-auto max-h-[200px] lg:max-h-full" style={{ width: 'clamp(280px, calc((100vh - 32px) * 0.382), 560px)' }}>
                                 <h3 className="font-bold text-slate-700 mb-4">파일 목록</h3>
                                 <div className="space-y-2">
                                     {attachments.map(file => (
@@ -497,14 +497,14 @@ const DocumentAttachmentModal: React.FC<DocumentAttachmentModalProps> = ({
                                                 {/* Zoom Controls - Hide for Drive Preview (it has built-in controls) */}
                                                 {(!previewUrl?.includes('drive.google.com') && (selectedFile.type.startsWith('image/') || selectedFile.type === 'application/pdf')) && (
                                                     <div className="flex items-center bg-slate-100 rounded-lg p-1 mr-2">
-                                                        <button onClick={handleZoomOut} className="p-1.5 hover:bg-white rounded-md transition-colors text-slate-600" title="축소">
+                                                        <button onClick={handleZoomOut} className="p-[8px] hover:bg-white rounded-md transition-colors text-slate-600" title="축소">
                                                             <i className="fas fa-minus text-xs"></i>
                                                         </button>
                                                         <span className="text-xs font-mono w-12 text-center text-slate-600">{Math.round(zoomLevel * 100)}%</span>
-                                                        <button onClick={handleZoomIn} className="p-1.5 hover:bg-white rounded-md transition-colors text-slate-600" title="확대">
+                                                        <button onClick={handleZoomIn} className="p-[8px] hover:bg-white rounded-md transition-colors text-slate-600" title="확대">
                                                             <i className="fas fa-plus text-xs"></i>
                                                         </button>
-                                                        <button onClick={handleZoomReset} className="p-1.5 hover:bg-white rounded-md transition-colors text-slate-600 ml-1" title="초기화">
+                                                        <button onClick={handleZoomReset} className="p-[8px] hover:bg-white rounded-md transition-colors text-slate-600 ml-1" title="초기화">
                                                             <i className="fas fa-undo text-xs"></i>
                                                         </button>
                                                     </div>

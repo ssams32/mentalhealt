@@ -86,9 +86,9 @@ const NotesModal: React.FC<NotesModalProps> = ({
     const title = patientName ? `${patientName}님의 상담/개입내역` : '상담/개입내역';
 
     return (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-[60] p-4">
-            <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg p-8 space-y-6 relative border border-white/50 animate-scale-in">
-                <div className="flex justify-between items-center border-b border-slate-100 pb-4">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-[60] p-[21px]">
+            <div className="bg-white rounded-[24px] shadow-2xl w-full max-w-[448px] max-h-[calc(100vh-89px)] overflow-y-auto p-[21px] space-y-6 relative border border-white/50 animate-scale-in">
+                <div className="flex justify-between items-center border-b border-slate-100 pb-[13px] mb-[13px]">
                     <div>
                         <h3 className="text-xl font-extrabold text-slate-900">{title}</h3>
                         <p className="text-sm text-slate-400 font-medium">상담 및 개입 내용을 기록하고 관리합니다.</p>
@@ -117,8 +117,8 @@ const NotesModal: React.FC<NotesModalProps> = ({
                                                 rows={3}
                                             />
                                             <div className="flex justify-end gap-2">
-                                                <button onClick={handleEditCancel} className="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-200 rounded-lg hover:bg-slate-300">취소</button>
-                                                <button onClick={handleEditSave} className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700">저장</button>
+                                                <button onClick={handleEditCancel} className="px-[13px] py-[8px] text-xs font-bold text-slate-500 bg-slate-200 rounded-lg hover:bg-slate-300">취소</button>
+                                                <button onClick={handleEditSave} className="px-[13px] py-[8px] text-xs font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700">저장</button>
                                             </div>
                                         </div>
                                     ) : (
@@ -164,7 +164,7 @@ const NotesModal: React.FC<NotesModalProps> = ({
                     />
                     <button
                         onClick={handleAddNote}
-                        className="w-full flex items-center justify-center space-x-2 py-3.5 rounded-2xl cursor-pointer transition shadow-lg bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed group"
+                        className="w-full flex items-center justify-center space-x-2 px-[13px] py-[13px] rounded-2xl cursor-pointer transition shadow-lg bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed group"
                         disabled={!newNoteContent.trim()}
                     >
                         <i className="fas fa-plus group-hover:scale-110 transition-transform"></i>

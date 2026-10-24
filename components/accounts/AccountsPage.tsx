@@ -480,13 +480,13 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
             subtitle={currentUser.role === 'admin' ? "시스템 사용자 및 권한 설정" : "시스템 사용자 목록 (관리자만 수정 가능)"}
             headerContent={
                 <div className="flex items-center gap-3">
-                    <button onClick={handleOpenChangePasswordModal} className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 px-4 py-2.5 rounded-xl font-bold text-sm shadow-sm transition flex items-center gap-2">
+                    <button onClick={handleOpenChangePasswordModal} className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 px-[13px] py-[8px] rounded-xl font-bold text-sm shadow-sm transition flex items-center gap-2">
                         <i className="fas fa-key"></i> 비밀번호 변경
                     </button>
 
                     {currentUser.role === 'admin' && activeTab === 'users' && (
                         <>
-                            <button onClick={handleExport} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-600/20 transition flex items-center gap-2 hover:bg-indigo-700">
+                            <button onClick={handleExport} className="bg-indigo-600 text-white px-[13px] py-[8px] rounded-xl font-bold text-sm shadow-lg shadow-indigo-600/20 transition flex items-center gap-2 hover:bg-indigo-700">
                                 <i className="fas fa-file-export"></i> 엑셀 저장
                             </button>
 
@@ -498,13 +498,13 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                                     disabled={isImporting}
                                 />
-                                <button disabled={isImporting} className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-emerald-600/20 transition flex items-center gap-2 hover:bg-emerald-700">
+                                <button disabled={isImporting} className="bg-emerald-600 text-white px-[13px] py-[8px] rounded-xl font-bold text-sm shadow-lg shadow-emerald-600/20 transition flex items-center gap-2 hover:bg-emerald-700">
                                     {isImporting ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-file-excel"></i>}
                                     <span>{isImporting ? '가져오는 중...' : '계정 엑셀 가져오기'}</span>
                                 </button>
                             </div>
 
-                            <button onClick={handleOpenAddModal} className="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-slate-900/20 transition flex items-center gap-2 shadow-lg shadow-slate-900/20">
+                            <button onClick={handleOpenAddModal} className="bg-slate-900 text-white px-[13px] py-[8px] rounded-xl font-bold text-sm shadow-lg shadow-slate-900/20 transition flex items-center gap-2">
                                 <i className="fas fa-plus"></i> 사용자 추가
                             </button>
                         </>
@@ -517,20 +517,20 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
             <div className="flex gap-1 mb-6 bg-white/50 p-1 rounded-2xl border border-slate-100 w-fit">
                 <button
                     onClick={() => setActiveTab('users')}
-                    className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'users' ? 'bg-white text-indigo-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600'}`}
+                    className={`px-[13px] py-[8px] rounded-xl text-sm font-bold transition-all ${activeTab === 'users' ? 'bg-white text-indigo-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600'}`}
                 >
                     사용자 관리
                 </button>
                 <button
                     onClick={() => setActiveTab('activity')}
-                    className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'activity' ? 'bg-white text-indigo-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600'}`}
+                    className={`px-[13px] py-[8px] rounded-xl text-sm font-bold transition-all ${activeTab === 'activity' ? 'bg-white text-indigo-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600'}`}
                 >
                     활동 로그
                 </button>
                 {currentUser.role === 'admin' && (
                     <button
                         onClick={() => setActiveTab('org')}
-                        className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'org' ? 'bg-white text-indigo-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600'}`}
+                        className={`px-[13px] py-[8px] rounded-xl text-sm font-bold transition-all ${activeTab === 'org' ? 'bg-white text-indigo-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600'}`}
                     >
                         기관 설정
                     </button>
@@ -557,15 +557,15 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                     <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
                         {/* Summary Badges */}
                         <div className="flex flex-wrap items-center gap-3">
-                            <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700">
+                            <div className="flex items-center gap-2 px-[13px] py-[8px] rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700">
                                 <i className="fas fa-users text-slate-400"></i>
                                 <span>활성 사용자 <strong className="text-slate-900">{permissionSummary.totalActive}</strong>명</span>
                             </div>
-                            <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-teal-50 border border-teal-200 text-xs font-bold text-teal-800">
+                            <div className="flex items-center gap-2 px-[13px] py-[8px] rounded-xl bg-teal-50 border border-teal-200 text-xs font-bold text-teal-800">
                                 <i className="fas fa-clipboard-check text-teal-600"></i>
                                 <span>온라인 설문 <strong className="text-teal-900">{permissionSummary.surveyCount}</strong>명</span>
                             </div>
-                            <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-purple-50 border border-purple-200 text-xs font-bold text-purple-800">
+                            <div className="flex items-center gap-2 px-[13px] py-[8px] rounded-xl bg-purple-50 border border-purple-200 text-xs font-bold text-purple-800">
                                 <i className="fas fa-microphone text-purple-600"></i>
                                 <span>음성 녹음 분석(AI) <strong className="text-purple-900">{permissionSummary.voiceCount}</strong>명</span>
                             </div>
@@ -580,13 +580,13 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     placeholder="이름 / ID / 팀 검색"
-                                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition"
+                                    className="w-full pl-9 pr-[13px] py-[8px] bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition"
                                 />
                             </div>
                             <select
                                 value={permissionFilter}
                                 onChange={(e) => setPermissionFilter(e.target.value as any)}
-                                className="px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer"
+                                className="px-[13px] py-[8px] bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer"
                             >
                                 <option value="all">전체 사용자 ({users.length}명)</option>
                                 <option value="survey">온라인 설문 허용 ({permissionSummary.surveyCount}명)</option>
@@ -730,7 +730,7 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                     {/* Mobile User Cards View */}
                     <div className="md:hidden space-y-4 mb-8">
                         {filteredUsers.length === 0 ? (
-                            <div className="p-8 text-center text-slate-400 bg-white rounded-3xl border border-slate-100">
+                            <div className="p-[21px] text-center text-slate-400 bg-white rounded-[24px] border border-slate-100">
                                 검색된 사용자가 없습니다.
                             </div>
                         ) : (
@@ -742,7 +742,7 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                                 const isVoiceBusy = updatingPerm?.userId === u.id && updatingPerm?.permKey === 'voice_ai';
 
                                 return (
-                                    <div key={u.id} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+                                    <div key={u.id} className="bg-white p-[21px] rounded-[24px] border border-slate-100 shadow-sm space-y-4">
                                         {/* Card Header */}
                                         <div className="flex items-start justify-between gap-2">
                                             <div>
@@ -916,9 +916,9 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                 <OrgSettingsPanel showToast={showToast} />
             )}
 
-            {isAddModalOpen && <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"><div className="bg-white rounded-[2rem] shadow-2xl p-8 space-y-6 w-full max-w-md animate-scale-in"><h2 className="text-2xl font-extrabold text-slate-900">사용자 추가</h2><form onSubmit={handleAddNewUser} className="space-y-4">{addUserError && <p className="text-red-500 text-sm bg-red-50 p-3 rounded-xl font-bold">{addUserError}</p>}<div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">아이디</label><input type="text" value={newUser.id || ''} onChange={(e) => setNewUser({ ...newUser, id: e.target.value })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none" required /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">이름</label><input type="text" value={newUser.name || ''} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none" required /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">비밀번호</label><input type="password" value={newUser.password || ''} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none" required /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">소속팀</label><select value={newUser.team || getTeams()[0]} onChange={(e) => setNewUser({ ...newUser, team: e.target.value as any })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none appearance-none">{getTeams().map(team => <option key={team} value={team}>{getTeamsConfig()[team]?.title || team}</option>)}</select></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">권한</label><select value={newUser.role || 'user'} onChange={(e) => setNewUser({ ...newUser, role: e.target.value as any })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none appearance-none"><option value="user">사용자</option><option value="manager">매니저</option><option value="admin">관리자</option></select></div><div className="flex justify-end gap-3 pt-4"><button type="button" onClick={handleCloseAddModal} className="px-6 py-3 bg-slate-100 rounded-xl font-bold text-slate-500 hover:bg-slate-200 transition" disabled={isSubmitting}>취소</button><button type="submit" className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed" disabled={isSubmitting}>{isSubmitting ? '생성 중...' : '생성'}</button></div></form></div></div>}
+            {isAddModalOpen && <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-[21px]"><div className="bg-white rounded-[24px] shadow-2xl p-[21px] space-y-6 w-full max-w-[448px] max-h-[calc(100vh-89px)] overflow-y-auto animate-scale-in"><h2 className="text-2xl font-extrabold text-slate-900">사용자 추가</h2><form onSubmit={handleAddNewUser} className="space-y-4">{addUserError && <p className="text-red-500 text-sm bg-red-50 p-3 rounded-xl font-bold">{addUserError}</p>}<div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">아이디</label><input type="text" value={newUser.id || ''} onChange={(e) => setNewUser({ ...newUser, id: e.target.value })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none" required /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">이름</label><input type="text" value={newUser.name || ''} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none" required /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">비밀번호</label><input type="password" value={newUser.password || ''} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none" required /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">소속팀</label><select value={newUser.team || getTeams()[0]} onChange={(e) => setNewUser({ ...newUser, team: e.target.value as any })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none appearance-none">{getTeams().map(team => <option key={team} value={team}>{getTeamsConfig()[team]?.title || team}</option>)}</select></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">권한</label><select value={newUser.role || 'user'} onChange={(e) => setNewUser({ ...newUser, role: e.target.value as any })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none appearance-none"><option value="user">사용자</option><option value="manager">매니저</option><option value="admin">관리자</option></select></div><div className="flex justify-end gap-3 pt-4"><button type="button" onClick={handleCloseAddModal} className="px-6 py-3 bg-slate-100 rounded-xl font-bold text-slate-500 hover:bg-slate-200 transition" disabled={isSubmitting}>취소</button><button type="submit" className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed" disabled={isSubmitting}>{isSubmitting ? '생성 중...' : '생성'}</button></div></form></div></div>}
 
-            {isEditModalOpen && editingUser && <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"><div className="bg-white rounded-[2rem] shadow-2xl p-8 space-y-6 w-full max-w-md animate-scale-in"><h2 className="text-2xl font-extrabold text-slate-900">계정 수정</h2><form onSubmit={handleUpdateUser} className="space-y-4"><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">이름</label><input type="text" value={editingUser.name || ''} onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 outline-none" required /></div>                            <div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">소속팀</label><select value={editingUser.team || getTeams()[0]} onChange={(e) => setEditingUser({ ...editingUser, team: e.target.value as any })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 outline-none">{getTeams().map(team => <option key={team} value={team}>{getTeamsConfig()[team]?.title || team}</option>)}</select></div>
+            {isEditModalOpen && editingUser && <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-[21px]"><div className="bg-white rounded-[24px] shadow-2xl p-[21px] space-y-6 w-full max-w-[448px] max-h-[calc(100vh-89px)] overflow-y-auto animate-scale-in"><h2 className="text-2xl font-extrabold text-slate-900">계정 수정</h2><form onSubmit={handleUpdateUser} className="space-y-4"><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">이름</label><input type="text" value={editingUser.name || ''} onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 outline-none" required /></div>                            <div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">소속팀</label><select value={editingUser.team || getTeams()[0]} onChange={(e) => setEditingUser({ ...editingUser, team: e.target.value as any })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 outline-none">{getTeams().map(team => <option key={team} value={team}>{getTeamsConfig()[team]?.title || team}</option>)}</select></div>
 
                 {/* Permission Editor - Improved Compact Grid UI */}
                 <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
@@ -1001,21 +1001,21 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                 <div className="flex justify-end gap-3 pt-4"><button type="button" onClick={handleCloseEditModal} className="px-6 py-3 bg-slate-100 rounded-xl font-bold text-slate-500">취소</button><button type="submit" className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg">저장</button></div></form></div></div>}
 
             {isChangePasswordModalOpen && (
-                <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-[2rem] shadow-2xl p-8 space-y-6 w-full max-w-md animate-scale-in">
+                <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-[21px]">
+                    <div className="bg-white rounded-[24px] shadow-2xl p-[21px] space-y-6 w-full max-w-[448px] max-h-[calc(100vh-89px)] overflow-y-auto animate-scale-in">
                         <h2 className="text-2xl font-extrabold text-slate-900">비밀번호 변경</h2>
                         <form onSubmit={handleChangePassword} className="space-y-4">
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 mb-1 ml-1">현재 비밀번호</label>
-                                <input type="password" value={passwordData.oldPassword} onChange={(e) => setPasswordData({ ...passwordData, oldPassword: e.target.value })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20" required placeholder="현재 사용 중인 비밀번호" />
+                                <input type="password" value={passwordData.oldPassword} onChange={(e) => setPasswordData({ ...passwordData, oldPassword: e.target.value })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20" required placeholder="현재 사용 중인 비밀번호" />
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 mb-1 ml-1">새 비밀번호</label>
-                                <input type="password" value={passwordData.newPassword} onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20" required placeholder="변경할 비밀번호" />
+                                <input type="password" value={passwordData.newPassword} onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20" required placeholder="변경할 비밀번호" />
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 mb-1 ml-1">새 비밀번호 확인</label>
-                                <input type="password" value={passwordData.confirmPassword} onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })} className="w-full px-4 py-3 bg-slate-50 rounded-xl font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20" required placeholder="비밀번호 재입력" />
+                                <input type="password" value={passwordData.confirmPassword} onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20" required placeholder="비밀번호 재입력" />
                             </div>
                             <div className="flex justify-end gap-3 pt-4">
                                 <button type="button" onClick={() => setIsChangePasswordModalOpen(false)} className="px-6 py-3 bg-slate-100 rounded-xl font-bold text-slate-500 hover:bg-slate-200 transition">취소</button>

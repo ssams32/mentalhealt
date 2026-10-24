@@ -2091,7 +2091,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
     return (
         <div className="flex-1 flex flex-col h-full bg-slate-100 overflow-hidden text-slate-800">
             {/* 1. Header Bar */}
-            <header className="bg-white border-b border-slate-200 px-4 py-2 flex flex-wrap items-center justify-between gap-4 shadow-sm z-10 shrink-0">
+            <header className="bg-white border-b border-slate-200 p-[21px] flex flex-wrap items-center justify-between gap-4 shadow-sm z-10 shrink-0">
                 <div className="flex items-center gap-3.5">
                     <div className="p-2 bg-gradient-to-br from-teal-500 to-emerald-600 text-white rounded-2xl shadow-md shadow-emerald-500/20">
                         <ClipboardList className="w-6 h-6" />
@@ -2179,11 +2179,11 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
             {/* 2. Business Summary Cards (7개 표준 지표) */}
             <div className="px-4 pt-3 pb-2 shrink-0">
-                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-[13px]">
                     {/* Card 1: 전체 검사 완료자 */}
                     <div
                         onClick={() => setFilterTab('all')}
-                        className={`px-3 py-2 rounded-2xl border transition-all cursor-pointer ${filterTab === 'all' ? 'bg-teal-50/80 border-teal-300 shadow-sm ring-2 ring-teal-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
+                        className={`p-[21px] rounded-[24px] border transition-all cursor-pointer ${filterTab === 'all' ? 'bg-teal-50/80 border-teal-300 shadow-sm ring-2 ring-teal-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
                     >
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">전체 검사 완료자</span>
@@ -2198,7 +2198,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     {/* Card 2: 상담 요청자 */}
                     <div
                         onClick={() => setFilterTab('consultation_requested')}
-                        className={`px-3 py-2 rounded-2xl border transition-all cursor-pointer ${filterTab === 'consultation_requested' ? 'bg-blue-50/80 border-blue-300 shadow-sm ring-2 ring-blue-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
+                        className={`p-[21px] rounded-[24px] border transition-all cursor-pointer ${filterTab === 'consultation_requested' ? 'bg-blue-50/80 border-blue-300 shadow-sm ring-2 ring-blue-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
                     >
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">상담 요청자</span>
@@ -2213,7 +2213,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     {/* Card 3: 상담 미요청자 */}
                     <div
                         onClick={() => setFilterTab('screening_only')}
-                        className={`px-3 py-2 rounded-2xl border transition-all cursor-pointer ${filterTab === 'screening_only' ? 'bg-slate-100 border-slate-400 shadow-sm ring-2 ring-slate-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
+                        className={`p-[21px] rounded-[24px] border transition-all cursor-pointer ${filterTab === 'screening_only' ? 'bg-slate-100 border-slate-400 shadow-sm ring-2 ring-slate-400/20' : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'}`}
                     >
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">상담 미요청자</span>
@@ -2226,7 +2226,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     </div>
 
                     {/* Card 4: 상담 전환율 */}
-                    <div className="px-3 py-2 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
+                    <div className="p-[21px] rounded-[24px] bg-white border border-slate-200/80 shadow-sm">
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">상담 전환율</span>
                             <TrendingUp className="w-4 h-4 text-emerald-600" />
@@ -2239,7 +2239,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     {/* Card 5: 담당자 검토 대기 */}
                     <div
                         onClick={() => setFilterTab('consultation_requested')}
-                        className="px-3 py-2 rounded-2xl bg-white border border-slate-200/80 hover:border-slate-300 shadow-sm cursor-pointer"
+                        className="p-[21px] rounded-[24px] bg-white border border-slate-200/80 hover:border-slate-300 shadow-sm cursor-pointer"
                     >
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">담당자 검토 대기</span>
@@ -2252,7 +2252,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     </div>
 
                     {/* Card 6: 내게 배정된 건 */}
-                    <div className="px-3 py-2 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
+                    <div className="p-[21px] rounded-[24px] bg-white border border-slate-200/80 shadow-sm">
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">내게 배정된 건</span>
                             <UserCheck className="w-4 h-4 text-indigo-600" />
@@ -2264,7 +2264,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     </div>
 
                     {/* Card 7: 리포트 준비 완료 */}
-                    <div className="px-3 py-2 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
+                    <div className="p-[21px] rounded-[24px] bg-white border border-slate-200/80 shadow-sm">
                         <div className="flex items-center justify-between text-slate-500">
                             <span className="text-[11px] font-bold">리포트 준비 완료</span>
                             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -2357,7 +2357,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         key={tab.id}
                                         type="button"
                                         onClick={() => setQuickStatusFilter(tab.id)}
-                                        className={`h-8 px-3 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center justify-center ${
+                                        className={`px-[13px] py-[8px] rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center justify-center ${
                                             quickStatusFilter === tab.id
                                                 ? 'bg-teal-600 text-white shadow-xs'
                                                 : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200/60'
@@ -2384,7 +2384,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                     key={staff.id}
                                                     type="button"
                                                     onClick={() => setStaffFilter(prev => prev === staff.id ? 'all' : staff.id)}
-                                                    className={`h-8 px-2.5 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 whitespace-nowrap ${
+                                                    className={`px-[13px] py-[8px] rounded-xl text-xs font-bold border transition flex items-center gap-1.5 whitespace-nowrap ${
                                                         isSelected
                                                             ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
                                                             : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
@@ -2418,7 +2418,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         key={p.id}
                                         type="button"
                                         onClick={() => handleSelectPreset(p.id as any)}
-                                        className={`h-8 px-2.5 text-xs font-bold rounded-xl transition flex items-center justify-center ${
+                                        className={`px-[13px] py-[8px] text-xs font-bold rounded-xl transition flex items-center justify-center ${
                                             activePreset === p.id
                                                 ? 'bg-slate-800 text-white shadow-xs'
                                                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -2569,7 +2569,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     {/* Master-Detail Container */}
                     <div className="flex-1 flex gap-3 overflow-hidden min-h-0">
                         {/* LEFT: Applicant List (Master) */}
-                        <div className={`w-full lg:w-[clamp(520px,48%,820px)] flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden shrink-0 ${isMobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
+                        <div className={`w-full lg:w-[clamp(520px,48%,820px)] min-w-[340px] flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden shrink-0 ${isMobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
                             {/* Selection & Quick Select Header */}
                             <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70 space-y-2 shrink-0">
                                 <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -3045,7 +3045,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                         </div>
 
                         {/* RIGHT: Selected Applicant Detail (Detail Panel) */}
-                        <div className={`flex-1 min-w-0 flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden ${!isMobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
+                        <div className={`flex-1 min-w-[340px] flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden ${!isMobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
                             {loadingDetail ? (
                                 <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-2.5">
                                     <RefreshCw className="w-8 h-8 animate-spin text-teal-600" />
@@ -3191,9 +3191,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                     </div>
 
                                     {/* Detail Scrollable Body */}
-                                    <div className="flex-1 overflow-y-auto p-3.5 space-y-3 custom-scrollbar text-left">
+                                    <div className="flex-1 overflow-y-auto p-[21px] space-y-[13px] custom-scrollbar text-left">
                                         {/* SECTION A: 상담신청 기본 정보 */}
-                                        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm">
+                                        <div className="bg-white rounded-[24px] border border-slate-200 p-[21px] shadow-sm">
                                             <div className="flex items-center justify-between mb-2.5 pb-1.5 border-b border-slate-100">
                                                 <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
                                                     <UserCheck className="w-4 h-4 text-teal-600" />
@@ -3289,7 +3289,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         </div>
 
                                         {/* SECTION B: 검사결과 요약 카드 (도메인별) */}
-                                        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm">
+                                        <div className="bg-white rounded-[24px] border border-slate-200 p-[21px] shadow-sm">
                                             <div className="flex items-center justify-between mb-2.5 pb-1.5 border-b border-slate-100">
                                                 <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
                                                     <Brain className="w-4 h-4 text-indigo-600" />
@@ -3520,9 +3520,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         </div>
 
                                         {/* SECTION C & D: 리포트 뷰어 & 의뢰대장 연계 */}
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-[13px]">
                                             {/* SECTION C: 리포트 바로보기 */}
-                                            <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm flex flex-col justify-between">
+                                            <div className="bg-white rounded-[24px] border border-slate-200 p-[21px] shadow-sm flex flex-col justify-between">
                                                 <div>
                                                     <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-100">
                                                         <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
@@ -3582,7 +3582,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                             </div>
 
                                             {/* SECTION D: 의뢰대장 연계 */}
-                                            <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm flex flex-col justify-between">
+                                            <div className="bg-white rounded-[24px] border border-slate-200 p-[21px] shadow-sm flex flex-col justify-between">
                                                 <div>
                                                     <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-100">
                                                         <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
@@ -3645,7 +3645,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         </div>
 
                                         {/* SECTION E: 담당자 배정 정보 */}
-                                        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm">
+                                        <div className="bg-white rounded-[24px] border border-slate-200 p-[21px] shadow-sm">
                                             <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-100">
                                                 <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
                                                     <UserCheck className="w-4 h-4 text-indigo-600" />
@@ -3691,7 +3691,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                         </div>
 
                                         {/* SECTION F: 업무 처리 이력 (타임라인) */}
-                                        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm">
+                                        <div className="bg-white rounded-[24px] border border-slate-200 p-[21px] shadow-sm">
                                             <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-2.5 pb-1.5 border-b border-slate-100 flex items-center gap-1.5">
                                                 <Clock className="w-4 h-4 text-slate-600" />
                                                 업무 처리 이력
@@ -3884,11 +3884,11 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby="large-detail-modal-title"
-                    className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-0 md:p-4 lg:p-6 overflow-hidden animate-in fade-in duration-150"
+                    className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-[21px] overflow-hidden animate-in fade-in duration-150"
                 >
-                    <div className="w-full md:w-[min(96vw,1440px)] h-full md:h-[min(92vh,1000px)] max-h-none md:max-h-[min(92vh,1000px)] bg-white md:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 text-left animate-in zoom-in-95 duration-150">
+                    <div className="w-full md:w-[min(96vw,1440px)] h-full max-h-[calc(100vh-89px)] bg-white md:rounded-[24px] shadow-2xl flex flex-col overflow-hidden border border-slate-200 text-left animate-in zoom-in-95 duration-150">
                         {/* Sticky Header */}
-                        <div className="px-5 py-3.5 md:px-6 md:py-4 border-b border-slate-200 bg-slate-50/95 backdrop-blur-sm flex items-center justify-between gap-4 shrink-0">
+                        <div className="p-[21px] border-b border-slate-200 bg-slate-50/95 backdrop-blur-sm flex items-center justify-between gap-4 shrink-0">
                             <div className="flex items-center gap-3 min-w-0">
                                 <div className="w-10 h-10 rounded-2xl bg-teal-100/80 text-teal-700 flex items-center justify-center shrink-0 shadow-xs">
                                     <ClipboardList className="w-5 h-5" />
@@ -4514,8 +4514,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
             {/* 1. Staff Assignment Modal */}
             {isAssignModalOpen && assignTargetItem && (
-                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
+                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-[21px]">
+                    <div className="bg-white rounded-[24px] max-w-[448px] max-h-[calc(100vh-89px)] overflow-y-auto w-full p-[21px] shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                             <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
                                 <UserPlus className="w-5 h-5 text-indigo-600" />
@@ -4609,8 +4609,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
             {/* 2. Status Change Modal */}
             {isStatusModalOpen && assignTargetItem && (
-                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
+                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-[21px]">
+                    <div className="bg-white rounded-[24px] max-w-[448px] max-h-[calc(100vh-89px)] overflow-y-auto w-full p-[21px] shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                             <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
                                 <Activity className="w-5 h-5 text-teal-600" />
@@ -4681,8 +4681,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
             {/* 3. Assignment History Modal */}
             {isHistoryModalOpen && historyItem && (
-                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
+                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-[21px]">
+                    <div className="bg-white rounded-[24px] max-w-[672px] max-h-[calc(100vh-89px)] overflow-y-auto w-full p-[21px] shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                             <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
                                 <History className="w-5 h-5 text-indigo-600" />
@@ -4748,8 +4748,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
             {/* 4. Excel Export Modal */}
             {isExportModalOpen && (
-                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
+                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-[21px]">
+                    <div className="bg-white rounded-[24px] max-w-[448px] max-h-[calc(100vh-89px)] overflow-y-auto w-full p-[21px] shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                             <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
                                 <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
@@ -4869,8 +4869,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
             {/* 6. Admin Purge Demo Data Modal */}
             {isPurgeDemoModalOpen && (
-                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
+                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-[21px]">
+                    <div className="bg-white rounded-[24px] max-w-[672px] max-h-[calc(100vh-89px)] overflow-y-auto w-full p-[21px] shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                             <h3 className="text-base font-black text-rose-700 flex items-center gap-2">
                                 <Trash2 className="w-5 h-5 text-rose-600" />
@@ -4967,8 +4967,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
             {/* 7. Admin Individual Subject Deletion Modal */}
             {isDeleteSubjectModalOpen && deleteSubjectItem && (
-                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
+                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-[21px]">
+                    <div className="bg-white rounded-[24px] max-w-[448px] max-h-[calc(100vh-89px)] overflow-y-auto w-full p-[21px] shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                             <h3 className="text-base font-black text-rose-700 flex items-center gap-2">
                                 <Trash2 className="w-5 h-5 text-rose-600" />
@@ -5048,8 +5048,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
 
             {/* 7.5. Staff Individual Safe Soft Deletion Modal */}
             {isStaffDeleteModalOpen && staffDeleteItem && (
-                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
+                <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-[21px]">
+                    <div className="bg-white rounded-[24px] max-w-[448px] max-h-[calc(100vh-89px)] overflow-y-auto w-full p-[21px] shadow-2xl border border-slate-100 text-left animate-in fade-in zoom-in-95 duration-150">
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                             <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
                                 <Trash2 className="w-5 h-5 text-rose-600" />

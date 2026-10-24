@@ -40,7 +40,7 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({ onFilesUpload, isLoadin
     return (
         <div
             className={`
-                relative overflow-hidden rounded-[2rem] border-2 transition-all duration-300 group
+                relative overflow-hidden rounded-[24px] border-2 transition-all duration-300 group
                 ${isDragging
                     ? 'border-indigo-500 bg-indigo-50/50 scale-[1.01] shadow-xl'
                     : 'border-slate-200 bg-white hover:border-indigo-200 hover:shadow-lg'
@@ -53,7 +53,7 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({ onFilesUpload, isLoadin
             {/* Background Pattern */}
             <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-[radial-gradient(#4f46e5_1px,transparent_1px)] [background-size:16px_16px]"></div>
 
-            <div className="relative z-10 flex flex-col md:flex-row items-center justify-between p-8 gap-8">
+            <div className="relative z-10 flex flex-col md:flex-row items-center justify-between p-[21px] gap-[21px]">
                 {/* Left: Text & Info */}
                 <div className="flex-1 space-y-4">
                     <div className="space-y-2">
@@ -61,10 +61,10 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({ onFilesUpload, isLoadin
                             <span className="px-2 py-1 bg-indigo-50 rounded-md">Analysis Engine</span>
                             {isLoading && <span className="animate-pulse">Processing...</span>}
                         </div>
-                        <h2 className="text-3xl font-black text-slate-800 tracking-tight">
+                        <h2 className="text-[21px] font-black text-slate-800 tracking-tight">
                             {isLoading ? '데이터 분석 중...' : '데이터 업로드'}
                         </h2>
-                        <p className="text-slate-500 font-medium text-sm leading-relaxed max-w-lg">
+                        <p className="text-slate-500 font-medium text-[13px] leading-relaxed max-w-lg">
                             분석할 엑셀 파일들을 이곳에 드래그하거나 선택해주세요.<br />
                             <span className="text-slate-400 text-xs">개별상담내역, 자원조정내역, 일반상담(접수상담대장), ISP수립정보, 팀구별 파일 + 등퇴록대장(선택 — 풀브리핑 퇴록자 제외용. MHIS에서 성인+아동청소년+기타를 모두 조회해 하나의 엑셀 파일로 합쳐서 첨부) (지원: .xlsx, .xls)</span>
                         </p>
@@ -129,7 +129,7 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({ onFilesUpload, isLoadin
                         ) : (
                             <>
                                 <div className="mb-3 p-3 bg-white/20 rounded-xl backdrop-blur-sm">
-                                    <FileSpreadsheet size={28} />
+                                    <FileSpreadsheet size={34} />
                                 </div>
                                 <span className="text-sm font-black">파일 선택</span>
                                 <span className="text-[10px] opacity-70 mt-1 font-medium">또는 드래그 앤 드롭</span>

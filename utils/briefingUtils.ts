@@ -319,6 +319,20 @@ export interface JoinedBriefingItem {
     joinStatus: '확정연결' | '개입없음' | 'ISP미수립' | '확인필요';
     counselorChanged: boolean;
     previousPlansCount: number;
+    planHistory: BriefingPlanHistoryEntry[]; // 전 수립 건 (최근순) — 이전 수립내역 바로 보기용
+}
+
+/** 수립 이력 1건 (상세 화면 칩 전환 표시용) */
+export interface BriefingPlanHistoryEntry {
+    establishedDate: string;
+    registrant: string;
+    managementCategory: string;
+    longTermGoal: string;
+    shortTermGoal: string;
+    isGoalSplit: boolean;
+    ispResultText: string;
+    unmetNeeds: { label: string; score: number }[];
+    allNeeds: { label: string; score: number }[];
 }
 
 /**
@@ -430,6 +444,7 @@ export const joinBriefingData = (params: {
         member?: BriefingMember;
         joinStatus: '확정연결' | '개입없음' | 'ISP미수립' | '확인필요';
         counselorChanged: boolean;
+        planHistory?: BriefingPlanHistoryEntry[];
     }
     const workItems: JoinWorkItem[] = [];
 
@@ -479,6 +494,25 @@ export const joinBriefingData = (params: {
 
         const counselorChanged = !!(chosen && member && normalizePersonName(chosen.latest.registrant || '') !== normalizePersonName(member.mainCounselor));
 
+        // 수립 이력: 그 회원의 전 수립 건을 최근순으로 (대표 선정과 무관하게 전부 유지)
+        const planHistory: BriefingPlanHistoryEntry[] = [...(ispPlansByName.get(normName) || [])]
+            .sort((a, b) => new Date(b.establishedDate || 0).getTime() - new Date(a.establishedDate || 0).getTime())
+            .map(plan => {
+                const g = parseGoals(plan.goalsRaw);
+                const needs = plan.needs || [];
+                return {
+                    establishedDate: plan.establishedDate || '',
+                    registrant: plan.registrant || '',
+                    managementCategory: plan.managementCategory || '미분류',
+                    longTermGoal: g.longTermGoal,
+                    shortTermGoal: g.shortTermGoal,
+                    isGoalSplit: g.isSplit,
+                    ispResultText: plan.ispResultText || '',
+                    unmetNeeds: needs.filter(n => n.score >= 1),
+                    allNeeds: needs
+                };
+            });
+
         workItems.push({
             id: chosen ? chosen.key : `${normName}::${normalizePersonName(member!.mainCounselor)}`,
             normName,
@@ -486,7 +520,8 @@ export const joinBriefingData = (params: {
             plansCount: chosen?.count || 0,
             member,
             joinStatus,
-            counselorChanged
+            counselorChanged,
+            planHistory
         });
     });
 
@@ -498,7 +533,7 @@ export const joinBriefingData = (params: {
         return !(reg && deregSet.has(reg));
     });
 
-    visibleWorkItems.forEach(({ id: itemId, normName, isp, member, joinStatus, counselorChanged, plansCount }) => {
+    visibleWorkItems.forEach(({ id: itemId, normName, isp, member, joinStatus, counselorChanged, plansCount, planHistory }) => {
         const rawName = isp?.memberName || member?.memberName || normName;
         // 담당자: ISP 최근 수립의 등록자가 담당자다 (2026-10-23 jun 확정). ISP가 없을 때만 최다 상담자로 대체
         const mainCounselor = isp?.registrant || member?.mainCounselor || '미지정';
@@ -623,7 +658,8 @@ export const joinBriefingData = (params: {
             latestSessionDate,
             joinStatus,
             counselorChanged,
-            previousPlansCount: Math.max(0, plansCount - 1)
+            previousPlansCount: Math.max(0, plansCount - 1),
+            planHistory: planHistory || []
         });
     });
 

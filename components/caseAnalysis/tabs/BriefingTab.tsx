@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { AnalysisResult, BriefingComment } from '../../../types';
 import {
     joinBriefingData,
@@ -23,7 +23,11 @@ import {
     Trash2,
     Check,
     X,
-    Filter
+    Filter,
+    Maximize,
+    Minimize,
+    PanelLeftClose,
+    PanelLeftOpen
 } from 'lucide-react';
 
 interface BriefingTabProps {
@@ -162,6 +166,77 @@ export const BriefingTab: React.FC<BriefingTabProps> = ({
     }, [analysisResult?.briefingComments]);
 
     const [commentInput, setCommentInput] = useState('');
+    // 대상자별 임시저장 (저장 없이 대상자를 오가도 작성 내용이 유지됨)
+    const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+    const [savedFlash, setSavedFlash] = useState(false);
+    // 전체 화면 모드
+    const rootRef = useRef<HTMLDivElement>(null);
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const [listCollapsed, setListCollapsed] = useState(false);
+    // 수립 이력 칩 선택 (0=최근)
+    const [selectedPlanIdx, setSelectedPlanIdx] = useState(0);
+
+    // 전체 화면 황금비(φ) 레이아웃 상태 (높이 기반 목록 폭, 상세 우측 최소 340px 보호)
+    const [listWidth, setListWidth] = useState(400);
+    const [isRightClamped, setIsRightClamped] = useState(false);
+
+    useEffect(() => {
+        const onFsChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+        document.addEventListener('fullscreenchange', onFsChange);
+        return () => document.removeEventListener('fullscreenchange', onFsChange);
+    }, []);
+
+    useEffect(() => {
+        if (!isFullscreen) return;
+
+        const updateLayout = () => {
+            if (typeof window === 'undefined') return;
+            const h = window.innerHeight;
+            const w = window.innerWidth;
+            // 1. 목록 폭 = (window.innerHeight - 32) * 0.381966, 반올림 후 클램프 [280, 560]
+            const rawListW = (h - 32) * 0.381966;
+            const clampedListW = Math.min(560, Math.max(280, Math.round(rawListW)));
+            setListWidth(clampedListW);
+
+            // 2. 상세 우측 컬럼 최소 폭 보호: 우측 폭이 340px 미만이면 340px 고정
+            const availW = w - 32; // 전체 화면 루트 p-4 패딩 (좌우 16px*2)
+            const effectiveListW = listCollapsed ? 0 : clampedListW;
+            const mainGap = listCollapsed ? 0 : 21;
+            const detailW = availW - effectiveListW - mainGap;
+            const subgridNetW = Math.max(0, detailW - 42 - 21); // 상세 패딩 21px*2, 서브그리드 gap 21px
+            const rightW = subgridNetW * 0.381966;
+            setIsRightClamped(rightW < 340);
+        };
+
+        updateLayout();
+        window.addEventListener('resize', updateLayout);
+        return () => {
+            window.removeEventListener('resize', updateLayout);
+        };
+    }, [isFullscreen, listCollapsed]);
+
+    const toggleFullscreen = () => {
+        if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+        } else {
+            rootRef.current?.requestFullscreen?.().catch(() => {});
+        }
+    };
+
+    // 대상자 전환 시: 이전 대상자의 작성 내용을 임시저장하고, 새 대상자의 임시 내용을 불러온다
+    const prevMemberIdRef = useRef<string | null>(null);
+    useEffect(() => {
+        const prevId = prevMemberIdRef.current;
+        if (prevId && prevId !== selectedMemberId) {
+            setCommentDrafts(d => ({ ...d, [prevId]: commentInput }));
+        }
+        if (selectedMemberId) {
+            setCommentInput(commentDrafts[selectedMemberId] || '');
+        }
+        prevMemberIdRef.current = selectedMemberId;
+        setSelectedPlanIdx(0);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedMemberId]);
     const [isSavingComment, setIsSavingComment] = useState(false);
     const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
     const [editingText, setEditingText] = useState('');
@@ -170,6 +245,18 @@ export const BriefingTab: React.FC<BriefingTabProps> = ({
         if (!selectedMember) return [];
         return commentsMap[selectedMember.id] || [];
     }, [commentsMap, selectedMember]);
+
+    // 수립 이력 표시값: 칩으로 과거 건을 고르면 목표·ISP결과·욕구가 그 건으로 바뀐다 (판정은 항상 최근 기준)
+    const planHistory = selectedMember?.planHistory || [];
+    const planIdx = Math.min(selectedPlanIdx, Math.max(0, planHistory.length - 1));
+    const displayPlan = planHistory[planIdx] || null;
+    const dispNeeds = displayPlan ? displayPlan.unmetNeeds : (selectedMember?.needs || []);
+    const dispZeroNeeds = displayPlan ? displayPlan.allNeeds.filter(n => n.score === 0) : (selectedMember?.zeroNeeds || []);
+    const dispIspText = displayPlan ? displayPlan.ispResultText : (selectedMember?.ispResultText || '');
+    const goalSplit = displayPlan ? displayPlan.isGoalSplit : (selectedMember?.isGoalSplit || false);
+    const goalLong = displayPlan ? displayPlan.longTermGoal : (selectedMember?.longTermGoal || '');
+    const goalShort = displayPlan ? displayPlan.shortTermGoal : (selectedMember?.shortTermGoal || '');
+    const goalRaw = displayPlan ? displayPlan.longTermGoal : (selectedMember?.goalsRaw || '');
 
     // 코멘트 저장 핸들러
     const handleSaveComment = async () => {
@@ -202,6 +289,13 @@ export const BriefingTab: React.FC<BriefingTabProps> = ({
                 }));
             }
             setCommentInput('');
+            setCommentDrafts(d => {
+                const next = { ...d };
+                delete next[selectedMember.id];
+                return next;
+            });
+            setSavedFlash(true);
+            setTimeout(() => setSavedFlash(false), 2000);
         } catch (err) {
             console.warn('[BriefingTab] 코멘트 서버 저장 실패, 로컬 반영:', err);
             const fallbackComment: BriefingComment = {
@@ -276,36 +370,36 @@ export const BriefingTab: React.FC<BriefingTabProps> = ({
     };
 
     return (
-        <div className="space-y-4 text-[#1E2A33] font-sans">
+        <div ref={rootRef} className={`space-y-4 text-[#1E2A33] font-sans ${isFullscreen ? 'bg-[#F3F1EC] p-4 overflow-y-auto min-h-screen w-full' : ''}`}>
             {/* 1. 상단 요약 바 (시안 v4 스타일: 가운데 정렬, 상단 색상 바 띠) */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3" style={isFullscreen ? { gap: '13px' } : undefined}>
                 {/* 1) 브리핑 대상자 */}
-                <div className="bg-white border border-[#E4E1D9] border-t-4 border-t-[#0E5E7E] rounded-xl p-3 text-center shadow-xs">
-                    <span className="block text-2xl font-black text-[#0E5E7E] tracking-tight">{summaryStats.total}명</span>
+                <div className="bg-white border border-[#E4E1D9] border-t-4 border-t-[#0E5E7E] rounded-xl p-3 text-center shadow-xs" style={isFullscreen ? { padding: '21px' } : undefined}>
+                    <span className="block text-2xl font-black text-[#0E5E7E] tracking-tight" style={isFullscreen ? { fontSize: '34px', lineHeight: '1.1' } : undefined}>{summaryStats.total}명</span>
                     <span className="block text-xs font-bold text-[#5C6B76] mt-1">브리핑 대상자</span>
                 </div>
 
                 {/* 2) 적정 */}
-                <div className="bg-white border border-[#E4E1D9] border-t-4 border-t-[#17705A] rounded-xl p-3 text-center shadow-xs">
-                    <span className="block text-2xl font-black text-[#17705A] tracking-tight">{summaryStats.good}명</span>
+                <div className="bg-white border border-[#E4E1D9] border-t-4 border-t-[#17705A] rounded-xl p-3 text-center shadow-xs" style={isFullscreen ? { padding: '21px' } : undefined}>
+                    <span className="block text-2xl font-black text-[#17705A] tracking-tight" style={isFullscreen ? { fontSize: '34px', lineHeight: '1.1' } : undefined}>{summaryStats.good}명</span>
                     <span className="block text-xs font-bold text-[#5C6B76] mt-1">적정</span>
                 </div>
 
                 {/* 3) 부족 */}
-                <div className="bg-white border border-[#E4E1D9] border-t-4 border-t-[#A96F14] rounded-xl p-3 text-center shadow-xs">
-                    <span className="block text-2xl font-black text-[#A96F14] tracking-tight">{summaryStats.warn}명</span>
+                <div className="bg-white border border-[#E4E1D9] border-t-4 border-t-[#A96F14] rounded-xl p-3 text-center shadow-xs" style={isFullscreen ? { padding: '21px' } : undefined}>
+                    <span className="block text-2xl font-black text-[#A96F14] tracking-tight" style={isFullscreen ? { fontSize: '34px', lineHeight: '1.1' } : undefined}>{summaryStats.warn}명</span>
                     <span className="block text-xs font-bold text-[#5C6B76] mt-1">부족</span>
                 </div>
 
                 {/* 4) 개입 없음 */}
-                <div className="bg-white border border-[#E4E1D9] border-t-4 border-t-[#B3402C] rounded-xl p-3 text-center shadow-xs">
-                    <span className="block text-2xl font-black text-[#B3402C] tracking-tight">{summaryStats.none}명</span>
+                <div className="bg-white border border-[#E4E1D9] border-t-4 border-t-[#B3402C] rounded-xl p-3 text-center shadow-xs" style={isFullscreen ? { padding: '21px' } : undefined}>
+                    <span className="block text-2xl font-black text-[#B3402C] tracking-tight" style={isFullscreen ? { fontSize: '34px', lineHeight: '1.1' } : undefined}>{summaryStats.none}명</span>
                     <span className="block text-xs font-bold text-[#5C6B76] mt-1">개입 없음</span>
                 </div>
 
                 {/* 5) ISP 재수립 도래 */}
-                <div className="bg-white border border-[#E4E1D9] border-t-4 border-t-[#8C6A1D] rounded-xl p-3 text-center shadow-xs">
-                    <span className="block text-2xl font-black text-[#8C6A1D] tracking-tight">{summaryStats.due}명</span>
+                <div className="bg-white border border-[#E4E1D9] border-t-4 border-t-[#8C6A1D] rounded-xl p-3 text-center shadow-xs" style={isFullscreen ? { padding: '21px' } : undefined}>
+                    <span className="block text-2xl font-black text-[#8C6A1D] tracking-tight" style={isFullscreen ? { fontSize: '34px', lineHeight: '1.1' } : undefined}>{summaryStats.due}명</span>
                     <span className="block text-xs font-bold text-[#5C6B76] mt-1">ISP 재수립 도래</span>
                 </div>
 
@@ -314,6 +408,7 @@ export const BriefingTab: React.FC<BriefingTabProps> = ({
                     type="button"
                     onClick={handleExcelDownload}
                     className="flex items-center justify-center gap-2.5 bg-[#14663C] hover:bg-[#0f5230] text-white rounded-xl p-3 text-left shadow-xs transition-colors cursor-pointer group"
+                    style={isFullscreen ? { padding: '21px' } : undefined}
                     title="현재 검색·필터 적용 대상자 목록을 엑셀로 내려받습니다 (수퍼비전 내용 포함)"
                 >
                     <FileSpreadsheet size={24} className="text-white/90 group-hover:scale-105 transition-transform shrink-0" />
@@ -335,17 +430,48 @@ export const BriefingTab: React.FC<BriefingTabProps> = ({
                         </span>
                     )}
                 </div>
-                <div className="text-[11px] text-[#8C6A1D]">
-                    * 재수립 도래는 오늘 기준(수립+180일) 산정이며 선택 기간 필터와 무관합니다.
+                <div className="flex items-center gap-3">
+                    <button
+                        type="button"
+                        onClick={toggleFullscreen}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0E5E7E] hover:bg-[#0c4e69] text-white text-[11px] font-extrabold rounded-lg transition-colors cursor-pointer shrink-0"
+                    >
+                        {isFullscreen ? <Minimize size={13} /> : <Maximize size={13} />}
+                        {isFullscreen ? '전체 화면 종료' : '전체 화면'}
+                    </button>
+                    <div className="text-[11px] text-[#8C6A1D]">
+                        * 재수립 도래는 오늘 기준(수립+180일) 산정이며 선택 기간 필터와 무관합니다.
+                    </div>
                 </div>
             </div>
 
             {/* 2. 본문 2단 구성 (한 화면 2단 레이아웃) */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+            <div
+                className={`grid items-start ${isFullscreen ? '' : 'grid-cols-1 lg:grid-cols-12 gap-4'}`}
+                style={
+                    isFullscreen
+                        ? {
+                              gridTemplateColumns: listCollapsed ? 'minmax(0, 1fr)' : `${listWidth}px minmax(0, 1fr)`,
+                              gap: '21px'
+                          }
+                        : undefined
+                }
+            >
                 {/* [좌측 패널]: 검색·필터 + 대상자 목록 (4칸 또는 350px) */}
-                <div className="lg:col-span-4 bg-white border border-[#E4E1D9] rounded-2xl flex flex-col shadow-xs overflow-hidden">
+                <div className={`${isFullscreen ? 'col-span-1' : 'lg:col-span-3'} bg-white border border-[#E4E1D9] rounded-2xl flex flex-col shadow-xs overflow-hidden ${isFullscreen && listCollapsed ? 'hidden' : ''}`}>
                     {/* 상단 검색 및 칩 */}
-                    <div className="p-3.5 border-b border-[#EFEEE8] space-y-2.5 bg-[#FAF9F5]">
+                    <div className="p-3.5 border-b border-[#EFEEE8] space-y-2.5 bg-[#FAF9F5]" style={isFullscreen ? { padding: '21px' } : undefined}>
+                        {isFullscreen && (
+                            <div className="flex justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => setListCollapsed(true)}
+                                    className="flex items-center gap-1 text-[10px] font-bold text-[#5C6B76] hover:text-[#0E5E7E] cursor-pointer"
+                                >
+                                    <PanelLeftClose size={13} /> 목록 접기
+                                </button>
+                            </div>
+                        )}
                         {/* 검색창 */}
                         <div className="relative flex items-center">
                             <Search size={15} className="absolute left-3 text-[#9AA7AF]" />
@@ -473,12 +599,21 @@ export const BriefingTab: React.FC<BriefingTabProps> = ({
                 </div>
 
                 {/* [우측 패널]: 대상자 상세 (8칸) */}
-                <div className="lg:col-span-8 bg-white border border-[#E4E1D9] rounded-2xl flex flex-col shadow-xs overflow-hidden">
+                <div className={`${isFullscreen ? 'col-span-1' : (listCollapsed ? 'lg:col-span-12' : 'lg:col-span-9')} bg-white border border-[#E4E1D9] rounded-2xl flex flex-col shadow-xs overflow-hidden`}>
                     {selectedMember ? (
                         <>
                             {/* 상세 헤더 (dhead) */}
-                            <div className="p-4 border-b border-[#EFEEE8] bg-[#FAF9F5] flex flex-wrap items-center gap-2.5">
-                                <span className="text-xl font-black tracking-tight text-[#1E2A33]">
+                            <div className="p-4 border-b border-[#EFEEE8] bg-[#FAF9F5] flex flex-wrap items-center gap-2.5" style={isFullscreen ? { padding: '21px' } : undefined}>
+                                {isFullscreen && listCollapsed && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setListCollapsed(false)}
+                                        className="flex items-center gap-1 text-[11px] font-bold text-[#0E5E7E] hover:underline cursor-pointer"
+                                    >
+                                        <PanelLeftOpen size={14} /> 목록 펼치기
+                                    </button>
+                                )}
+                                <span className="text-xl font-black tracking-tight text-[#1E2A33]" style={isFullscreen ? { fontSize: '21px', lineHeight: '1.2' } : undefined}>
                                     {selectedMember.memberName}
                                 </span>
 
@@ -522,33 +657,111 @@ export const BriefingTab: React.FC<BriefingTabProps> = ({
                             </div>
 
                             {/* 상세 본문 (2단 서브 그리드: 좌=ISP/욕구/코멘트, 우=타임라인/판정) */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-[#EFEEE8] p-4 gap-4">
+                            <div
+                                className={`grid divide-y md:divide-y-0 md:divide-x divide-[#EFEEE8] ${isFullscreen ? '' : 'grid-cols-1 md:grid-cols-2 p-4 gap-4'}`}
+                                style={
+                                    isFullscreen
+                                        ? {
+                                              gridTemplateColumns: isRightClamped
+                                                  ? 'minmax(0, 1fr) 340px'
+                                                  : 'calc((100% - 21px) * 0.618034) calc((100% - 21px) * 0.381966)',
+                                              gap: '21px',
+                                              padding: '21px'
+                                          }
+                                        : undefined
+                                }
+                            >
                                 {/* 좌측 컬럼: 욕구, ISP 결과, 장단기 목표, 수퍼비전 코멘트 */}
-                                <div className="space-y-3.5 pr-0 md:pr-1">
+                                <div className={`${isFullscreen ? 'space-y-[13px]' : 'space-y-3.5'} pr-0 md:pr-1`}>
+                                    {/* 0) 수립 이력 칩 — 과거 수립 바로 보기 */}
+                                    {planHistory.length > 1 && (
+                                        <div className="bg-white rounded-xl p-3 border border-[#E4E1D9]" style={isFullscreen ? { padding: '21px' } : undefined}>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-xs font-black tracking-wider text-[#5C6B76]">
+                                                    수립 이력 · 총 {planHistory.length}건
+                                                </span>
+                                                {planIdx > 0 && (
+                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                                                        과거 수립 보는 중 · 판정은 최근 기준
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {planHistory.map((plan, i) => (
+                                                    <button
+                                                        key={i}
+                                                        type="button"
+                                                        onClick={() => setSelectedPlanIdx(i)}
+                                                        className={`px-2.5 py-1.5 text-[11px] font-bold rounded-lg border transition-colors cursor-pointer ${
+                                                            i === planIdx
+                                                                ? 'bg-[#0E5E7E] text-white border-[#0E5E7E]'
+                                                                : 'bg-[#F7F6F2] text-[#5C6B76] border-[#E4E1D9] hover:bg-[#E7F0F4]'
+                                                        }`}
+                                                    >
+                                                        {i === 0 ? '최근 · ' : ''}{plan.establishedDate || '날짜 없음'} · {plan.registrant || '등록자 없음'} · {plan.managementCategory}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* 3) 장단기 목표 · Q열 */}
+                                    <div className="bg-[#EBF2F5] rounded-xl p-3 border border-[#D5E4EC]" style={isFullscreen ? { padding: '21px' } : undefined}>
+                                        <div className="text-xs font-black tracking-wider text-[#0E5E7E] mb-1.5">
+                                            장단기 목표 · Q열
+                                        </div>
+                                        {goalSplit ? (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                <div className="bg-white border border-[#D8E5EB] rounded-lg p-2.5 text-xs text-[#33424E] leading-relaxed">
+                                                    <div className="text-[10px] font-black text-[#0E5E7E] mb-1">장기목표</div>
+                                                    <div className="whitespace-pre-wrap">{goalLong}</div>
+                                                </div>
+                                                <div className="bg-white border border-[#D8E5EB] rounded-lg p-2.5 text-xs text-[#33424E] leading-relaxed">
+                                                    <div className="text-[10px] font-black text-[#0E5E7E] mb-1">단기목표</div>
+                                                    <div className="whitespace-pre-wrap">{goalShort}</div>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="bg-white border border-[#D8E5EB] rounded-lg p-2.5 text-xs text-[#33424E] leading-relaxed whitespace-pre-wrap max-h-28 overflow-y-auto custom-scrollbar">
+                                                {goalRaw || '기록된 목표가 없습니다.'}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* 2) ISP 결과 · P열 원문 전체 표시 */}
+                                    <div className="bg-[#F8F4E9] rounded-xl p-3 border border-[#EFE8D3]" style={isFullscreen ? { padding: '21px' } : undefined}>
+                                        <div className="text-xs font-black tracking-wider text-[#8A6D1F] mb-1.5">
+                                            ISP 결과 · P열 원문
+                                        </div>
+                                        <div className="bg-white border border-[#EAE4D2] rounded-lg p-2.5 text-xs text-[#4A5860] leading-relaxed max-h-32 overflow-y-auto whitespace-pre-wrap custom-scrollbar">
+                                            {dispIspText || '기록된 ISP 결과 내용이 없습니다.'}
+                                        </div>
+                                    </div>
+
                                     {/* 1) 미충족 욕구 (상태평가 1점 이상) */}
-                                    <div className="bg-[#FAF1ED] rounded-xl p-3 border border-[#F3DFD8]">
+                                    <div className="bg-[#FAF1ED] rounded-xl p-3 border border-[#F3DFD8]" style={isFullscreen ? { padding: '21px' } : undefined}>
                                         <div className="flex items-center justify-between mb-2">
                                             <span className="text-xs font-black tracking-wider text-[#9C4A38]">
                                                 미충족 욕구 · 상태평가 1점 이상
                                             </span>
-                                            {selectedMember.zeroNeeds.length > 0 && (
+                                            {dispZeroNeeds.length > 0 && (
                                                 <button
                                                     type="button"
                                                     onClick={() => setShowZeroNeeds(!showZeroNeeds)}
                                                     className="text-[10px] font-bold text-[#9C4A38] hover:underline cursor-pointer"
                                                 >
-                                                    {showZeroNeeds ? '0점 영역 접기' : `0점 영역 (${selectedMember.zeroNeeds.length}) 보기`}
+                                                    {showZeroNeeds ? '0점 영역 접기' : `0점 영역 (${dispZeroNeeds.length}) 보기`}
                                                 </button>
                                             )}
                                         </div>
 
-                                        {selectedMember.needs.length === 0 ? (
+                                        {dispNeeds.length === 0 ? (
                                             <div className="text-xs text-[#8A7A76] py-1">
                                                 상태평가 기록이 없거나 1점 이상 항목이 없습니다.
                                             </div>
                                         ) : (
                                             <div className="flex flex-wrap gap-1.5">
-                                                {selectedMember.needs.map((item, idx) => (
+                                                {dispNeeds.map((item, idx) => (
                                                     <span
                                                         key={idx}
                                                         className="bg-white border border-[#EBCFC6] text-[#9C4A38] text-[11px] font-bold px-2.5 py-1 rounded-full shadow-2xs"
@@ -560,9 +773,9 @@ export const BriefingTab: React.FC<BriefingTabProps> = ({
                                         )}
 
                                         {/* 0점 영역 토글 노출 */}
-                                        {showZeroNeeds && selectedMember.zeroNeeds.length > 0 && (
+                                        {showZeroNeeds && dispZeroNeeds.length > 0 && (
                                             <div className="mt-2.5 pt-2 border-t border-[#EBCFC6]/60 flex flex-wrap gap-1">
-                                                {selectedMember.zeroNeeds.map((item, idx) => (
+                                                {dispZeroNeeds.map((item, idx) => (
                                                     <span
                                                         key={idx}
                                                         className="bg-white/80 border border-slate-200 text-slate-500 text-[10px] font-medium px-2 py-0.5 rounded-full"
@@ -573,148 +786,12 @@ export const BriefingTab: React.FC<BriefingTabProps> = ({
                                             </div>
                                         )}
                                     </div>
-
-                                    {/* 2) ISP 결과 · P열 원문 전체 표시 */}
-                                    <div className="bg-[#F8F4E9] rounded-xl p-3 border border-[#EFE8D3]">
-                                        <div className="text-xs font-black tracking-wider text-[#8A6D1F] mb-1.5">
-                                            ISP 결과 · P열 원문
-                                        </div>
-                                        <div className="bg-white border border-[#EAE4D2] rounded-lg p-2.5 text-xs text-[#4A5860] leading-relaxed max-h-32 overflow-y-auto whitespace-pre-wrap custom-scrollbar">
-                                            {selectedMember.ispResultText || '기록된 ISP 결과 내용이 없습니다.'}
-                                        </div>
-                                    </div>
-
-                                    {/* 3) 장단기 목표 · Q열 */}
-                                    <div className="bg-[#EBF2F5] rounded-xl p-3 border border-[#D5E4EC]">
-                                        <div className="text-xs font-black tracking-wider text-[#0E5E7E] mb-1.5">
-                                            장단기 목표 · Q열
-                                        </div>
-                                        {selectedMember.isGoalSplit ? (
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                <div className="bg-white border border-[#D8E5EB] rounded-lg p-2.5 text-xs text-[#33424E] leading-relaxed">
-                                                    <div className="text-[10px] font-black text-[#0E5E7E] mb-1">장기목표</div>
-                                                    <div className="whitespace-pre-wrap">{selectedMember.longTermGoal}</div>
-                                                </div>
-                                                <div className="bg-white border border-[#D8E5EB] rounded-lg p-2.5 text-xs text-[#33424E] leading-relaxed">
-                                                    <div className="text-[10px] font-black text-[#0E5E7E] mb-1">단기목표</div>
-                                                    <div className="whitespace-pre-wrap">{selectedMember.shortTermGoal}</div>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="bg-white border border-[#D8E5EB] rounded-lg p-2.5 text-xs text-[#33424E] leading-relaxed whitespace-pre-wrap max-h-28 overflow-y-auto custom-scrollbar">
-                                                {selectedMember.goalsRaw || '기록된 목표가 없습니다.'}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* 4) 수퍼비전 코멘트 (설계서 §3.3 6, §4.5) */}
-                                    <div className="bg-[#EDF4EE] rounded-xl p-3 border border-[#D5E6D8] space-y-2.5">
-                                        <div className="text-xs font-black tracking-wider text-[#2F6B4F]">
-                                            수퍼비전 코멘트
-                                        </div>
-
-                                        {/* 기존 코멘트 목록 (이력) */}
-                                        <div className="space-y-2 max-h-36 overflow-y-auto custom-scrollbar">
-                                            {currentMemberComments.length === 0 ? (
-                                                <div className="text-[11px] text-[#7A8A7E] py-1 bg-white/70 p-2 rounded-lg border border-[#D5E4D9]">
-                                                    등록된 수퍼비전 코멘트가 없습니다. 회의 중 논의 내용을 작성하세요.
-                                                </div>
-                                            ) : (
-                                                currentMemberComments.map(c => {
-                                                    const isAuthor = currentUser && (c.author === currentUser.name || c.author === currentUser.username);
-                                                    const isEditing = editingCommentId === c.id;
-
-                                                    return (
-                                                        <div key={c.id} className="bg-white border border-[#D5E4D9] rounded-lg p-2.5 text-xs text-[#33424E] space-y-1">
-                                                            <div className="flex items-center justify-between text-[10px] text-[#9AA7AF]">
-                                                                <span className="font-extrabold text-[#2F6B4F]">{c.author}</span>
-                                                                <span>{c.createdAt ? c.createdAt.slice(0, 16).replace('T', ' ') : ''}</span>
-                                                            </div>
-
-                                                            {isEditing ? (
-                                                                <div className="space-y-1.5 pt-1">
-                                                                    <textarea
-                                                                        value={editingText}
-                                                                        onChange={e => setEditingText(e.target.value)}
-                                                                        className="w-full text-xs p-1.5 border border-[#BFD9C8] rounded focus:outline-none focus:border-[#0E5E7E]"
-                                                                        rows={2}
-                                                                    />
-                                                                    <div className="flex justify-end gap-1">
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleUpdateComment(c.id)}
-                                                                            className="px-2 py-0.5 bg-[#0E5E7E] text-white text-[10px] font-bold rounded"
-                                                                        >
-                                                                            수정완료
-                                                                        </button>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => setEditingCommentId(null)}
-                                                                            className="px-2 py-0.5 bg-slate-200 text-slate-700 text-[10px] font-bold rounded"
-                                                                        >
-                                                                            취소
-                                                                        </button>
-                                                                    </div>
-                                                                </div>
-                                                            ) : (
-                                                                <div className="flex items-start justify-between gap-2">
-                                                                    <p className="whitespace-pre-wrap leading-relaxed flex-1">{c.text}</p>
-                                                                    {(isAuthor || currentUser?.role === 'admin') && (
-                                                                        <div className="flex items-center gap-1 shrink-0 opacity-70 hover:opacity-100">
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => {
-                                                                                    setEditingCommentId(c.id);
-                                                                                    setEditingText(c.text);
-                                                                                }}
-                                                                                className="text-slate-500 hover:text-[#0E5E7E]"
-                                                                                title="수정"
-                                                                            >
-                                                                                <Edit3 size={11} />
-                                                                            </button>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => handleDeleteComment(c.id)}
-                                                                                className="text-slate-500 hover:text-rose-600"
-                                                                                title="삭제"
-                                                                            >
-                                                                                <Trash2 size={11} />
-                                                                            </button>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })
-                                            )}
-                                        </div>
-
-                                        {/* 새 코멘트 입력창 */}
-                                        <div className="flex gap-2 items-end pt-1">
-                                            <textarea
-                                                value={commentInput}
-                                                onChange={e => setCommentInput(e.target.value)}
-                                                placeholder="회의 중 논의 내용을 바로 적어주세요…"
-                                                rows={2}
-                                                className="flex-1 bg-white border border-[#BFD9C8] rounded-lg p-2 text-xs focus:outline-none focus:border-[#0E5E7E] placeholder:text-[#9AA7AF]"
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={handleSaveComment}
-                                                disabled={isSavingComment || !commentInput.trim()}
-                                                className="bg-[#0E5E7E] hover:bg-[#0c4e69] disabled:bg-slate-300 text-white font-extrabold text-xs px-3.5 py-2.5 rounded-lg shrink-0 transition-colors cursor-pointer"
-                                            >
-                                                {isSavingComment ? '저장중…' : '코멘트 저장'}
-                                            </button>
-                                        </div>
-                                    </div>
                                 </div>
 
                                 {/* 우측 컬럼: 개입 내역 타임라인 + 적절성 판정 */}
-                                <div className="space-y-3.5 pl-0 md:pl-1">
+                                <div className={`${isFullscreen ? 'space-y-[13px]' : 'space-y-3.5'} pl-0 md:pl-1`}>
                                     {/* 5) 개입 내역 타임라인 (제목만 표시, 상세는 버튼 토글) */}
-                                    <div className="bg-[#EEF3F7] rounded-xl p-3 border border-[#D7E3EC]">
+                                    <div className="bg-[#EEF3F7] rounded-xl p-3 border border-[#D7E3EC]" style={isFullscreen ? { padding: '21px' } : undefined}>
                                         <div className="flex items-center justify-between mb-2">
                                             <span className="text-xs font-black tracking-wider text-[#33566B]">
                                                 개입 내역 · 개별상담 + 자원조정
@@ -815,7 +892,7 @@ export const BriefingTab: React.FC<BriefingTabProps> = ({
                                     </div>
 
                                     {/* 6) 적절성 판정 박스 (설계서 §3.3 5, §6) */}
-                                    <div className="bg-[#FAF2E4] rounded-xl p-3 border border-[#EDDCB8] space-y-2">
+                                    <div className="bg-[#FAF2E4] rounded-xl p-3 border border-[#EDDCB8] space-y-2" style={isFullscreen ? { padding: '21px' } : undefined}>
                                         <div className="flex items-center justify-between">
                                             <span className="text-xs font-black tracking-wider text-[#96690F]">
                                                 적절성 판정
@@ -855,6 +932,128 @@ export const BriefingTab: React.FC<BriefingTabProps> = ({
                                         </div>
                                     </div>
                                 </div>
+                            </div>
+
+                            {/* 수퍼비전 (전체 폭 섹션) */}
+                            <div className="px-4 pb-4" style={isFullscreen ? { padding: '0 21px 21px 21px' } : undefined}>
+                                    {/* 4) 수퍼비전 코멘트 (설계서 §3.3 6, §4.5) */}
+                                    <div className="bg-[#EDF4EE] rounded-xl p-3 border border-[#D5E6D8] space-y-2.5" style={isFullscreen ? { padding: '21px' } : undefined}>
+                                        <div className="text-xs font-black tracking-wider text-[#2F6B4F]">
+                                            수퍼비전 코멘트
+                                        </div>
+
+                                        {/* 기존 코멘트 목록 (이력) */}
+                                        <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+                                            {currentMemberComments.length === 0 ? (
+                                                <div className="text-[11px] text-[#7A8A7E] py-1 bg-white/70 p-2 rounded-lg border border-[#D5E4D9]">
+                                                    등록된 수퍼비전 코멘트가 없습니다. 회의 중 논의 내용을 작성하세요.
+                                                </div>
+                                            ) : (
+                                                currentMemberComments.map(c => {
+                                                    const isAuthor = currentUser && (c.author === currentUser.name || c.author === currentUser.username);
+                                                    const isEditing = editingCommentId === c.id;
+
+                                                    return (
+                                                        <div key={c.id} className="bg-white border border-[#D5E4D9] rounded-lg p-2.5 text-xs text-[#33424E] space-y-1">
+                                                            <div className="flex items-center justify-between text-[10px] text-[#9AA7AF]">
+                                                                <span className="font-extrabold text-[#2F6B4F]">{c.author}</span>
+                                                                <span>{c.createdAt ? c.createdAt.slice(0, 16).replace('T', ' ') : ''}</span>
+                                                            </div>
+
+                                                            {isEditing ? (
+                                                                <div className="space-y-1.5 pt-1">
+                                                                    <textarea
+                                                                        value={editingText}
+                                                                        onChange={e => setEditingText(e.target.value)}
+                                                                        className="w-full text-xs p-1.5 border border-[#BFD9C8] rounded focus:outline-none focus:border-[#0E5E7E]"
+                                                                        rows={2}
+                                                                    />
+                                                                    <div className="flex justify-end gap-1">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleUpdateComment(c.id)}
+                                                                            className="px-2 py-0.5 bg-[#0E5E7E] text-white text-[10px] font-bold rounded"
+                                                                        >
+                                                                            수정완료
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setEditingCommentId(null)}
+                                                                            className="px-2 py-0.5 bg-slate-200 text-slate-700 text-[10px] font-bold rounded"
+                                                                        >
+                                                                            취소
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex items-start justify-between gap-2">
+                                                                    <p className="whitespace-pre-wrap leading-relaxed flex-1">{c.text}</p>
+                                                                    {(isAuthor || currentUser?.role === 'admin') && (
+                                                                        <div className="flex items-center gap-1 shrink-0 opacity-70 hover:opacity-100">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setEditingCommentId(c.id);
+                                                                                    setEditingText(c.text);
+                                                                                }}
+                                                                                className="text-slate-500 hover:text-[#0E5E7E]"
+                                                                                title="수정"
+                                                                            >
+                                                                                <Edit3 size={11} />
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleDeleteComment(c.id)}
+                                                                                className="text-slate-500 hover:text-rose-600"
+                                                                                title="삭제"
+                                                                            >
+                                                                                <Trash2 size={11} />
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })
+                                            )}
+                                        </div>
+
+                                        {/* 새 코멘트 입력창 (전체 폭·확대) */}
+                                        <div className="pt-1 space-y-2">
+                                            <textarea
+                                                value={commentInput}
+                                                onChange={e => setCommentInput(e.target.value)}
+                                                onKeyDown={e => {
+                                                    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                                        e.preventDefault();
+                                                        handleSaveComment();
+                                                    }
+                                                }}
+                                                placeholder="회의 중 논의 내용을 바로 적어주세요… (Ctrl+Enter로 저장)"
+                                                rows={5}
+                                                style={isFullscreen ? { height: '233px' } : undefined}
+                                                className="w-full bg-white border border-[#BFD9C8] rounded-lg p-3 text-sm leading-relaxed focus:outline-none focus:border-[#0E5E7E] placeholder:text-[#9AA7AF]"
+                                            />
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[11px] text-[#7A8A7E]">
+                                                    {commentInput.length}자 · 저장 없이 대상자를 바꿔도 내용이 유지됩니다
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleSaveComment}
+                                                    disabled={isSavingComment || !commentInput.trim()}
+                                                    className={`font-extrabold text-sm px-5 py-2.5 rounded-lg shrink-0 transition-colors cursor-pointer ${
+                                                        savedFlash
+                                                            ? 'bg-[#17705A] text-white'
+                                                            : 'bg-[#0E5E7E] hover:bg-[#0c4e69] disabled:bg-slate-300 text-white'
+                                                    }`}
+                                                >
+                                                    {isSavingComment ? '저장 중…' : savedFlash ? '저장됨 ✓' : '수퍼비전 저장'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                             </div>
                         </>
                     ) : (

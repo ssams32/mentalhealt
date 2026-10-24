@@ -6,7 +6,7 @@ const FilterChip: any = ({ label, isSelected, onClick }: any) => (
     <button
         onClick={onClick}
         className={`
-            flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all duration-200 border
+            flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-bold transition-all duration-200 border
             ${isSelected
                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-200'
                 : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
@@ -63,7 +63,7 @@ const FilterControls: React.FC<FilterControlsProps> = ({
     };
 
     return (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-8 overflow-hidden transition-all duration-300">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-[var(--space-7,34px)] overflow-hidden transition-all duration-300">
             {/* Header / Toggle */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
@@ -83,11 +83,11 @@ const FilterControls: React.FC<FilterControlsProps> = ({
 
             {/* Content */}
             <div className={`overflow-hidden transition-all duration-500 ease-in-out ${isOpen ? 'max-h-[800px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                <div className="p-6 space-y-8">
+                <div className="p-[21px] space-y-[21px]">
 
                     {/* 1. Date Range */}
-                    <div className="space-y-3">
-                        <div className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase tracking-wider">
+                    <div className="space-y-[13px]">
+                        <div className="flex items-center gap-2 text-[13px] font-black text-slate-400 uppercase tracking-wider">
                             <Calendar size={14} />
                             <span>분석 기간</span>
                         </div>
@@ -96,23 +96,23 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                                 type="date"
                                 value={dateRange.start}
                                 onChange={(e) => handleDateChange('start', e.target.value)}
-                                className="bg-white border-none text-slate-700 text-xs font-bold rounded-lg focus:ring-2 focus:ring-indigo-100 px-3 py-2 outline-none shadow-sm"
+                                className="bg-white border-none text-slate-700 text-[13px] font-bold rounded-lg focus:ring-2 focus:ring-indigo-100 px-3 h-[44px] outline-none shadow-sm"
                             />
                             <span className="text-slate-300 font-bold">~</span>
                             <input
                                 type="date"
                                 value={dateRange.end}
                                 onChange={(e) => handleDateChange('end', e.target.value)}
-                                className="bg-white border-none text-slate-700 text-xs font-bold rounded-lg focus:ring-2 focus:ring-indigo-100 px-3 py-2 outline-none shadow-sm"
+                                className="bg-white border-none text-slate-700 text-[13px] font-bold rounded-lg focus:ring-2 focus:ring-indigo-100 px-3 h-[44px] outline-none shadow-sm"
                             />
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-[21px]">
                         {/* 2. Departments */}
-                        <div className="space-y-3">
+                        <div className="space-y-[13px]">
                             <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase tracking-wider">
+                                <div className="flex items-center gap-2 text-[13px] font-black text-slate-400 uppercase tracking-wider">
                                     <Building2 size={14} />
                                     <span>부서 ({selectedDepartments.length})</span>
                                 </div>
@@ -121,14 +121,14 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                                         소속 부서({userTeam || '지정팀'}) 전용
                                     </span>
                                 ) : (
-                                    <div className="flex gap-2 text-[10px] font-bold">
+                                    <div className="flex gap-2 text-[13px] font-bold">
                                         <button onClick={() => setSelectedDepartments(departments)} className="text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 px-2 py-1 rounded">전체 선택</button>
                                         <button onClick={() => setSelectedDepartments([])} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 px-2 py-1 rounded">초기화</button>
                                     </div>
                                 )}
                             </div>
                             <div className="flex flex-wrap gap-2 p-4 bg-slate-50/50 rounded-xl border border-slate-100 min-h-[100px] max-h-[200px] overflow-y-auto custom-scrollbar content-start">
-                                {departments.length === 0 && <span className="text-xs text-slate-300 p-2">데이터 없음</span>}
+                                {departments.length === 0 && <span className="text-[13px] text-slate-300 p-2">데이터 없음</span>}
                                 {departments.map(dept => (
                                     <FilterChip
                                         key={dept}
@@ -141,19 +141,19 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                         </div>
 
                         {/* 3. Counselors */}
-                        <div className="space-y-3">
+                        <div className="space-y-[13px]">
                             <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase tracking-wider">
+                                <div className="flex items-center gap-2 text-[13px] font-black text-slate-400 uppercase tracking-wider">
                                     <Users size={14} />
                                     <span>상담사 ({selectedCounselors.length})</span>
                                 </div>
-                                <div className="flex gap-2 text-[10px] font-bold">
+                                <div className="flex gap-2 text-[13px] font-bold">
                                     <button onClick={() => setSelectedCounselors(counselors)} className="text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 px-2 py-1 rounded">전체 선택</button>
                                     <button onClick={() => setSelectedCounselors([])} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 px-2 py-1 rounded">초기화</button>
                                 </div>
                             </div>
                             <div className="flex flex-wrap gap-2 p-4 bg-slate-50/50 rounded-xl border border-slate-100 min-h-[100px] max-h-[200px] overflow-y-auto custom-scrollbar content-start">
-                                {counselors.length === 0 && <span className="text-xs text-slate-300 p-2">데이터 없음</span>}
+                                {counselors.length === 0 && <span className="text-[13px] text-slate-300 p-2">데이터 없음</span>}
                                 {counselors.map(c => (
                                     <FilterChip
                                         key={c}

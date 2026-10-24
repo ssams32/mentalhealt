@@ -226,7 +226,7 @@ const ReportChart: React.FC<ChartComponentProps> = ({ title, data, dataKey, type
     };
 
     return (
-        <div className="group bg-white p-8 rounded-[2.5rem] border-2 border-slate-50 shadow-sm hover:shadow-2xl hover:border-indigo-100 transition-all duration-500 flex flex-col h-[420px] relative overflow-hidden">
+        <div className="group bg-white p-[21px] rounded-[24px] border-2 border-slate-50 shadow-sm hover:shadow-2xl hover:border-indigo-100 transition-all duration-500 flex flex-col h-[420px] relative overflow-hidden">
             <div className="absolute top-0 left-0 w-2 h-full bg-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
 
             <div className="flex justify-between items-start mb-8">
