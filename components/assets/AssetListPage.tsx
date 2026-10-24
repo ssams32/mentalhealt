@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { User } from '../../types';
+import AssetIsoExplorer from './AssetIsoExplorer';
+import AssetFloorPlanEditor from './AssetFloorPlanEditor';
+import AssetQrPanel from './AssetQrPanel';
+import AssetInventoryPage from './AssetInventoryPage';
 
 /**
  * AssetListPage — Stage 1 자산 목록 최소본.
@@ -55,6 +59,8 @@ const AssetListPage: React.FC<{ currentUser: User }> = ({ currentUser }) => {
     const [showForm, setShowForm] = useState(false);
     const [form, setForm] = useState({ assetNumber: '', name: '', categoryId: '', manufacturer: '', modelName: '', notes: '' });
     const [formError, setFormError] = useState('');
+    // Stage 2 탭: App.tsx·Sidebar의 assets 연결을 중복하지 않고, 이 페이지 내부에서 전환한다.
+    const [tab, setTab] = useState<'list' | 'iso' | 'floorplan' | 'qr' | 'inventory'>('list');
 
     const canWrite = currentUser.role === 'admin' || currentUser.role === 'manager';
     const canDelete = currentUser.role === 'admin';
@@ -139,16 +145,33 @@ const AssetListPage: React.FC<{ currentUser: User }> = ({ currentUser }) => {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                         <h1 className="text-xl font-bold text-slate-900">자산 관리</h1>
-                        <p className="text-sm text-slate-500 mt-1">의뢰대장 자산대장 (Stage 1: 목록·검색·생성·소프트 삭제). 2.5D 배치도·QR·재물조사는 Stage 2에서 연결됩니다.</p>
+                        <p className="text-sm text-slate-500 mt-1">의뢰대장 자산대장 (Stage 2: 목록·2.5D 탐색·배치도·QR·재물조사).</p>
                     </div>
-                    {canWrite && (
+                    {canWrite && tab === 'list' && (
                         <button onClick={() => setShowForm(!showForm)} className="px-4 py-2 rounded-xl bg-orange-600 text-white text-sm font-semibold hover:bg-orange-700">
                             {showForm ? '등록 폼 닫기' : '+ 자산 등록'}
                         </button>
                     )}
                 </div>
 
-                <div className="flex gap-2 mt-4">
+                <div className="flex flex-wrap gap-2 mt-4">
+                    {([
+                        ['list', '자산 목록'],
+                        ['iso', '2.5D 탐색'],
+                        ['floorplan', '배치도 편집'],
+                        ['qr', 'QR'],
+                        ['inventory', '재물조사'],
+                    ] as const).map(([key, label]) => (
+                        <button key={key} onClick={() => setTab(key)} className={`px-3 py-2 rounded-xl text-sm font-semibold ${tab === key ? 'bg-orange-600 text-white' : 'bg-slate-100 text-slate-700'}`}>{label}</button>
+                    ))}
+                </div>
+
+                {tab === 'iso' && <div className="mt-4"><AssetIsoExplorer /></div>}
+                {tab === 'floorplan' && <div className="mt-4"><AssetFloorPlanEditor currentUser={currentUser} /></div>}
+                {tab === 'qr' && <div className="mt-4"><AssetQrPanel currentUser={currentUser} /></div>}
+                {tab === 'inventory' && <div className="mt-4"><AssetInventoryPage currentUser={currentUser} /></div>}
+
+                {tab === 'list' && (<div className="flex gap-2 mt-4">
                     <input
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
@@ -158,11 +181,11 @@ const AssetListPage: React.FC<{ currentUser: User }> = ({ currentUser }) => {
                     />
                     <button onClick={handleSearch} className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold">검색</button>
                     {searching && <button onClick={() => { setQuery(''); setSearching(false); loadList(); }} className="px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm">전체 보기</button>}
-                </div>
-                {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+                </div>)}
+                {tab === 'list' && error && <p className="mt-3 text-sm text-red-600">{error}</p>}
             </div>
 
-            {showForm && canWrite && (
+            {tab === 'list' && showForm && canWrite && (
                 <form onSubmit={handleCreate} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 mb-4 space-y-3">
                     <h2 className="font-bold text-slate-900">자산 등록</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -193,7 +216,7 @@ const AssetListPage: React.FC<{ currentUser: User }> = ({ currentUser }) => {
                 </form>
             )}
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            {tab === 'list' && (<div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                 {loading ? (
                     <p className="p-5 text-sm text-slate-500">불러오는 중…</p>
                 ) : assets.length === 0 ? (
@@ -222,9 +245,9 @@ const AssetListPage: React.FC<{ currentUser: User }> = ({ currentUser }) => {
                         </tbody>
                     </table>
                 )}
-            </div>
+            </div>)}
 
-            {selected && (
+            {tab === 'list' && selected && (
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 mt-4">
                     <div className="flex items-start justify-between gap-3">
                         <div>
