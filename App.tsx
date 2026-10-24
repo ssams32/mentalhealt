@@ -25,6 +25,7 @@ import AntiGravityDashboard from './components/antigravity/AntiGravityDashboard'
 import HomePage from './components/home/HomePage';
 import { CallAutomationPage } from './components/calls/CallAutomationPage';
 import { SurveyManagementPage } from './components/survey/SurveyManagementPage';
+import AssetListPage from './components/assets/AssetListPage';
 // import OfficialDocumentPage from './components/officialDocuments/OfficialDocumentPage';
 
 declare var _: any;
@@ -1066,6 +1067,8 @@ function App() {
                     refreshSidebarBadge={fetchSurveyStats}
                 />;
             }
+            case 'assets':
+                return <AssetListPage currentUser={currentUser} />;
             case 'accounts':
                 return <AccountsPage
                     users={users}

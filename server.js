@@ -63,6 +63,8 @@ import { getNextKstPurgeTime, canAccessReferralAttachment } from './server/surve
 
 // --- Backup Targets: 데이터 관리에서 백업 대상 지정 + 실행 ---
 import { createBackupService, createBackupRouter, getBackupTargetsFromEnv } from './server/backup/index.js';
+// --- Stage 1: JSON 자산관리 (server/assets) ---
+import { createAssetRouter } from './server/assets/index.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -883,6 +885,10 @@ app.use('/api/notifications', notificationRouter);
 // 백업 대상 지정/실행 (대상은 BACKUP_TARGET_N_* 환경변수로만 등록됨)
 const backupService = createBackupService({ dataDir: DATA_DIR, attachmentsDir: ATTACHMENTS_DIR });
 app.use('/api/backup', createBackupRouter({ backupService, requireAdmin }));
+
+// Stage 1: JSON 자산관리 API (기존 /api/pcassets와 별개 경로, 기존 라우트 미변경)
+const assetRouter = createAssetRouter({ requireAuth, requireAdmin, getData, persistData });
+app.use('/api/assets-v2', assetRouter);
 backupService.startAutoBackupTimer();
 
 // Start autonomous background survey synchronization (60s initial delay, 5m cycle)
