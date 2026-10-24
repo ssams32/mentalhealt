@@ -320,7 +320,7 @@ const fileLocks = {};
 // Helper: Persist data safely to disk (Atomic write: temp file -> JSON verify -> rename)
 // Returns a Promise that resolves ONLY when data is successfully flushed to disk.
 const persistData = async (filename, data) => {
-    if (filename.startsWith('Budget') || filename === 'Referrals' || filename === 'SuicideAttempters' || filename === 'Users') {
+    if (filename.startsWith('Budget') || filename.startsWith('Asset_') || filename === 'Referrals' || filename === 'SuicideAttempters' || filename === 'Users') {
         try {
             await createBackup(filename);
         } catch (e) {

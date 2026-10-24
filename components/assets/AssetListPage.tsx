@@ -4,6 +4,9 @@ import AssetIsoExplorer from './AssetIsoExplorer';
 import AssetFloorPlanEditor from './AssetFloorPlanEditor';
 import AssetQrPanel from './AssetQrPanel';
 import AssetInventoryPage from './AssetInventoryPage';
+import AssetDataPage from './AssetDataPage';
+import AssetDashboard from './AssetDashboard';
+import AssetAuditLogPage from './AssetAuditLogPage';
 
 /**
  * AssetListPage — Stage 1 자산 목록 최소본.
@@ -60,7 +63,7 @@ const AssetListPage: React.FC<{ currentUser: User }> = ({ currentUser }) => {
     const [form, setForm] = useState({ assetNumber: '', name: '', categoryId: '', manufacturer: '', modelName: '', notes: '' });
     const [formError, setFormError] = useState('');
     // Stage 2 탭: App.tsx·Sidebar의 assets 연결을 중복하지 않고, 이 페이지 내부에서 전환한다.
-    const [tab, setTab] = useState<'list' | 'iso' | 'floorplan' | 'qr' | 'inventory'>('list');
+    const [tab, setTab] = useState<'list' | 'iso' | 'floorplan' | 'qr' | 'inventory' | 'data' | 'dashboard' | 'auditlog'>('list');
 
     const canWrite = currentUser.role === 'admin' || currentUser.role === 'manager';
     const canDelete = currentUser.role === 'admin';
@@ -145,7 +148,7 @@ const AssetListPage: React.FC<{ currentUser: User }> = ({ currentUser }) => {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                         <h1 className="text-xl font-bold text-slate-900">자산 관리</h1>
-                        <p className="text-sm text-slate-500 mt-1">의뢰대장 자산대장 (Stage 2: 목록·2.5D 탐색·배치도·QR·재물조사).</p>
+                        <p className="text-sm text-slate-500 mt-1">의뢰대장 자산대장 (Stage 3: 목록·2.5D 탐색·배치도·QR·재물조사·데이터·대시보드·감사로그).</p>
                     </div>
                     {canWrite && tab === 'list' && (
                         <button onClick={() => setShowForm(!showForm)} className="px-4 py-2 rounded-xl bg-orange-600 text-white text-sm font-semibold hover:bg-orange-700">
@@ -161,7 +164,10 @@ const AssetListPage: React.FC<{ currentUser: User }> = ({ currentUser }) => {
                         ['floorplan', '배치도 편집'],
                         ['qr', 'QR'],
                         ['inventory', '재물조사'],
-                    ] as const).map(([key, label]) => (
+                        ['data', '데이터'],
+                        ['dashboard', '대시보드'],
+                        ...(canDelete ? [['auditlog', '감사로그']] : []),
+                    ] as Array<[typeof tab, string]>).map(([key, label]) => (
                         <button key={key} onClick={() => setTab(key)} className={`px-3 py-2 rounded-xl text-sm font-semibold ${tab === key ? 'bg-orange-600 text-white' : 'bg-slate-100 text-slate-700'}`}>{label}</button>
                     ))}
                 </div>
@@ -170,6 +176,9 @@ const AssetListPage: React.FC<{ currentUser: User }> = ({ currentUser }) => {
                 {tab === 'floorplan' && <div className="mt-4"><AssetFloorPlanEditor currentUser={currentUser} /></div>}
                 {tab === 'qr' && <div className="mt-4"><AssetQrPanel currentUser={currentUser} /></div>}
                 {tab === 'inventory' && <div className="mt-4"><AssetInventoryPage currentUser={currentUser} /></div>}
+                {tab === 'data' && <div className="mt-4"><AssetDataPage currentUser={currentUser} /></div>}
+                {tab === 'dashboard' && <div className="mt-4"><AssetDashboard currentUser={currentUser} /></div>}
+                {tab === 'auditlog' && <div className="mt-4"><AssetAuditLogPage currentUser={currentUser} /></div>}
 
                 {tab === 'list' && (<div className="flex gap-2 mt-4">
                     <input

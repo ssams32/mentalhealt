@@ -23,12 +23,19 @@
  *     관리자 승인 + followUpAction=UPDATE_OFFICIAL_LOCATION일 때만
  *     Asset_Locations 갱신 + Asset_LocationHistory + Asset_AuditLogs를 기록한다.
  *
- * 감사로그: Asset_AuditLogs에는 append만 한다. 이 라우터에는
- *   Asset_AuditLogs에 대한 POST/PUT/PATCH/DELETE 라우트를 만들지 않는다.
+    // Stage 3 파일: Asset_Imports (작업 헤더), Asset_ImportRows (행별 검증·처리 결과·롤백 스냅샷).
+    // 감사로그(Asset_AuditLogs)는 append-only를 유지하며, Stage 3에서도 쓰기·수정·삭제 API를 두지 않는다.
  */
 
 import express from 'express';
 import crypto from 'crypto';
+import XLSX from 'xlsx';
+import {
+    sanitizeExcelCell,
+    containsFormulaInjectionRisk,
+    formatExportCell,
+    csvEscape,
+} from './assetExcelSanitizer.js';
 import {
     OPERATIONAL_STATUSES,
     canTransitionOperationalStatus,
@@ -59,6 +66,8 @@ const QR_CODES_FILE = 'Asset_QrCodes';
 const INVENTORY_PLANS_FILE = 'Asset_InventoryPlans';
 const INVENTORY_TARGETS_FILE = 'Asset_InventoryTargets';
 const INVENTORY_CHECKS_FILE = 'Asset_InventoryChecks';
+const IMPORTS_FILE = 'Asset_Imports';
+const IMPORT_ROWS_FILE = 'Asset_ImportRows';
 
 /** 검색 정규화: NFKC + 소문자 + 공백·하이픈·언더스코어 제거 (부분일치용). */
 export function normalizeSearchText(value) {
@@ -253,6 +262,9 @@ export function createAssetRouter(deps = {}) {
             furnitureId: locationValue.furnitureId,
             shelfSlot: locationValue.shelfSlot,
             note: locationValue.note,
+            // Stage 3: 확인 시각은 조사 승인 시에만 갱신한다. 위치 이동만으로는 바뀌지 않는다.
+            // 신규 위치 행은 null로 시작해 원본 규칙대로 "미확인"으로 센다.
+            lastVerifiedAt: existing ? (existing.lastVerifiedAt || null) : null,
             updatedAt: nowIso(),
             updatedBy: req.auth ? req.auth.id : null,
         };
@@ -638,8 +650,16 @@ export function createAssetRouter(deps = {}) {
     router.get('/audit-logs', requireAdmin, (req, res) => {
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
         const entityId = asString(req.query.entityId);
+        // Stage 3 필터: category는 JSON 이식의 감사 행에 별도 카테고리 컬럼이 없어
+        // entityType과 동일 값으로 매핑한다 (예: Asset / InventoryCheck / DataImport).
+        const action = asString(req.query.action);
+        const entityType = asString(req.query.entityType) || asString(req.query.category);
+        const actorId = asString(req.query.actorId);
         let logs = load(AUDIT_FILE);
         if (entityId) logs = logs.filter((l) => l.entityId === entityId);
+        if (action) logs = logs.filter((l) => l.action === action);
+        if (entityType) logs = logs.filter((l) => l.entityType === entityType);
+        if (actorId) logs = logs.filter((l) => l.actorId === actorId);
         logs.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
         const sliced = logs.slice(0, limit);
         // 감사로그에는 개인정보 성격의 값이 없으나, 응답은 관리자 전용으로 제한한다.
@@ -1476,6 +1496,17 @@ export function createAssetRouter(deps = {}) {
             await persistData(INVENTORY_CHECKS_FILE, checks);
             const targets = load(INVENTORY_TARGETS_FILE).map((t) => (t.id === check.targetId ? { ...t, status: processStatus } : t));
             await persistData(INVENTORY_TARGETS_FILE, targets);
+            // Stage 3: 승인(APPROVE)은 위치 확인 시각을 갱신한다. 대시보드 365일 미확인
+            // 지표의 기준이 되며, 원본 lastVerifiedAt 규칙의 JSON 대응이다.
+            // 위치 행이 없을 때(위치 미지정 자산)는 행을 새로 만들지 않고 미확인으로 둔다.
+            if (decision === 'APPROVE') {
+                const locations = load(LOCATIONS_FILE);
+                const loc = locations.find((l) => l.assetId === check.assetId);
+                if (loc) {
+                    loc.lastVerifiedAt = nowIso();
+                    await persistData(LOCATIONS_FILE, locations);
+                }
+            }
             await appendAudit({ action: 'INVENTORY_CHECK_REVIEWED', entityType: 'InventoryCheck', entityId: check.id, req, detail: { planId: check.planId, assetId: check.assetId, decision, followUpAction, locationUpdated: applyLocationUpdate } });
             if (applyLocationUpdate) {
                 await appendAudit({ action: 'INVENTORY_LOCATION_UPDATED', entityType: 'AssetLocation', entityId: check.assetId, req, detail: { planId: check.planId, roomId: locationValue.roomId } });
@@ -1484,6 +1515,684 @@ export function createAssetRouter(deps = {}) {
         } catch (err) {
             console.error('[INVENTORY_CHECK_REVIEW_ERROR]:', err.message);
             return res.status(500).json({ success: false, error: '조사 검토 중 오류가 발생했습니다.' });
+        }
+    });
+
+    // ================= Stage 3: 엑셀/JSON 가져오기·롤백·내보내기·대시보드·관리자 플래그 =================
+    // 원본(fullstack Stage 3) 규칙을 JSON 저장에 맞게 옮긴 것이다. 의도적 차이점은
+    // STAGE3_CHECK.md에 명시한다. 핵심만 적으면:
+    // - 가져오기: 검증·미리보기 → 커밋 → 롤백. 커밋 가능 행은 VALID·WARNING만, ERROR 행은 SKIPPED.
+    // - 롤백: 신규 삽입은 물리 삭제 없이 소프트 삭제(+QR 폐기), 수정은 반영 전 스냅샷 복원, 재롤백 409.
+    // - 수식 주입 방어: utils/assetExcelSanitizer.ts의 서버 미러(server/assets/assetExcelSanitizer.js)를
+    //   가져오기 검증(경고+중화)과 내보내기(텍스트 셀 중화, 숫자 셀은 숫자 유지)에 연결한다.
+    // - XLSX 업로드는 multipart가 아니라 JSON 본문의 base64로 받는다. 신규 multipart 의존성
+    //   (multer 등)을 추가하지 않기 위함이며, xlsx 파싱·생성은 이미 의존성에 있는 xlsx를 쓴다.
+    // - 감사로그에 대한 쓰기·수정·삭제 API는 만들지 않는다. 아래는 조회·필터 확장(기존 라우트)과
+    //   IMPORT_*/DATA_EXPORTED 감사 기록뿐이다.
+    const MAX_IMPORT_ROWS = 1000;
+    const MAX_XLSX_BYTES = 10 * 1024 * 1024;
+    const STALE_DAYS = 365;
+    const DISCREPANCY_RESULT_STATUSES = ['INFO_MISMATCH', 'DAMAGED', 'LOST_SUSPECTED', 'QR_DAMAGED', 'QR_MISATTACHED', 'DUPLICATE_SUSPECTED'];
+
+    function normalizeSerial(value) {
+        const text = asString(value);
+        if (!text) return null;
+        return text.replace(/[\s-]+/g, '').toUpperCase();
+    }
+
+    /** 원본 import-validate.ts의 JSON 미러. 부서 코드 검증은 제외한다: JSON 이식에는
+     *  부서 마스터가 없고 departmentCode를 팀 문자열 그대로 저장하기 때문이다 (Stage 1 팀 문자열 결정). */
+    function validateImportRows(rawRows, opts) {
+        // 원본 import-validate.ts의 asText와 동일: 숫자를 포함한 모든 값을 문자열로 받는다.
+        // (라우터 공용 asString은 문자열 외 값을 빈 값으로 버리므로 가져오기 검증에는 쓰지 않는다.)
+        const importText = (v) => (v === null || v === undefined ? '' : String(v).trim());
+        const seenNumbers = new Map();
+        const seenSerials = new Map();
+        return rawRows.map((row, idx) => {
+            const rowNumber = idx + 1;
+            const codes = [];
+            const messages = [];
+            const err = (code, msg) => { codes.push(code); messages.push(msg); };
+            const assetNumber = importText(row.assetNumber);
+            const name = importText(row.name);
+            const categoryCode = importText(row.categoryCode);
+            const manufacturer = importText(row.manufacturer) || null;
+            const modelName = importText(row.modelName) || null;
+            const serialNumber = (() => { const t = importText(row.serialNumber); return t ? t.replace(/[\s-]+/g, '').toUpperCase() : null; })();
+            const departmentCode = importText(row.departmentCode) || null;
+            const operationalStatus = importText(row.operationalStatus) || 'IN_USE';
+            if (!assetNumber) err('MISSING_ASSET_NUMBER', '자산번호가 비어 있습니다.');
+            if (!name) err('MISSING_NAME', '품명이 비어 있습니다.');
+            if (!categoryCode) err('MISSING_CATEGORY_CODE', '분류코드가 비어 있습니다.');
+            else if (!opts.categoryByCode.has(categoryCode)) err('UNKNOWN_CATEGORY', `존재하지 않는 분류코드입니다: ${categoryCode}`);
+            if (!OPERATIONAL_STATUSES.includes(operationalStatus)) err('INVALID_OPERATIONAL_STATUS', `잘못된 운영 상태입니다: ${operationalStatus}`);
+            if (assetNumber) {
+                const prev = seenNumbers.get(assetNumber);
+                if (prev !== undefined) err('DUPLICATE_IN_FILE', `파일 내 ${prev}행과 자산번호가 중복됩니다.`);
+                else seenNumbers.set(assetNumber, rowNumber);
+                const dbAsset = opts.dbAssetNumbers.get(assetNumber);
+                if (dbAsset && opts.mode === 'INSERT_ONLY') err('DUPLICATE_IN_DB', '이미 등록된 자산번호입니다 (INSERT_ONLY 모드).');
+            }
+            if (serialNumber) {
+                const prev = seenSerials.get(serialNumber);
+                if (prev !== undefined) err('DUPLICATE_SERIAL_IN_FILE', `파일 내 ${prev}행과 시리얼(정규화 후)이 중복됩니다.`);
+                else seenSerials.set(serialNumber, rowNumber);
+                const dbOwnerId = opts.dbSerials.get(serialNumber);
+                const sameAsset = dbOwnerId && assetNumber && opts.dbAssetNumbers.get(assetNumber) && opts.dbAssetNumbers.get(assetNumber).id === dbOwnerId;
+                if (dbOwnerId && !sameAsset) err('DUPLICATE_SERIAL_IN_DB', '이미 다른 자산에 등록된 시리얼입니다 (정규화 후 비교).');
+            }
+            let warned = false;
+            for (const v of [row.assetNumber, row.name, row.categoryCode, row.manufacturer, row.modelName, row.serialNumber, row.departmentCode]) {
+                if (containsFormulaInjectionRisk(v)) { warned = true; break; }
+            }
+            if (warned) {
+                codes.push('FORMULA_CELL_DETECTED');
+                messages.push('수식 주입 위험 셀을 감지해 중화 처리했습니다 (앞에 작은따옴표 추가).');
+            }
+            const hasError = codes.some((c) => c !== 'FORMULA_CELL_DETECTED');
+            const validationStatus = hasError ? 'ERROR' : (warned ? 'WARNING' : 'VALID');
+            const normalized = hasError ? null : {
+                assetNumber: sanitizeExcelCell(assetNumber),
+                name: sanitizeExcelCell(name),
+                categoryCode: sanitizeExcelCell(categoryCode),
+                manufacturer: manufacturer === null ? null : sanitizeExcelCell(manufacturer),
+                modelName: modelName === null ? null : sanitizeExcelCell(modelName),
+                serialNumber,
+                departmentCode: departmentCode === null ? null : sanitizeExcelCell(departmentCode),
+                operationalStatus,
+            };
+            return {
+                rowNumber,
+                raw: (row && typeof row === 'object' && !Array.isArray(row)) ? row : {},
+                normalized,
+                validationStatus,
+                errorCodes: codes,
+                errorMessages: messages,
+                isUpdate: Boolean(assetNumber && opts.dbAssetNumbers.get(assetNumber) && opts.mode === 'UPSERT'),
+            };
+        });
+    }
+
+    function buildValidatedRows(rawRows, mode) {
+        const categories = load(CATEGORIES_FILE).filter((c) => c.isActive);
+        const categoryByCode = new Map(categories.map((c) => [c.code, c]));
+        const assets = load(ASSETS_FILE).filter((a) => a.isActive);
+        const dbAssetNumbers = new Map(assets.map((a) => [a.assetNumber, a]));
+        const dbSerials = new Map();
+        for (const a of assets) {
+            const s = normalizeSerial(a.serialNumber);
+            if (s && !dbSerials.has(s)) dbSerials.set(s, a.id);
+        }
+        return { validated: validateImportRows(rawRows, { mode, categoryByCode, dbAssetNumbers, dbSerials }), categoryByCode };
+    }
+
+    async function createImportJob(req, { filename, fileSha256, importMode, autoIssueQr, rawRows, validated }) {
+        const job = {
+            id: crypto.randomUUID(),
+            filename,
+            fileSha256,
+            importMode,
+            autoIssueQr,
+            status: 'VALIDATED',
+            totalRows: validated.length,
+            validRows: validated.filter((r) => r.validationStatus === 'VALID' || r.validationStatus === 'WARNING').length,
+            errorRows: validated.filter((r) => r.validationStatus === 'ERROR').length,
+            committedRows: 0,
+            createdBy: req.auth ? req.auth.id : null,
+            createdAt: nowIso(),
+            committedAt: null,
+            rolledBackAt: null,
+        };
+        const jobs = load(IMPORTS_FILE);
+        jobs.push(job);
+        await persistData(IMPORTS_FILE, jobs);
+        const rows = validated.map((r) => ({
+            id: crypto.randomUUID(),
+            jobId: job.id,
+            rowNumber: r.rowNumber,
+            rawDataJson: r.raw,
+            normalizedDataJson: r.normalized,
+            validationStatus: r.validationStatus,
+            errorCodes: r.errorCodes,
+            errorMessages: r.errorMessages,
+            actionTaken: null,
+            targetAssetId: null,
+            beforeAssetSnapshot: null,
+        }));
+        const allRows = load(IMPORT_ROWS_FILE);
+        allRows.push(...rows);
+        await persistData(IMPORT_ROWS_FILE, allRows);
+        return { job, rows };
+    }
+
+    function serializeImportJob(job) { return { ...job }; }
+    function serializeImportRow(row) {
+        const { beforeAssetSnapshot, ...rest } = row;
+        return { ...rest, hasBeforeSnapshot: beforeAssetSnapshot !== null && beforeAssetSnapshot !== undefined };
+    }
+
+    // JSON 행 배열 가져오기 검증 (관리자 전용). 커밋 전에는 원장에 아무것도 쓰지 않는다.
+    router.post('/imports', requireAdmin, async (req, res) => {
+        try {
+            const body = req.body || {};
+            const rawRows = body.rows;
+            if (!Array.isArray(rawRows) || rawRows.length === 0) {
+                return res.status(400).json({ success: false, error: '가져올 행(rows 배열)이 필요합니다.' });
+            }
+            if (rawRows.length > MAX_IMPORT_ROWS) {
+                return res.status(400).json({ success: false, error: `가져오기는 최대 ${MAX_IMPORT_ROWS}행까지 가능합니다.`, code: 'IMPORT_TOO_MANY_ROWS' });
+            }
+            const importMode = asString(body.importMode) || 'INSERT_ONLY';
+            if (importMode !== 'INSERT_ONLY' && importMode !== 'UPSERT') {
+                return res.status(400).json({ success: false, error: 'importMode는 INSERT_ONLY 또는 UPSERT여야 합니다.' });
+            }
+            const autoIssueQr = body.autoIssueQr === undefined ? true : Boolean(body.autoIssueQr);
+            const { validated } = buildValidatedRows(rawRows, importMode);
+            const fileSha256 = crypto.createHash('sha256').update(JSON.stringify(rawRows)).digest('hex');
+            const { job } = await createImportJob(req, {
+                filename: asString(body.filename) || 'import.json',
+                fileSha256, importMode, autoIssueQr, rawRows, validated,
+            });
+            await appendAudit({ action: 'IMPORT_UPLOADED', entityType: 'DataImport', entityId: job.id, req, detail: { filename: job.filename, importMode, totalRows: job.totalRows, validRows: job.validRows, errorRows: job.errorRows } });
+            return res.status(201).json({ success: true, data: serializeImportJob(job) });
+        } catch (err) {
+            console.error('[ASSET_IMPORT_UPLOAD_ERROR]:', err.message);
+            return res.status(500).json({ success: false, error: '가져오기 검증 중 오류가 발생했습니다.' });
+        }
+    });
+
+    // XLSX 가져오기 검증 (관리자 전용). multipart 대신 JSON 본문의 base64를 받는다.
+    // 첫 워크시트만 읽고, 영문·한글 헤더를 매핑한다. 수식 셀은 계산 결과값만 쓰고
+    // FORMULA_CELL_DETECTED 경고를 남긴다.
+    router.post('/imports/xlsx', requireAdmin, async (req, res) => {
+        try {
+            const body = req.body || {};
+            const fileBase64 = asString(body.fileBase64);
+            if (!fileBase64) return res.status(400).json({ success: false, error: 'fileBase64(XLSX 파일의 base64)가 필요합니다.' });
+            const buffer = Buffer.from(fileBase64, 'base64');
+            if (buffer.length === 0) return res.status(400).json({ success: false, error: '빈 파일입니다.' });
+            if (buffer.length > MAX_XLSX_BYTES) {
+                return res.status(400).json({ success: false, error: 'XLSX 파일은 최대 10MB까지 가능합니다.', code: 'XLSX_TOO_LARGE' });
+            }
+            const importMode = asString(body.importMode) || 'INSERT_ONLY';
+            if (importMode !== 'INSERT_ONLY' && importMode !== 'UPSERT') {
+                return res.status(400).json({ success: false, error: 'importMode는 INSERT_ONLY 또는 UPSERT여야 합니다.' });
+            }
+            const autoIssueQr = body.autoIssueQr === undefined ? true : Boolean(body.autoIssueQr);
+            let workbook;
+            try {
+                workbook = XLSX.read(buffer, { type: 'buffer' });
+            } catch (e) {
+                return res.status(400).json({ success: false, error: 'XLSX 파일을 읽을 수 없습니다.' });
+            }
+            const sheetName = workbook.SheetNames && workbook.SheetNames[0];
+            if (!sheetName) return res.status(400).json({ success: false, error: '워크시트가 없습니다.' });
+            const ws = workbook.Sheets[sheetName];
+            const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+            if (!grid.length) return res.status(400).json({ success: false, error: '빈 워크시트입니다.' });
+            const HEADER_MAP = {
+                assetNumber: 'assetNumber', '자산번호': 'assetNumber',
+                name: 'name', '품명': 'name',
+                categoryCode: 'categoryCode', '분류코드': 'categoryCode',
+                manufacturer: 'manufacturer', '제조사': 'manufacturer',
+                modelName: 'modelName', '모델명': 'modelName',
+                serialNumber: 'serialNumber', '시리얼': 'serialNumber', '시리얼번호': 'serialNumber',
+                departmentCode: 'departmentCode', '부서코드': 'departmentCode', '팀': 'departmentCode',
+                operationalStatus: 'operationalStatus', '운영상태': 'operationalStatus',
+            };
+            const headers = grid[0].map((h) => HEADER_MAP[String(h).trim()] || null);
+            // 수식 셀(.f)이 있는 시트 행 번호(1-based)를 수집한다.
+            const formulaRows = new Set();
+            for (const ref of Object.keys(ws)) {
+                if (ref.startsWith('!')) continue;
+                const cell = ws[ref];
+                if (cell && cell.f) {
+                    try { formulaRows.add(XLSX.utils.decode_cell(ref).r + 1); } catch (ignore) {}
+                }
+            }
+            const rawRows = [];
+            const rawRowNumbers = [];
+            for (let i = 1; i < grid.length; i++) {
+                const values = grid[i];
+                if (values.every((v) => v === '' || v === null || v === undefined)) continue;
+                const row = {};
+                headers.forEach((key, col) => {
+                    if (key) {
+                        const v = values[col];
+                        // 셀 값이 숫자(수식 계산 결과 등)여도 문자열로 받아 검증한다.
+                        row[key] = (v === '' || v === null || v === undefined) ? '' : String(v);
+                    }
+                });
+                rawRows.push(row);
+                rawRowNumbers.push(i + 1);
+            }
+            if (!rawRows.length) return res.status(400).json({ success: false, error: '가져올 데이터 행이 없습니다.' });
+            if (rawRows.length > MAX_IMPORT_ROWS) {
+                return res.status(400).json({ success: false, error: `가져오기는 최대 ${MAX_IMPORT_ROWS}행까지 가능합니다.`, code: 'IMPORT_TOO_MANY_ROWS' });
+            }
+            const { validated } = buildValidatedRows(rawRows, importMode);
+            validated.forEach((r, idx) => {
+                if (formulaRows.has(rawRowNumbers[idx])) {
+                    if (!r.errorCodes.includes('FORMULA_CELL_DETECTED')) {
+                        r.errorCodes.push('FORMULA_CELL_DETECTED');
+                        r.errorMessages.push('수식 셀을 감지했습니다. 계산 결과값을 사용했습니다.');
+                    }
+                    if (r.validationStatus === 'VALID') r.validationStatus = 'WARNING';
+                }
+            });
+            const fileSha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+            const { job } = await createImportJob(req, {
+                filename: asString(body.filename) || 'import.xlsx',
+                fileSha256, importMode, autoIssueQr, rawRows, validated,
+            });
+            await appendAudit({ action: 'IMPORT_UPLOADED', entityType: 'DataImport', entityId: job.id, req, detail: { filename: job.filename, importMode, sheetName, totalRows: job.totalRows, validRows: job.validRows, errorRows: job.errorRows } });
+            return res.status(201).json({ success: true, data: serializeImportJob(job) });
+        } catch (err) {
+            console.error('[ASSET_IMPORT_XLSX_ERROR]:', err.message);
+            return res.status(500).json({ success: false, error: 'XLSX 가져오기 검증 중 오류가 발생했습니다.' });
+        }
+    });
+
+    router.get('/imports', requireAdmin, (req, res) => {
+        const jobs = load(IMPORTS_FILE);
+        jobs.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+        const sliced = jobs.slice(0, 100);
+        return res.json({ success: true, data: sliced.map(serializeImportJob), total: jobs.length });
+    });
+
+    router.get('/imports/:id', requireAdmin, (req, res) => {
+        const job = load(IMPORTS_FILE).find((j) => j.id === req.params.id);
+        if (!job) return res.status(404).json({ success: false, error: '가져오기 작업을 찾을 수 없습니다.' });
+        const statusFilter = asString(req.query.validationStatus);
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
+        const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+        let rows = load(IMPORT_ROWS_FILE).filter((r) => r.jobId === job.id);
+        if (statusFilter) rows = rows.filter((r) => r.validationStatus === statusFilter);
+        rows.sort((a, b) => a.rowNumber - b.rowNumber);
+        const total = rows.length;
+        return res.json({ success: true, data: { job: serializeImportJob(job), rows: rows.slice(offset, offset + limit).map(serializeImportRow), total } });
+    });
+
+    // 커밋: VALID·WARNING 행만 원장 반영, ERROR 행은 SKIPPED. 재커밋 409.
+    // 커밋 직전 중복을 재검사해 충돌이 있으면 아무것도 쓰지 않고 409로 남긴다
+    // (업로드 이후 원장이 바뀐 경우, 미리보기가 동결된다는 원본 규칙과 같은 취지).
+    router.post('/imports/:id/commit', requireAdmin, async (req, res) => {
+        try {
+            const jobs = load(IMPORTS_FILE);
+            const job = jobs.find((j) => j.id === req.params.id);
+            if (!job) return res.status(404).json({ success: false, error: '가져오기 작업을 찾을 수 없습니다.' });
+            if (job.status === 'COMMITTED') return res.status(409).json({ success: false, error: '이미 커밋된 작업입니다.', code: 'IMPORT_ALREADY_COMMITTED' });
+            if (job.status === 'ROLLED_BACK') return res.status(409).json({ success: false, error: '이미 롤백된 작업입니다.', code: 'IMPORT_ALREADY_ROLLED_BACK' });
+            if (job.status !== 'VALIDATED') return res.status(409).json({ success: false, error: '커밋할 수 없는 작업 상태입니다.', code: 'IMPORT_NOT_VALIDATED' });
+            const rows = load(IMPORT_ROWS_FILE).filter((r) => r.jobId === job.id).sort((a, b) => a.rowNumber - b.rowNumber);
+            const committable = rows.filter((r) => r.validationStatus === 'VALID' || r.validationStatus === 'WARNING');
+            // 커밋 직전 재검사
+            const currentAssets = load(ASSETS_FILE).filter((a) => a.isActive);
+            const currentByNumber = new Map(currentAssets.map((a) => [a.assetNumber, a]));
+            const currentSerials = new Map();
+            for (const a of currentAssets) {
+                const s = normalizeSerial(a.serialNumber);
+                if (s && !currentSerials.has(s)) currentSerials.set(s, a.id);
+            }
+            const categories = load(CATEGORIES_FILE).filter((c) => c.isActive);
+            const categoryByCode = new Map(categories.map((c) => [c.code, c]));
+            const conflicts = [];
+            for (const row of committable) {
+                const n = row.normalizedDataJson;
+                if (!n) { conflicts.push({ rowNumber: row.rowNumber, codes: ['MISSING_NORMALIZED'] }); continue; }
+                if (!categoryByCode.has(n.categoryCode)) conflicts.push({ rowNumber: row.rowNumber, codes: ['UNKNOWN_CATEGORY'] });
+                const existing = currentByNumber.get(n.assetNumber);
+                if (job.importMode === 'INSERT_ONLY' && existing) conflicts.push({ rowNumber: row.rowNumber, codes: ['DUPLICATE_IN_DB'] });
+                if (n.serialNumber) {
+                    const ownerId = currentSerials.get(n.serialNumber);
+                    const sameAsset = ownerId && existing && ownerId === existing.id;
+                    if (ownerId && !sameAsset) conflicts.push({ rowNumber: row.rowNumber, codes: ['DUPLICATE_SERIAL_IN_DB'] });
+                }
+            }
+            // UPSERT 수정 대상 소실은 별도 충돌로 삼지 않는다: 커밋 시점에 대상이 없으면
+            // 위 분기대로 신규 삽입으로 처리한다. 대상이 사라진 뒤 다시 생긴 자산과
+            // 시리얼이 겹치는 경우는 위 시리얼 재검사에서 충돌로 잡힌다.
+            if (conflicts.length) {
+                return res.status(409).json({ success: false, error: '커밋 직전 재검사에서 충돌이 발견되어 커밋하지 않았습니다. 다시 업로드해 주세요.', code: 'IMPORT_COMMIT_CONFLICT', conflicts });
+            }
+            const assets = load(ASSETS_FILE);
+            const locations = load(LOCATIONS_FILE);
+            let insertedCount = 0;
+            let updatedCount = 0;
+            let qrIssuedCount = 0;
+            const insertedAssets = [];
+            for (const row of committable) {
+                const n = row.normalizedDataJson;
+                const existing = assets.find((a) => a.isActive && a.assetNumber === n.assetNumber);
+                if (job.importMode === 'UPSERT' && existing) {
+                    const loc = locations.find((l) => l.assetId === existing.id) || null;
+                    row.beforeAssetSnapshot = {
+                        asset: {
+                            name: existing.name, categoryId: existing.categoryId, manufacturer: existing.manufacturer,
+                            modelName: existing.modelName, serialNumber: existing.serialNumber, team: existing.team,
+                            operationalStatus: existing.operationalStatus,
+                        },
+                        location: loc ? { ...loc } : null,
+                    };
+                    existing.name = n.name;
+                    existing.categoryId = categoryByCode.get(n.categoryCode).id;
+                    existing.manufacturer = n.manufacturer;
+                    existing.modelName = n.modelName;
+                    existing.serialNumber = n.serialNumber;
+                    existing.team = n.departmentCode;
+                    existing.operationalStatus = n.operationalStatus;
+                    existing.updatedAt = nowIso();
+                    row.actionTaken = 'UPDATED';
+                    row.targetAssetId = existing.id;
+                    updatedCount++;
+                } else {
+                    const asset = {
+                        id: crypto.randomUUID(),
+                        assetNumber: n.assetNumber,
+                        name: n.name,
+                        categoryId: categoryByCode.get(n.categoryCode).id,
+                        manufacturer: n.manufacturer,
+                        modelName: n.modelName,
+                        serialNumber: n.serialNumber,
+                        acquisitionDate: null,
+                        acquisitionCost: null,
+                        acquisitionMethod: null,
+                        usefulLifeYears: null,
+                        team: n.departmentCode,
+                        custodianUserId: null,
+                        operationalStatus: n.operationalStatus,
+                        usageType: 'DEDICATED',
+                        notes: null,
+                        isActive: true,
+                        deactivatedAt: null,
+                        deactivationReason: null,
+                        createdBy: req.auth ? req.auth.id : null,
+                        createdAt: nowIso(),
+                        updatedAt: nowIso(),
+                    };
+                    assets.push(asset);
+                    insertedAssets.push(asset);
+                    row.actionTaken = 'INSERTED';
+                    row.targetAssetId = asset.id;
+                    insertedCount++;
+                }
+            }
+            for (const row of rows) {
+                if (row.validationStatus === 'ERROR') row.actionTaken = 'SKIPPED';
+            }
+            await persistData(ASSETS_FILE, assets);
+            for (const asset of insertedAssets) {
+                await applyLocation(asset.id, { roomId: null, zoneId: null, furnitureId: null, shelfSlot: null, note: null }, req, 'INITIAL_PLACEMENT');
+                if (job.autoIssueQr) {
+                    await issueQrForAsset(asset, req, 'IMPORT');
+                    qrIssuedCount++;
+                }
+            }
+            job.status = 'COMMITTED';
+            job.committedRows = insertedCount + updatedCount;
+            job.committedAt = nowIso();
+            await persistData(IMPORT_ROWS_FILE, load(IMPORT_ROWS_FILE).map((r) => {
+                const updated = rows.find((x) => x.id === r.id);
+                return updated || r;
+            }));
+            await persistData(IMPORTS_FILE, jobs);
+            await appendAudit({ action: 'IMPORT_COMMITTED', entityType: 'DataImport', entityId: job.id, req, detail: { filename: job.filename, importMode: job.importMode, insertedCount, updatedCount, skippedErrorCount: rows.filter((r) => r.actionTaken === 'SKIPPED').length, qrIssuedCount } });
+            return res.json({ success: true, data: { job: serializeImportJob(job), insertedCount, updatedCount, skippedErrorCount: rows.filter((r) => r.actionTaken === 'SKIPPED').length, qrIssuedCount } });
+        } catch (err) {
+            console.error('[ASSET_IMPORT_COMMIT_ERROR]:', err.message);
+            return res.status(500).json({ success: false, error: '가져오기 커밋 중 오류가 발생했습니다.' });
+        }
+    });
+
+    // 롤백: 커밋된 작업만 되돌린다. 신규 삽입은 소프트 삭제(+QR 폐기), 수정은 스냅샷 복원, 재롤백 409.
+    router.post('/imports/:id/rollback', requireAdmin, async (req, res) => {
+        try {
+            const jobs = load(IMPORTS_FILE);
+            const job = jobs.find((j) => j.id === req.params.id);
+            if (!job) return res.status(404).json({ success: false, error: '가져오기 작업을 찾을 수 없습니다.' });
+            if (job.status === 'ROLLED_BACK') return res.status(409).json({ success: false, error: '이미 롤백된 작업입니다.', code: 'IMPORT_ALREADY_ROLLED_BACK' });
+            if (job.status !== 'COMMITTED') return res.status(409).json({ success: false, error: '커밋된 작업만 롤백할 수 있습니다.', code: 'IMPORT_NOT_COMMITTED' });
+            const rows = load(IMPORT_ROWS_FILE).filter((r) => r.jobId === job.id).sort((a, b) => a.rowNumber - b.rowNumber);
+            const assets = load(ASSETS_FILE);
+            const qrs = load(QR_CODES_FILE);
+            const locations = load(LOCATIONS_FILE);
+            let insertedRolledBack = 0;
+            let updatedRestored = 0;
+            let qrRevoked = false;
+            let locationChanged = false;
+            for (const row of rows) {
+                if (row.actionTaken === 'INSERTED') {
+                    const asset = assets.find((a) => a.id === row.targetAssetId);
+                    if (asset && asset.isActive) {
+                        asset.isActive = false;
+                        asset.deactivatedAt = nowIso();
+                        asset.deactivationReason = 'IMPORT_ROLLBACK';
+                        asset.updatedAt = nowIso();
+                        insertedRolledBack++;
+                    }
+                    for (const q of qrs) {
+                        if (q.assetId === row.targetAssetId && (q.status === 'ACTIVE' || q.status === 'DAMAGED_REPORTED')) {
+                            q.status = 'REVOKED';
+                            q.revokedBy = req.auth ? req.auth.id : null;
+                            q.revokedAt = nowIso();
+                            q.revokeReason = 'IMPORT_ROLLBACK';
+                            qrRevoked = true;
+                        }
+                    }
+                    row.actionTaken = 'ROLLED_BACK';
+                } else if (row.actionTaken === 'UPDATED') {
+                    const asset = assets.find((a) => a.id === row.targetAssetId);
+                    const snap = row.beforeAssetSnapshot;
+                    if (asset && snap && snap.asset) {
+                        Object.assign(asset, {
+                            name: snap.asset.name, categoryId: snap.asset.categoryId, manufacturer: snap.asset.manufacturer,
+                            modelName: snap.asset.modelName, serialNumber: snap.asset.serialNumber, team: snap.asset.team,
+                            operationalStatus: snap.asset.operationalStatus, updatedAt: nowIso(),
+                        });
+                        updatedRestored++;
+                    }
+                    if (snap && snap.location) {
+                        const loc = locations.find((l) => l.assetId === row.targetAssetId);
+                        if (loc) Object.assign(loc, { ...snap.location });
+                        else locations.push({ ...snap.location });
+                        locationChanged = true;
+                    }
+                    // 스냅샷 위치가 null이었던 경우(가져오기가 위치를 바꾸지 않으므로) 커밋 이후
+                    // 별도 경로로 생긴 위치 행은 지우지 않는다. 가져오기 롤백 범위를 넘기 때문이다.
+                    row.actionTaken = 'ROLLED_BACK';
+                }
+            }
+            await persistData(ASSETS_FILE, assets);
+            if (qrRevoked) await persistData(QR_CODES_FILE, qrs);
+            if (locationChanged) await persistData(LOCATIONS_FILE, locations);
+            job.status = 'ROLLED_BACK';
+            job.rolledBackAt = nowIso();
+            await persistData(IMPORT_ROWS_FILE, load(IMPORT_ROWS_FILE).map((r) => {
+                const updated = rows.find((x) => x.id === r.id);
+                return updated || r;
+            }));
+            await persistData(IMPORTS_FILE, jobs);
+            await appendAudit({ action: 'IMPORT_ROLLED_BACK', entityType: 'DataImport', entityId: job.id, req, detail: { filename: job.filename, insertedRolledBack, updatedRestored } });
+            return res.json({ success: true, data: { job: serializeImportJob(job), insertedRolledBack, updatedRestored } });
+        } catch (err) {
+            console.error('[ASSET_IMPORT_ROLLBACK_ERROR]:', err.message);
+            return res.status(500).json({ success: false, error: '가져오기 롤백 중 오류가 발생했습니다.' });
+        }
+    });
+
+    // 내보내기: 프리셋 ALL_ASSETS·DISCREPANCY_ASSETS·UNCHECKED_ASSETS·AUDIT_LOGS.
+    // XLSX는 ALL_ASSETS 1종만 지원한다 (원본 규칙). AUDIT_LOGS는 관리자 전용·최대 5000행.
+    // 모든 텍스트 셀은 수식 주입 방어, 숫자 셀은 숫자 타입을 유지한다.
+    router.get('/exports', async (req, res) => {
+        try {
+            const preset = asString(req.query.preset) || 'ALL_ASSETS';
+            const format = asString(req.query.format) || 'csv';
+            const PRESETS = ['ALL_ASSETS', 'DISCREPANCY_ASSETS', 'UNCHECKED_ASSETS', 'AUDIT_LOGS'];
+            if (!PRESETS.includes(preset)) return res.status(400).json({ success: false, error: '유효하지 않은 내보내기 프리셋(preset)입니다.' });
+            if (format !== 'csv' && format !== 'xlsx') return res.status(400).json({ success: false, error: 'format은 csv 또는 xlsx여야 합니다.' });
+            if (format === 'xlsx' && preset !== 'ALL_ASSETS') {
+                return res.status(400).json({ success: false, error: 'XLSX 내보내기는 전체 자산(ALL_ASSETS)만 지원합니다.', code: 'EXPORT_FORMAT_NOT_SUPPORTED' });
+            }
+            if (preset === 'AUDIT_LOGS' && !isAdmin(req)) {
+                return res.status(403).json({ success: false, error: '관리자 권한이 필요합니다.' });
+            }
+            const dateStamp = new Date().toISOString().split('T')[0].replace(/-/g, '');
+            const scopedAssets = load(ASSETS_FILE).filter((a) => a.isActive && inTeamScope(req, a));
+            const categories = load(CATEGORIES_FILE);
+            const spaces = load(SPACES_FILE);
+            const locations = load(LOCATIONS_FILE);
+            const assetRow = (a) => {
+                const category = a.categoryId ? categories.find((c) => c.id === a.categoryId) || null : null;
+                const loc = locations.find((l) => l.assetId === a.id) || null;
+                const room = loc && loc.roomId ? spaces.find((s) => s.id === loc.roomId && s.kind === 'room') || null : null;
+                return [
+                    a.assetNumber, a.name, category ? category.name : '', a.manufacturer || '', a.modelName || '',
+                    a.serialNumber || '', a.operationalStatus, a.team || '', room ? room.name : '',
+                    a.acquisitionDate || '', (isAdmin(req) || isManager(req)) ? (a.acquisitionCost ?? '') : '',
+                ];
+            };
+            let headers;
+            let aoa;
+            if (preset === 'AUDIT_LOGS') {
+                headers = ['일시', '액션', '카테고리(대상 종류)', '대상ID', '행위자', '행위자 역할', '상세'];
+                const logs = load(AUDIT_FILE);
+                logs.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+                const sliced = logs.slice(0, 5000);
+                aoa = [headers, ...sliced.map((l) => [
+                    l.createdAt, l.action, l.entityType, l.entityId || '', l.actorName || '', l.actorRole || '',
+                    l.detail ? JSON.stringify(l.detail) : '',
+                ])];
+            } else {
+                headers = ['자산번호', '품명', '분류', '제조사', '모델명', '시리얼', '운영상태', '팀', '사무실', '취득일', '취득가'];
+                let list = scopedAssets;
+                if (preset === 'DISCREPANCY_ASSETS') {
+                    const badIds = new Set(load(INVENTORY_CHECKS_FILE)
+                        .filter((c) => !c.isLocationMatched || DISCREPANCY_RESULT_STATUSES.includes(c.resultStatus))
+                        .map((c) => c.assetId));
+                    list = scopedAssets.filter((a) => badIds.has(a.id));
+                } else if (preset === 'UNCHECKED_ASSETS') {
+                    const activePlans = load(INVENTORY_PLANS_FILE).filter((p) => p.isActive && p.status !== 'CANCELLED');
+                    const activePlanIds = new Set(activePlans.map((p) => p.id));
+                    const checkedTargetIds = new Set(load(INVENTORY_CHECKS_FILE).filter((c) => activePlanIds.has(c.planId)).map((c) => c.targetId));
+                    const uncheckedAssetIds = new Set(load(INVENTORY_TARGETS_FILE)
+                        .filter((t) => activePlanIds.has(t.planId) && !checkedTargetIds.has(t.id))
+                        .map((t) => t.assetId));
+                    list = scopedAssets.filter((a) => uncheckedAssetIds.has(a.id));
+                }
+                aoa = [headers, ...list.map(assetRow)];
+            }
+            const rowCount = aoa.length - 1;
+            await appendAudit({ action: 'DATA_EXPORTED', entityType: 'Export', entityId: null, req, detail: { preset, format, rowCount } });
+            if (format === 'xlsx') {
+                const sanitized = aoa.map((row, ri) => row.map((cell) => (ri === 0 ? String(cell) : formatExportCell(cell))));
+                const ws = XLSX.utils.aoa_to_sheet(sanitized);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'assets');
+                const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+                res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+                res.setHeader('Content-Disposition', `attachment; filename="assets_${dateStamp}.xlsx"`);
+                return res.send(buffer);
+            }
+            const lines = aoa.map((row, ri) => row.map((cell) => {
+                const value = ri === 0 ? String(cell) : formatExportCell(cell);
+                return csvEscape(value);
+            }).join(','));
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="asset-export_${preset}_${dateStamp}.csv"`);
+            return res.send(`\uFEFF${lines.join('\n')}`);
+        } catch (err) {
+            console.error('[ASSET_EXPORT_ERROR]:', err.message);
+            return res.status(500).json({ success: false, error: '내보내기 중 오류가 발생했습니다.' });
+        }
+    });
+
+    // 대시보드 지표 (로그인 전체, 비관리자는 팀 스코프 적용).
+    // 미확인(365일): 현재 위치 행이 없거나 lastVerifiedAt이 없거나 365일보다 오래된 활성 자산.
+    // 신규 자산은 lastVerifiedAt이 null이므로 승인으로 확인되기 전까지 미확인으로 센다 (원본 의도 동일).
+    router.get('/dashboard/metrics', (req, res) => {
+        const scopedAssets = load(ASSETS_FILE).filter((a) => a.isActive && inTeamScope(req, a));
+        const scopedIds = new Set(scopedAssets.map((a) => a.id));
+        const byOperationalStatus = {};
+        for (const s of OPERATIONAL_STATUSES) byOperationalStatus[s] = 0;
+        for (const a of scopedAssets) {
+            if (byOperationalStatus[a.operationalStatus] === undefined) byOperationalStatus[a.operationalStatus] = 0;
+            byOperationalStatus[a.operationalStatus]++;
+        }
+        const checks = load(INVENTORY_CHECKS_FILE).filter((c) => scopedIds.has(c.assetId));
+        const discrepancyCount = checks.filter((c) => !c.isLocationMatched).length;
+        const unapprovedCount = checks.filter((c) => c.approvalStatus === 'PENDING').length;
+        const locations = load(LOCATIONS_FILE);
+        const locByAsset = new Map(locations.map((l) => [l.assetId, l]));
+        const cutoff = Date.now() - STALE_DAYS * 24 * 60 * 60 * 1000;
+        let staleOver365Days = 0;
+        for (const a of scopedAssets) {
+            const loc = locByAsset.get(a.id);
+            if (!loc || !loc.lastVerifiedAt || Date.parse(loc.lastVerifiedAt) < cutoff) staleOver365Days++;
+        }
+        let plans = load(INVENTORY_PLANS_FILE).filter((p) => p.isActive);
+        if (!isAdmin(req) && req.auth.team) plans = plans.filter((p) => !p.team || p.team === req.auth.team);
+        plans.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+        const latest = plans[0] || null;
+        let latestPlan = null;
+        if (latest) {
+            const targets = load(INVENTORY_TARGETS_FILE).filter((t) => t.planId === latest.id);
+            const processedCount = targets.filter((t) => t.status !== 'UNCHECKED' && t.status !== 'DRAFT').length;
+            latestPlan = {
+                id: latest.id, name: latest.name, status: latest.status,
+                targetCount: targets.length, processedCount, progress: computeInventoryProgress(targets),
+            };
+        }
+        return res.json({
+            success: true,
+            data: {
+                totalAssets: scopedAssets.length,
+                byOperationalStatus,
+                byVerificationStatus: { VERIFIED: scopedAssets.length - staleOver365Days, UNVERIFIED: staleOver365Days },
+                discrepancyCount,
+                unapprovedCount,
+                staleOver365Days,
+                latestPlan,
+                generatedAt: nowIso(),
+            },
+        });
+    });
+
+    // 관리자: ASSET_AUDIT_ACCESS 플래그 부여·회수 (admin 전용).
+    // AccountsPage 토글 UI는 이번 단계에서 붙이지 않는다 (아래 사유, STAGE3_CHECK.md 참조).
+    // 부여 방식은 기존 voice-access/online-survey-access 엔드포인트와 동일하며,
+    // 세션에 권한이 스냅샷으로 들어 있으므로 부여 후에는 재로그인이 필요하다.
+    router.post('/admin/asset-audit-access/:userId', requireAdmin, async (req, res) => {
+        try {
+            if (!req.body || typeof req.body.granted !== 'boolean') {
+                return res.status(400).json({ success: false, error: 'granted 값은 true 또는 false여야 합니다.' });
+            }
+            const granted = req.body.granted;
+            const users = getData('Users', []);
+            const targetIndex = users.findIndex((u) => u && String(u.id) === String(req.params.userId));
+            if (targetIndex === -1) return res.status(404).json({ success: false, error: '대상 사용자를 찾을 수 없습니다.' });
+            const targetUser = users[targetIndex];
+            if (targetUser.status !== 'active') {
+                return res.status(400).json({ success: false, error: '비활성 또는 정지된 사용자에게는 권한을 부여할 수 없습니다.' });
+            }
+            let updatedPermissions;
+            if (Array.isArray(targetUser.permissions)) {
+                updatedPermissions = granted
+                    ? (targetUser.permissions.includes('ASSET_AUDIT_ACCESS') ? [...targetUser.permissions] : [...targetUser.permissions, 'ASSET_AUDIT_ACCESS'])
+                    : targetUser.permissions.filter((p) => p !== 'ASSET_AUDIT_ACCESS');
+            } else if (typeof targetUser.permissions === 'object' && targetUser.permissions !== null) {
+                updatedPermissions = { ...targetUser.permissions, ASSET_AUDIT_ACCESS: granted };
+            } else {
+                updatedPermissions = { ASSET_AUDIT_ACCESS: granted };
+            }
+            const updatedUser = { ...targetUser, permissions: updatedPermissions };
+            const updatedUsers = [...users.slice(0, targetIndex), updatedUser, ...users.slice(targetIndex + 1)];
+            await persistData('Users', updatedUsers);
+            await appendAudit({ action: granted ? 'ASSET_AUDIT_ACCESS_GRANTED' : 'ASSET_AUDIT_ACCESS_REVOKED', entityType: 'User', entityId: updatedUser.id, req, detail: {} });
+            const { password, ...safeUser } = updatedUser;
+            return res.json({ success: true, user: safeUser, note: '권한 변경 후 대상 사용자는 재로그인해야 적용됩니다.' });
+        } catch (err) {
+            console.error('[ASSET_AUDIT_ACCESS_ERROR]:', err.message);
+            return res.status(500).json({ success: false, error: '감사자 권한 변경 중 오류가 발생했습니다.' });
         }
     });
 
