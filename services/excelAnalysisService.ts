@@ -390,12 +390,14 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
         else if (isOnline) sessionType = 'online';
         else if (isPhone) sessionType = 'phone';
 
-        // 4. 부재(노쇼) 건 jun 확정 결정: "건수·판정에서 제외, 타임라인에만 부재로 표시"
-        if (!isAbsent) {
+        // 4. [2026-10-26 jun 결정 변경] 부재(노쇼) 건도 건수에 포함한다.
+        //    단, faceToFaceSessions(연도 자동감지용)는 실제 진행 건만 유지한다.
+        //    적절성 판정은 briefingUtils에서 별도로 부재를 제외한다.
+        {
             const perf = counselorPerformance[counselor];
             perf.totalSessions++;
 
-            if ((isInOffice || isVisit) && isoDate) {
+            if (!isAbsent && (isInOffice || isVisit) && isoDate) {
                 perf.faceToFaceSessions.push({ date: isoDate });
             }
 
@@ -420,7 +422,7 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
             if (isGeneralSession) perf.totalGeneral++;
 
             if (isGeneralSession && isoDate && sessionType) {
-                perf.allSessions.push({ date: isoDate, type: sessionType, category: row._category as any });
+                perf.allSessions.push({ date: isoDate, type: sessionType, category: row._category as any, absent: isAbsent });
             }
 
             // MemberPerformance 집계 (회원/월별 탭용)

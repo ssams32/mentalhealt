@@ -405,7 +405,7 @@ export interface CounselorPerformance {
     };
     faceToFaceSessions: { date: string }[];
     // New field for granular analysis
-    allSessions: { date: string; type: 'inOffice' | 'visit' | 'online' | 'emergency' | 'phone'; category?: 'individual' | 'resource' | 'general' }[];
+    allSessions: { date: string; type: 'inOffice' | 'visit' | 'online' | 'emergency' | 'phone'; category?: 'individual' | 'resource' | 'general'; absent?: boolean }[];
     totalSessions: number;
     totalEmergency: number;
     totalGeneral: number;

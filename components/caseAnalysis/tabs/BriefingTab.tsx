@@ -880,7 +880,7 @@ export const BriefingTab: React.FC<BriefingTabProps> = ({
                                                                         {session.problemArea && <span><b>문제영역:</b> {session.problemArea}</span>}
                                                                         {session.needItem && <span><b>욕구항목:</b> {session.needItem}</span>}
                                                                         <span><b>상담자:</b> {session.counselor}</span>
-                                                                        {isAbsent && <span className="text-amber-700 font-bold">* 부재(노쇼) 건은 통계·적절성 판정에서 제외됩니다.</span>}
+                                                                        {isAbsent && <span className="text-amber-700 font-bold">* 부재(노쇼) 건은 건수에 포함되며, 적절성 판정에서는 제외됩니다.</span>}
                                                                     </div>
                                                                 </div>
                                                             )}
