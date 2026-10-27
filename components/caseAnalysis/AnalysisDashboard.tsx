@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AnalysisResult } from '../../types';
 import SummaryCards from './SummaryCards';
+import DiagnosticsPanel from './DiagnosticsPanel';
 import CounselorPerformanceTab from './tabs/CounselorPerformanceTab';
 import GeneralAnalysisTab from './tabs/GeneralAnalysisTab';
 import ISPAnalysisTab from './tabs/ISPAnalysisTab';
@@ -62,6 +63,9 @@ const AnalysisDashboard: React.FC<AnalysisDashboardProps> = ({
 
             {/* Summary Cards */}
             <SummaryCards counselorData={initialResult.counselorPerformance} />
+
+            {/* Count Diagnostics (privacy-safe: reason counts only) */}
+            <DiagnosticsPanel analysisResult={initialResult} dateRange={dateRange} />
 
             {/* Main Tabs Container */}
             <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden min-h-[500px]">

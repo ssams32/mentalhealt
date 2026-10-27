@@ -502,6 +502,21 @@ export interface BriefingComment {
     updatedAt: string;
 }
 
+/** 건수 진단: 파일별 행수 대조 — 개인정보(이름·내용) 없이 사유별 건수만 집계 */
+export interface FileCountDiagnostics {
+    fileLabel: string; // '1.개별상담' | '2.자원조정' | '3.일반상담'
+    totalRows: number; // 헤더 제외 데이터 행수
+    counted: number; // allSessions에 들어간 행수 (기간 필터 적용 전)
+    absentCounted: number; // 그중 부재(노쇼) 행수 (일반상담은 0)
+    dropNoCounselor: number; // 상담자 칸 비어 있음
+    dropCounselorNotInTeam: number; // 상담자가 팀구별 파일에 없음
+    dropBadDate: number; // 날짜 파싱 실패
+    dropTypeUnknown: number; // 상담형태 매칭 실패 (날짜는 유효)
+}
+export interface CountDiagnostics {
+    files: FileCountDiagnostics[];
+}
+
 export interface AnalysisResult {
     counselorPerformance: CounselorPerformance[];
     memberPerformance: MemberPerformance[];
@@ -511,6 +526,7 @@ export interface AnalysisResult {
     briefingMembers?: BriefingMember[];
     deregisteredRegNos?: string[]; // 등퇴록대장 퇴록_리스트의 회원등록번호(정규화) — 풀브리핑 제외용
     briefingComments?: Record<string, BriefingComment[]>;
+    diagnostics?: CountDiagnostics; // 건수 진단 (파싱 시점 집계, 기간 필터 미적용)
 }
 
 export interface BudgetTransaction {

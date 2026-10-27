@@ -5,7 +5,8 @@ import {
     ISPExpiringMember,
     IspPlan,
     BriefingMember,
-    BriefingSession
+    BriefingSession,
+    FileCountDiagnostics
 } from '../types';
 import { ISP_NEED_LABELS, normalizePersonName } from '../utils/briefingUtils';
 
@@ -126,7 +127,21 @@ export const parseDate = (dateRaw: any): Date | null => {
     return null;
 };
 
-export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> => {
+export interface StaffRosterEntry {
+    name: string;
+    team: string;
+}
+export interface StaffRosterOptions {
+    /** 시스템 등록 직원 명단 (계정 관리의 직원 계정) */
+    systemStaff?: StaffRosterEntry[];
+    /** 직원 설정 메뉴에서 추가한 직원 (최우선) */
+    extraStaff?: StaffRosterEntry[];
+}
+
+export const analyzeAllFiles = async (
+    files: File[],
+    staffOptions?: StaffRosterOptions
+): Promise<AnalysisResult> => {
     const requiredFileRegex = {
         '1.개별상담': /1.*개별상담|개별상담.*1/i,
         '2.자원조정': /2.*자원조정|자원조정.*2/i,
@@ -185,9 +200,10 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
     }
 
     const missingFiles: string[] = [];
-    ['1.개별상담', '2.자원조정', '3.일반상담', '5.ISP수립', '6.팀구별'].forEach(k => {
+    ['1.개별상담', '2.자원조정', '3.일반상담', '5.ISP수립'].forEach(k => {
         if (!fileMap[k]) missingFiles.push(k);
     });
+    // [2026-10-27 jun 지시] 6.팀구별 파일은 선택사항 — 없어도 분석이 진행된다.
 
     if (missingFiles.length > 0) {
         throw new Error(`필수 파일 누락: ${missingFiles.join(', ')}`);
@@ -225,23 +241,27 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
         return null;
     };
 
-    // 6. 팀구별 파일 읽기
-    const teamData = await readExcelFile(fileMap['6.팀구별'], { header: 1, defval: '' });
-    const counselorMap = teamData.reduce((acc: { [key: string]: string }, row: any[]) => {
-        const counselorName = row[0] ? String(row[0]).trim() : null;
-        const departmentName = row[1] ? String(row[1]).trim() : '부서정보없음';
-        const isHeaderRow = counselorName === '상담자' || counselorName === '상담사'
-            || departmentName === '부서별' || departmentName === '부서';
-        if (counselorName && !isHeaderRow) {
-            acc[counselorName] = departmentName;
-        }
-        return acc;
-    }, {});
-
-    const validCounselors = Object.keys(counselorMap);
-    if (validCounselors.length === 0) {
-        throw new Error("'6.팀구별' 파일에서 상담사 정보를 찾을 수 없거나 형식이 올바르지 않습니다.");
+    // 부서(팀) 매핑 — 우선순위: 직원 설정 추가 > 시스템 등록 직원 명단 > 팀구별 파일(선택사항, 최후순위)
+    // [2026-10-27 jun 지시] 팀 구분은 시스템 등록 직원 명단 + 설정 추가 직원 기준. 팀구별 파일은 더 이상 필수가 아니다.
+    const counselorMap: { [key: string]: string } = {};
+    if (fileMap['6.팀구별']) {
+        const teamData = await readExcelFile(fileMap['6.팀구별'], { header: 1, defval: '' });
+        teamData.forEach((row: any[]) => {
+            const counselorName = row[0] ? String(row[0]).trim() : null;
+            const departmentName = row[1] ? String(row[1]).trim() : '부서정보없음';
+            const isHeaderRow = counselorName === '상담자' || counselorName === '상담사'
+                || departmentName === '부서별' || departmentName === '부서';
+            if (counselorName && !isHeaderRow) {
+                counselorMap[counselorName] = departmentName;
+            }
+        });
     }
+    (staffOptions?.systemStaff || []).forEach(s => {
+        if (s.name) counselorMap[String(s.name).trim()] = s.team || '부서정보없음';
+    });
+    (staffOptions?.extraStaff || []).forEach(s => {
+        if (s.name) counselorMap[String(s.name).trim()] = s.team || '부서정보없음';
+    });
 
     // 파일 1, 2, 3 읽기
     const individualData = await readExcelFile(
@@ -265,19 +285,25 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
         ...resourceData.map((r: any) => ({ ...r, _category: 'resource' }))
     ];
 
+    // [2026-10-27 jun 지시] 상담사 구분은 데이터 파일의 상담자 이름 기준 (개별/자원 X열, 일반 N열).
+    // 팀구별 파일은 부서명 매핑용으로만 사용하고, 팀구별에 없는 상담사라도 행을 제외하지 않는다.
+    // 따라서 상담사 실적 엔트리는 데이터에서 등장할 때 동적으로 생성한다.
     const counselorPerformance: { [key: string]: CounselorPerformance } = {};
-    validCounselors.forEach(c => {
-        counselorPerformance[c] = {
-            counselorName: c,
-            department: counselorMap[c],
-            types: { inOffice: 0, visit: 0, online: 0, emergency: 0, phone: 0 },
-            faceToFaceSessions: [],
-            allSessions: [],
-            totalSessions: 0,
-            totalEmergency: 0,
-            totalGeneral: 0
-        };
-    });
+    const getOrCreatePerf = (name: string): CounselorPerformance => {
+        if (!counselorPerformance[name]) {
+            counselorPerformance[name] = {
+                counselorName: name,
+                department: counselorMap[name] || '부서정보없음',
+                types: { inOffice: 0, visit: 0, online: 0, emergency: 0, phone: 0 },
+                faceToFaceSessions: [],
+                allSessions: [],
+                totalSessions: 0,
+                totalEmergency: 0,
+                totalGeneral: 0
+            };
+        }
+        return counselorPerformance[name];
+    };
 
     const memberPerformanceMap: { [key: string]: MemberPerformance } = {};
 
@@ -304,6 +330,15 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
     }
 
     const briefingRows: BriefingRowMeta[] = [];
+
+    // 건수 진단 (개인정보 없이 사유별 건수만 집계)
+    const newDiag = (fileLabel: string): FileCountDiagnostics => ({
+        fileLabel, totalRows: 0, counted: 0, absentCounted: 0,
+        dropNoCounselor: 0, dropCounselorNotInTeam: 0, dropBadDate: 0, dropTypeUnknown: 0
+    });
+    const diagIndividual = newDiag('1.개별상담');
+    const diagResource = newDiag('2.자원조정');
+    const diagGeneral = newDiag('3.일반상담');
 
     allSessionsData.forEach((row: any) => {
         // 신규 24열 양식(X열 상담자) 여부 확인
@@ -357,13 +392,18 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
         }
 
         const counselor = counselorRaw ? String(counselorRaw).trim() : null;
-        if (!counselor || !validCounselors.includes(counselor)) return;
-
-        // 헤더 행 제외: memberName이 '회원명', '성명', '이름' 등인 경우 스킵
         const memberNameStr = memberNameRaw ? String(memberNameRaw).trim() : '';
-        if (memberNameStr === '회원명' || memberNameStr === '성명' || memberNameStr === '이름' || memberNameStr === '대상자') {
-            return;
-        }
+
+        // 헤더 행은 진단 집계에서 제외하고 스킵
+        const isHeaderRow = counselor === '상담자' || counselor === '상담사' ||
+            memberNameStr === '회원명' || memberNameStr === '성명' || memberNameStr === '이름' || memberNameStr === '대상자';
+        if (isHeaderRow) return;
+
+        // 건수 진단: 상담사 기준 제외 사유
+        // [2026-10-27 jun 지시] 팀구별 파일에 없어도 제외하지 않으므로 dropCounselorNotInTeam은 항상 0이다.
+        const diag = row._category === 'individual' ? diagIndividual : diagResource;
+        diag.totalRows++;
+        if (!counselor) { diag.dropNoCounselor++; return; }
 
         const date = parseDate(dateRaw);
         const isoDate = date && !isNaN(date.getTime()) ? date.toISOString().split('T')[0] : null;
@@ -394,7 +434,7 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
         //    단, faceToFaceSessions(연도 자동감지용)는 실제 진행 건만 유지한다.
         //    적절성 판정은 briefingUtils에서 별도로 부재를 제외한다.
         {
-            const perf = counselorPerformance[counselor];
+            const perf = getOrCreatePerf(counselor);
             perf.totalSessions++;
 
             if (!isAbsent && (isInOffice || isVisit) && isoDate) {
@@ -423,6 +463,12 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
 
             if (isGeneralSession && isoDate && sessionType) {
                 perf.allSessions.push({ date: isoDate, type: sessionType, category: row._category as any, absent: isAbsent });
+                diag.counted++;
+                if (isAbsent) diag.absentCounted++;
+            } else if (!isoDate) {
+                diag.dropBadDate++;
+            } else if (!sessionType) {
+                diag.dropTypeUnknown++;
             }
 
             // MemberPerformance 집계 (회원/월별 탭용)
@@ -522,17 +568,22 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
         delete member._counselorStats;
     });
 
-    // 3. 일반상담 데이터 처리 (File 3)
+    // 3. 일반상담 데이터 처리 (File 3) — 건수 진단 포함
     generalData.forEach((row: any) => {
         const counselorRaw = row['N'];
-        if (!counselorRaw) return;
-        const counselor = String(counselorRaw).trim();
-        if (!validCounselors.includes(counselor)) return;
+        const counselor = counselorRaw ? String(counselorRaw).trim() : '';
+
+        // 헤더 행은 진단 집계에서 제외하고 스킵
+        if (counselor === '상담자' || counselor === '상담사') return;
+
+        diagGeneral.totalRows++;
+        if (!counselor) { diagGeneral.dropNoCounselor++; return; }
+        // [2026-10-27 jun 지시] 일반상담도 N열 상담자 이름 기준으로 구분하고 팀구별 게이트를 적용하지 않는다.
 
         const dateRaw = row['D'];
         const date = parseDate(dateRaw);
         const isoDate = date && !isNaN(date.getTime()) ? date.toISOString().split('T')[0] : null;
-        if (!isoDate) return;
+        if (!isoDate) { diagGeneral.dropBadDate++; return; }
 
         const typeRaw = String(row['AH'] || '').toLowerCase();
         let sessionType: 'inOffice' | 'visit' | 'online' | 'emergency' | 'phone' | null = null;
@@ -543,10 +594,11 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
         else if (typeRaw.includes('유선') || typeRaw.includes('전화')) sessionType = 'phone';
 
         if (sessionType) {
-            const perf = counselorPerformance[counselor];
-            if (perf && perf.allSessions) {
-                perf.allSessions.push({ date: isoDate, type: sessionType, category: 'general' });
-            }
+            const perf = getOrCreatePerf(counselor);
+            perf.allSessions.push({ date: isoDate, type: sessionType, category: 'general' });
+            diagGeneral.counted++;
+        } else {
+            diagGeneral.dropTypeUnknown++;
         }
     });
 
@@ -788,6 +840,7 @@ export const analyzeAllFiles = async (files: File[]): Promise<AnalysisResult> =>
         ispExpiringMembers: ispExpiringMembers.sort((a, b) => a.daysPassed - b.daysPassed),
         ispPlans: ispPlans,
         briefingMembers: briefingMembers,
-        deregisteredRegNos: deregisteredRegNos
+        deregisteredRegNos: deregisteredRegNos,
+        diagnostics: { files: [diagIndividual, diagResource, diagGeneral] }
     };
 };

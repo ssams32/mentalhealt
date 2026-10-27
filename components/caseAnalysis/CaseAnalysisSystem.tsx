@@ -6,6 +6,7 @@ import PageContainer from '../layout/PageContainer';
 import FileUploadArea from './FileUploadArea';
 import FilterControls from './FilterControls';
 import AnalysisDashboard from './AnalysisDashboard';
+import StaffSettingsPanel, { StaffEntry } from './StaffSettingsPanel';
 import { Loader2, AlertTriangle, FileSpreadsheet } from 'lucide-react';
 
 interface CaseAnalysisSystemProps {
@@ -41,6 +42,34 @@ const CaseAnalysisSystem: React.FC<CaseAnalysisSystemProps> = ({ currentUser }) 
     // Global State Initial Load
     const [isInitialLoading, setIsInitialLoading] = useState(true);
 
+    // 직원 명단 (팀 구분 기준): 시스템 등록 직원 + 설정에서 추가한 직원
+    const [systemStaff, setSystemStaff] = useState<StaffEntry[]>([]);
+    const [extraStaff, setExtraStaff] = useState<StaffEntry[]>([]);
+
+    // [2026-10-27 jun 지시] 팀 구분 명단을 시스템에서 불러온다 (팀구별 엑셀 불필요)
+    useEffect(() => {
+        (async () => {
+            try {
+                const res = await fetch('/api/users', { credentials: 'include' });
+                if (res.ok) {
+                    const data = await res.json();
+                    const users = Array.isArray(data) ? data : (data.users || []);
+                    setSystemStaff(users
+                        .filter((u: any) => u && u.name)
+                        .map((u: any) => ({ name: String(u.name).trim(), team: u.team || '부서정보없음' })));
+                }
+            } catch { /* 명단 로드 실패 시 빈 명단으로 진행 (건수에는 영향 없음) */ }
+            try {
+                const res = await fetch('/api/settings', { credentials: 'include' });
+                if (res.ok) {
+                    const data = await res.json();
+                    const extra = Array.isArray(data.caseAnalysisExtraStaff) ? data.caseAnalysisExtraStaff : [];
+                    setExtraStaff(extra.filter((s: any) => s && s.name).map((s: any) => ({ name: String(s.name).trim(), team: s.team || '부서정보없음' })));
+                }
+            } catch { /* 설정 로드 실패 시 빈 목록으로 진행 */ }
+        })();
+    }, []);
+
     // --- Actions ---
     const handleFilesUpload = useCallback(async (uploadedFiles: File[]) => {
         if (uploadedFiles.length === 0) return;
@@ -49,7 +78,7 @@ const CaseAnalysisSystem: React.FC<CaseAnalysisSystemProps> = ({ currentUser }) 
         setAnalysisResult(null);
 
         try {
-            const results = await analyzeAllFiles(uploadedFiles);
+            const results = await analyzeAllFiles(uploadedFiles, { systemStaff, extraStaff });
             setAnalysisResult(results);
             initializeFilters(results);
 
@@ -66,7 +95,7 @@ const CaseAnalysisSystem: React.FC<CaseAnalysisSystemProps> = ({ currentUser }) 
         } finally {
             setIsAnalyzing(false);
         }
-    }, []);
+    }, [systemStaff, extraStaff]);
 
     const initializeFilters = (results: AnalysisResult) => {
         const counselorPerf = Array.isArray(results.counselorPerformance) ? results.counselorPerformance : [];
@@ -244,7 +273,8 @@ const CaseAnalysisSystem: React.FC<CaseAnalysisSystemProps> = ({ currentUser }) 
             ispPlans: analysisResult?.ispPlans || [],
             briefingMembers: analysisResult?.briefingMembers || [],
             briefingComments: analysisResult?.briefingComments || {},
-            deregisteredRegNos: analysisResult?.deregisteredRegNos || []
+            deregisteredRegNos: analysisResult?.deregisteredRegNos || [],
+            diagnostics: analysisResult?.diagnostics
         };
     }, [analysisResult, selectedDepartments, selectedCounselors, dateRange]);
 
@@ -256,6 +286,15 @@ const CaseAnalysisSystem: React.FC<CaseAnalysisSystemProps> = ({ currentUser }) 
                 {/* 1. File Upload Section */}
                 <div className="animate-in fade-in slide-in-from-top-4 duration-500">
                     <FileUploadArea onFilesUpload={handleFilesUpload} isLoading={isAnalyzing} />
+                </div>
+
+                {/* 1-2. Staff Settings (team division roster) */}
+                <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+                    <StaffSettingsPanel
+                        systemStaff={systemStaff}
+                        extraStaff={extraStaff}
+                        onExtraStaffChange={setExtraStaff}
+                    />
                 </div>
 
                 {/* Loading / Error States */}
