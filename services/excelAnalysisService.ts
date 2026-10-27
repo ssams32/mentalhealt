@@ -368,8 +368,8 @@ export const analyzeAllFiles = async (
             ageRaw = row['F'];
             diagnosisRaw = row['G'];
             diagnosisCodeRaw = row['H'];
-            // 일자: 개별상담 I열 (상담시작시간에 포함), 자원조정 J열 (상담일자)
-            dateRaw = row._category === 'individual' ? row['I'] : row['J'];
+            // 일자: 개별상담·자원조정 모두 I열 (2026-10-27 jun 확인 — 자원조정 J열 가정은 오기)
+            dateRaw = row['I'];
             typeRaw = row['O'];
             // 부재여부: 개별상담 P열, 자원조정 Q열
             absentRaw = row._category === 'individual' ? row['P'] : row['Q'];
