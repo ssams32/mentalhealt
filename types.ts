@@ -323,6 +323,8 @@ export interface SurveyImportItem {
     isSynthetic?: boolean;
     hasReport?: boolean;
     reportAttachment?: any;
+    ageBand?: string;
+    gender?: string;
 }
 
 export interface SurveyStatusSummary {

@@ -51,6 +51,108 @@ function maskPhone(phone) {
 }
 
 /**
+ * 온라인 설문 성별 정규화 (대소문자·공백 정규화 후 한글 분류값 반환)
+ * - MALE/M/남성/남자/남 → '남성'
+ * - FEMALE/F/여성/여자/여 → '여성'
+ * - 없음·빈값 → '미상'
+ * - 그 외 원문은 원문 그대로 유지
+ *
+ * @param {any} genderRaw
+ * @returns {string}
+ */
+export function deriveGender(genderRaw) {
+    if (genderRaw === undefined || genderRaw === null) {
+        return '미상';
+    }
+    const trimmed = String(genderRaw).trim();
+    if (!trimmed) {
+        return '미상';
+    }
+    const upper = trimmed.toUpperCase();
+    if (upper === 'MALE' || upper === 'M' || trimmed === '남성' || trimmed === '남자' || trimmed === '남') {
+        return '남성';
+    }
+    if (upper === 'FEMALE' || upper === 'F' || trimmed === '여성' || trimmed === '여자' || trimmed === '여') {
+        return '여성';
+    }
+    return trimmed;
+}
+
+/**
+ * 온라인 설문 연령대 파생 (생년 기준 연도 차이: 기준연도 - 출생연도)
+ * - 기준연도: 항목 제출/수신 시점(submittedAt/importedAt) 연도, 파싱 불가 시 현재 연도
+ * - 밴드:
+ *   10세 미만 → '10대 미만'
+ *   10-19 → '10대'
+ *   20-29 → '20대'
+ *   30-39 → '30대'
+ *   40-49 → '40대'
+ *   50-59 → '50대'
+ *   60-64 → '60대'
+ *   65세 이상 → '65세 이상'
+ *   출생연도 없거나 파싱 불가/비정상 → '미상'
+ *
+ * @param {any} birthDateRaw
+ * @param {string|number|null} [referenceDateStr]
+ * @returns {string}
+ */
+export function deriveAgeBand(birthDateRaw, referenceDateStr) {
+    if (!birthDateRaw) {
+        return '미상';
+    }
+    const bStr = String(birthDateRaw).trim();
+    if (!bStr) {
+        return '미상';
+    }
+
+    let birthYear = null;
+    const match = bStr.match(/^(\d{4})/);
+    if (match) {
+        birthYear = parseInt(match[1], 10);
+    } else {
+        const d = new Date(bStr);
+        if (!isNaN(d.getTime())) {
+            birthYear = d.getFullYear();
+        }
+    }
+
+    if (!birthYear || isNaN(birthYear) || birthYear < 1900 || birthYear > 2100) {
+        return '미상';
+    }
+
+    let refYear = null;
+    if (referenceDateStr) {
+        const rStr = String(referenceDateStr).trim();
+        const rMatch = rStr.match(/^(\d{4})/);
+        if (rMatch) {
+            refYear = parseInt(rMatch[1], 10);
+        } else {
+            const rd = new Date(rStr);
+            if (!isNaN(rd.getTime())) {
+                refYear = rd.getFullYear();
+            }
+        }
+    }
+    if (!refYear || isNaN(refYear) || refYear < 1900 || refYear > 2100) {
+        refYear = new Date().getFullYear();
+    }
+
+    const age = refYear - birthYear;
+    if (age < 0 || age > 130) {
+        return '미상';
+    }
+
+    if (age < 10) return '10대 미만';
+    if (age <= 19) return '10대';
+    if (age <= 29) return '20대';
+    if (age <= 39) return '30대';
+    if (age <= 49) return '40대';
+    if (age <= 59) return '50대';
+    if (age <= 64) return '60대';
+    return '65세 이상';
+}
+
+/**
  * Factory to create Survey Router
  * 
  * @param {Object} deps
@@ -539,6 +641,11 @@ export function createSurveyImportRouter(deps = {}) {
                     totalScore: sub?.assessment?.totalScore ?? null,
                     meanScore: sub?.assessment?.meanScore ?? null,
                     severity: sub?.assessment?.severity ?? null,
+                    ageBand: deriveAgeBand(
+                        sub?.contact?.birthDate ?? sub?.identity?.birthDate,
+                        sub?.submittedAt || item.submittedAt || sub?.screeningCompletedAt || item.screeningCompletedAt || sub?.importedAt || item.importedAt
+                    ),
+                    gender: deriveGender(sub?.contact?.gender ?? sub?.identity?.gender),
                     consultationStatus: sub?.consultationStatus || (isScreeningOnly ? '검사완료' : '신규접수대기'),
                     counselingRequestText: sub?.contact?.counselingRequestText || '',
                     // 접수일시 = 시민의 실제 검사 완료 시각. contact.submittedAt는 실데이터에 없어
