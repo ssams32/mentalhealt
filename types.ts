@@ -402,10 +402,12 @@ export interface CounselorPerformance {
         online: number;
         emergency: number;
         phone: number;
+        message: number;
+        other: number;
     };
     faceToFaceSessions: { date: string }[];
     // New field for granular analysis
-    allSessions: { date: string; type: 'inOffice' | 'visit' | 'online' | 'emergency' | 'phone'; category?: 'individual' | 'resource' | 'general'; absent?: boolean }[];
+    allSessions: { date: string; type: 'inOffice' | 'visit' | 'online' | 'emergency' | 'phone' | 'message' | 'other' | 'mobile'; category?: 'individual' | 'resource' | 'general'; absent?: boolean }[];
     totalSessions: number;
     totalEmergency: number;
     totalGeneral: number;
@@ -421,7 +423,7 @@ export interface MemberPerformance {
     detailedSessions: {
         month: number;
         category: 'individual' | 'resource';
-        type: 'inOffice' | 'visit' | 'online' | 'phone';
+        type: 'inOffice' | 'visit' | 'online' | 'phone' | 'message' | 'other';
     }[];
 }
 
@@ -471,7 +473,7 @@ export interface IspPlan {
 export interface BriefingSession {
     date: string;
     category: 'individual' | 'resource';
-    type: 'inOffice' | 'visit' | 'online' | 'phone';
+    type: 'inOffice' | 'visit' | 'online' | 'phone' | 'message' | 'other';
     rawType?: string;
     counselor: string;
     emergency: boolean;

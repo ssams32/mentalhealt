@@ -294,7 +294,7 @@ export const analyzeAllFiles = async (
             counselorPerformance[name] = {
                 counselorName: name,
                 department: counselorMap[name] || '부서정보없음',
-                types: { inOffice: 0, visit: 0, online: 0, emergency: 0, phone: 0 },
+                types: { inOffice: 0, visit: 0, online: 0, emergency: 0, phone: 0, message: 0, other: 0 },
                 faceToFaceSessions: [],
                 allSessions: [],
                 totalSessions: 0,
@@ -313,7 +313,7 @@ export const analyzeAllFiles = async (
         date: string;
         rawDate: any;
         category: 'individual' | 'resource';
-        type: 'inOffice' | 'visit' | 'online' | 'phone';
+        type: 'inOffice' | 'visit' | 'online' | 'phone' | 'message' | 'other';
         rawType: string;
         emergency: boolean;
         absent: boolean;
@@ -422,13 +422,18 @@ export const analyzeAllFiles = async (
         const isVisit = typeStr.includes('방문') || typeStr.includes('대면') || typeStr.includes('출장') || typeStr.includes('현장');
         const isOnline = typeStr.includes('온라인');
         const isPhone = typeStr.includes('유선') || typeStr.includes('전화');
+        // [2026-10-28 jun 지시] 문자·기타도 상담유형으로 인정 (개별 O열·자원 O열 실측 값)
+        const isMessage = typeStr.includes('문자');
+        const isOther = typeStr.includes('기타');
 
-        let sessionType: 'inOffice' | 'visit' | 'online' | 'emergency' | 'phone' | null = null;
+        let sessionType: 'inOffice' | 'visit' | 'online' | 'emergency' | 'phone' | 'message' | 'other' | null = null;
         if (isEmergency) sessionType = 'emergency';
         else if (isInOffice) sessionType = 'inOffice';
         else if (isVisit) sessionType = 'visit';
         else if (isOnline) sessionType = 'online';
         else if (isPhone) sessionType = 'phone';
+        else if (isMessage) sessionType = 'message';
+        else if (isOther) sessionType = 'other';
 
         // 4. [2026-10-26 jun 결정 변경] 부재(노쇼) 건도 건수에 포함한다.
         //    단, faceToFaceSessions(연도 자동감지용)는 실제 진행 건만 유지한다.
@@ -457,6 +462,12 @@ export const analyzeAllFiles = async (
                 isGeneralSession = true;
             } else if (isPhone) {
                 perf.types.phone++;
+                isGeneralSession = true;
+            } else if (isMessage) {
+                perf.types.message++;
+                isGeneralSession = true;
+            } else if (isOther) {
+                perf.types.other++;
                 isGeneralSession = true;
             }
             if (isGeneralSession) perf.totalGeneral++;
@@ -502,11 +513,13 @@ export const analyzeAllFiles = async (
                 }
 
                 const month = date.getMonth() + 1;
-                let finalType: 'inOffice' | 'visit' | 'online' | 'phone' | null = null;
+                let finalType: 'inOffice' | 'visit' | 'online' | 'phone' | 'message' | 'other' | null = null;
                 if (isInOffice) finalType = 'inOffice';
                 else if (isVisit) finalType = 'visit';
                 else if (isOnline) finalType = 'online';
                 else if (isPhone) finalType = 'phone';
+                else if (isMessage) finalType = 'message';
+                else if (isOther) finalType = 'other';
 
                 if (finalType) {
                     memberStat.detailedSessions.push({
@@ -585,13 +598,22 @@ export const analyzeAllFiles = async (
         const isoDate = date && !isNaN(date.getTime()) ? date.toISOString().split('T')[0] : null;
         if (!isoDate) { diagGeneral.dropBadDate++; return; }
 
-        const typeRaw = String(row['AH'] || '').toLowerCase();
-        let sessionType: 'inOffice' | 'visit' | 'online' | 'emergency' | 'phone' | null = null;
-        if (typeRaw.includes('응급')) sessionType = 'emergency';
-        else if (typeRaw.includes('내소')) sessionType = 'inOffice';
-        else if (typeRaw.includes('방문') || typeRaw.includes('대면') || typeRaw.includes('출장') || typeRaw.includes('현장')) sessionType = 'visit';
-        else if (typeRaw.includes('온라인')) sessionType = 'online';
-        else if (typeRaw.includes('유선') || typeRaw.includes('전화')) sessionType = 'phone';
+        // [2026-10-28 jun 지시] 일반상담 유형은 AH열 우선, AH에 목록 값이 없으면 AI열 확인.
+        // 일부 행이 한 열 밀려 있어 AH에 '초기기록' 같은 비유형 값이 들어간다.
+        // 목록(방문/전화/내소/문자/온라인/기타/이동상담 + 기존 유선/대면/출장/현장)에 없는 값은 유형 없음으로 제외.
+        const resolveGeneralType = (raw: string): 'inOffice' | 'visit' | 'online' | 'emergency' | 'phone' | 'message' | 'other' | 'mobile' | null => {
+            const t = raw.toLowerCase();
+            if (t.includes('응급')) return 'emergency';
+            if (t.includes('내소')) return 'inOffice';
+            if (t.includes('방문') || t.includes('대면') || t.includes('출장') || t.includes('현장')) return 'visit';
+            if (t.includes('온라인')) return 'online';
+            if (t.includes('유선') || t.includes('전화')) return 'phone';
+            if (t.includes('문자')) return 'message';
+            if (t.includes('기타')) return 'other';
+            if (t.includes('이동상담')) return 'mobile';
+            return null;
+        };
+        const sessionType = resolveGeneralType(String(row['AH'] || '')) ?? resolveGeneralType(String(row['AI'] || ''));
 
         if (sessionType) {
             const perf = getOrCreatePerf(counselor);

@@ -20,7 +20,10 @@ const GeneralAnalysisTab: React.FC<GeneralAnalysisTabProps> = ({ data, dateRange
             phone: 0,
             visit: 0,
             inOffice: 0,
-            online: 0
+            online: 0,
+            message: 0,
+            other: 0,
+            mobile: 0
         };
 
         const filtered = data.map(c => {
@@ -39,6 +42,9 @@ const GeneralAnalysisTab: React.FC<GeneralAnalysisTabProps> = ({ data, dateRange
                 visit: validSessions.filter(s => s.type === 'visit').length,
                 inOffice: validSessions.filter(s => s.type === 'inOffice').length,
                 online: validSessions.filter(s => s.type === 'online').length,
+                message: validSessions.filter(s => s.type === 'message').length,
+                other: validSessions.filter(s => s.type === 'other').length,
+                mobile: validSessions.filter(s => s.type === 'mobile').length,
             };
 
             // Accumulate Grand Totals
@@ -48,6 +54,9 @@ const GeneralAnalysisTab: React.FC<GeneralAnalysisTabProps> = ({ data, dateRange
             grandTotals.visit += counts.visit;
             grandTotals.inOffice += counts.inOffice;
             grandTotals.online += counts.online;
+            grandTotals.message += counts.message;
+            grandTotals.other += counts.other;
+            grandTotals.mobile += counts.mobile;
 
             return {
                 ...c,
@@ -63,6 +72,9 @@ const GeneralAnalysisTab: React.FC<GeneralAnalysisTabProps> = ({ data, dateRange
             visit: (grandTotals.visit / counselorCount).toFixed(1),
             inOffice: (grandTotals.inOffice / counselorCount).toFixed(1),
             online: (grandTotals.online / counselorCount).toFixed(1),
+            message: (grandTotals.message / counselorCount).toFixed(1),
+            other: (grandTotals.other / counselorCount).toFixed(1),
+            mobile: (grandTotals.mobile / counselorCount).toFixed(1),
         };
 
         return { processedData: filtered, totalStats: { totals: grandTotals, averages } };
@@ -71,11 +83,11 @@ const GeneralAnalysisTab: React.FC<GeneralAnalysisTabProps> = ({ data, dateRange
     const typeChartData = useMemo(() => {
         const t = totalStats.totals;
         return {
-            labels: ['유선', '방문', '내소', '온라인', '응급'],
+            labels: ['유선', '방문', '내소', '온라인', '응급', '문자', '기타', '이동상담'],
             datasets: [{
                 label: '상담 유형',
-                data: [t.phone, t.visit, t.inOffice, t.online, t.emergency],
-                backgroundColor: ['#60a5fa', '#a78bfa', '#fb923c', '#2dd4bf', '#f87171'],
+                data: [t.phone, t.visit, t.inOffice, t.online, t.emergency, t.message, t.other, t.mobile],
+                backgroundColor: ['#60a5fa', '#a78bfa', '#fb923c', '#2dd4bf', '#f87171', '#38bdf8', '#94a3b8', '#f472b6'],
                 borderRadius: 8,
                 barPercentage: 0.6
             }]
@@ -103,6 +115,9 @@ const GeneralAnalysisTab: React.FC<GeneralAnalysisTabProps> = ({ data, dateRange
                 { label: '내소', data: processedData.map(d => d.inOffice), backgroundColor: '#fb923c' },
                 { label: '온라인', data: processedData.map(d => d.online), backgroundColor: '#2dd4bf' },
                 { label: '응급', data: processedData.map(d => d.emergency), backgroundColor: '#f87171' },
+                { label: '문자', data: processedData.map(d => d.message), backgroundColor: '#38bdf8' },
+                { label: '기타', data: processedData.map(d => d.other), backgroundColor: '#94a3b8' },
+                { label: '이동상담', data: processedData.map(d => d.mobile), backgroundColor: '#f472b6' },
             ]
         };
     }, [processedData]);
@@ -175,7 +190,7 @@ const GeneralAnalysisTab: React.FC<GeneralAnalysisTabProps> = ({ data, dateRange
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-[21px]">
                 <div className="h-[400px]">
                     <AnalysisChart
-                        title={`상담 유형별 건수 (${dateRange.start} ~ ${dateRange.end})`}
+                        title="상담 유형별 건수"
                         type="bar"
                         data={typeChartData}
                         options={typeChartOptions}
@@ -183,7 +198,7 @@ const GeneralAnalysisTab: React.FC<GeneralAnalysisTabProps> = ({ data, dateRange
                 </div>
                 <div className="h-[400px]">
                     <AnalysisChart
-                        title={`부서별 일반상담 건수 (${dateRange.start} ~ ${dateRange.end})`}
+                        title="부서별 일반상담 건수"
                         type="pie"
                         data={departmentData}
                         options={departmentChartOptions}
@@ -194,7 +209,7 @@ const GeneralAnalysisTab: React.FC<GeneralAnalysisTabProps> = ({ data, dateRange
             {/* Counselor Chart */}
             <div style={{ height: `${chartHeight}px` }}>
                 <AnalysisChart
-                    title={`상담사별 일반상담 실적 (${dateRange.start} ~ ${dateRange.end})`}
+                    title="상담사별 일반상담 실적"
                     type="bar"
                     data={counselorChartData}
                     options={counselorChartOptions}

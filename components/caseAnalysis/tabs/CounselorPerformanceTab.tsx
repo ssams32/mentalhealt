@@ -14,8 +14,8 @@ const CounselorPerformanceTab: React.FC<CounselorPerformanceTabProps> = ({ data,
     // Chart Data (Overall / Raw Data)
     const stackedBarChartData = useMemo(() => {
         const sortedData = [...data].sort((a, b) => _.sum(Object.values(b.types)) - _.sum(Object.values(a.types)));
-        const counselingTypes = { inOffice: '내소', visit: '방문', online: '온라인', emergency: '응급', phone: '전화' };
-        const colors = { inOffice: '#6366f1', visit: '#8b5cf6', online: '#10b981', emergency: '#f43f5e', phone: '#f59e0b' }; // Adjusted for Bento palette
+        const counselingTypes = { inOffice: '내소', visit: '방문', online: '온라인', emergency: '응급', phone: '전화', message: '문자', other: '기타' };
+        const colors = { inOffice: '#6366f1', visit: '#8b5cf6', online: '#10b981', emergency: '#f43f5e', phone: '#f59e0b', message: '#38bdf8', other: '#94a3b8' }; // Adjusted for Bento palette
         return {
             labels: sortedData.map(d => d.counselorName),
             datasets: Object.keys(counselingTypes).map(typeKey => ({

@@ -115,10 +115,16 @@ const COUNSELING_TYPE_LABEL_MAP: Record<string, string> = {
   visit: '방문',
   phone: '전화',
   online: '온라인',
+  message: '문자',
+  other: '기타',
+  mobile: '이동상담',
   내소: '내소',
   방문: '방문',
   전화: '전화',
-  온라인: '온라인'
+  온라인: '온라인',
+  문자: '문자',
+  기타: '기타',
+  이동상담: '이동상담'
 };
 
 function normalizeKey(value: unknown): string {
@@ -200,7 +206,9 @@ function buildMonthlyPerformanceMatrix(record: any) {
     내소: Array(12).fill(0),
     방문: Array(12).fill(0),
     전화: Array(12).fill(0),
-    온라인: Array(12).fill(0)
+    온라인: Array(12).fill(0),
+    문자: Array(12).fill(0),
+    기타: Array(12).fill(0)
   };
 
   const resourceRows: Record<string, number[]> = {};
@@ -220,7 +228,7 @@ function buildMonthlyPerformanceMatrix(record: any) {
     const count = getSessionCount(session);
 
     if (category === '개별상담') {
-      if (type === '내소' || type === '방문' || type === '전화' || type === '온라인') {
+      if (type === '내소' || type === '방문' || type === '전화' || type === '온라인' || type === '문자' || type === '기타') {
         individual[type as keyof typeof individual][monthIndex] += count;
       }
     } else if (category === '자원조정') {
@@ -233,7 +241,7 @@ function buildMonthlyPerformanceMatrix(record: any) {
   }
 
   const individualTotal = Array.from({ length: 12 }, (_, i) =>
-    individual.내소[i] + individual.방문[i] + individual.전화[i] + individual.온라인[i]
+    individual.내소[i] + individual.방문[i] + individual.전화[i] + individual.온라인[i] + individual.문자[i] + individual.기타[i]
   );
 
   const resourceTotal = Array.from({ length: 12 }, (_, i) =>
@@ -608,7 +616,7 @@ const MemberAnalysisTab: React.FC<MemberAnalysisTabProps> = ({ data }) => {
         year: string
     }) => {
         const matrix = React.useMemo(() => buildMonthlyPerformanceMatrix(record), [record]);
-        const counselingTypes = ['내소', '방문', '전화', '온라인'] as const;
+        const counselingTypes = ['내소', '방문', '전화', '온라인', '문자', '기타'] as const;
         const months = Array.from({ length: 12 }, (_, i) => i + 1);
 
         const totalInterventionByMonth = matrix.totalIntervention;
