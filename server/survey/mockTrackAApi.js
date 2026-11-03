@@ -458,14 +458,14 @@ export class MockTrackAApi {
             }
         });
 
-        // 9. BEPSI-K 정상 스트레스군 (점수 1.4점)
+        // 9. 이천 종합검진(icheon-screening-23) - 5개 척도 전체 포함
         this.seedSubmission({
             submissionId: 'sub-demo-009',
             publicKeyPem,
             payload: {
                 submissionId: 'sub-demo-009',
                 schemaVersion: 'v1.0',
-                assessmentId: 'bepsi-k',
+                assessmentId: 'icheon-screening-23',
                 assessmentVersion: '1.0.0',
                 contactOnly: false,
                 submittedAt: new Date(Date.now() - 3600 * 1000 * 18).toISOString(),
@@ -475,27 +475,26 @@ export class MockTrackAApi {
                     gender: '남성',
                     birthDate: '1979-10-10',
                     region: '마장면',
-                    counselingRequestText: '예방 차원에서 정신건강 상태를 점검하고자 합니다.'
+                    counselingRequestText: '예방 차원에서 종합 정신건강 검진을 신청합니다.'
                 },
                 assessment: {
-                    totalScore: 7,
-                    meanScore: 1.40,
-                    severity: '저스트레스군',
-                    scaleScores: { rawScore: 7, meanScore: 1.40, policyVersion: 'v1.0' },
-                    responses: [
-                        { questionNumber: 1, questionLabel: '요구 부담', score: 2, answerLabel: '가끔' },
-                        { questionNumber: 2, questionLabel: '뜻대로 안 됨', score: 1, answerLabel: '거의 없음' },
-                        { questionNumber: 3, questionLabel: '마음 평정', score: 2, answerLabel: '가끔' },
-                        { questionNumber: 4, questionLabel: '자신감 상실', score: 1, answerLabel: '거의 없음' },
-                        { questionNumber: 5, questionLabel: '삶의 의미', score: 1, answerLabel: '거의 없음' }
-                    ]
+                    totalScore: 0,
+                    severity: '종합검진',
+                    scaleScores: {
+                        'phq-9': { label: '경도 우울' },
+                        'gad-7': { label: '경미한 불안' },
+                        'bepsi-k': { label: '고스트레스군' },
+                        'sbq-r': { label: '중위험군' },
+                        'isi-k': { label: '경도 불면' }
+                    },
+                    responses: []
                 },
                 consentEvidence: {
                     consentVersion: '2026.1',
                     personalInfoConsent: true,
                     sensitiveInfoConsent: true,
                     consentedAt: nowIso,
-                    transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'meanScore', 'severity', 'scaleScores', 'responses']
+                    transmittedFieldSet: ['clientName', 'phone', 'gender', 'birthDate', 'region', 'counselingRequestText', 'totalScore', 'severity', 'scaleScores', 'responses']
                 },
                 retention: { policy: 'standard_counseling_1yr' }
             }

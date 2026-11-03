@@ -96,60 +96,144 @@ export function deriveGender(genderRaw) {
  * @param {string|number|null} [referenceDateStr]
  * @returns {string}
  */
-export function deriveAgeBand(birthDateRaw, referenceDateStr) {
-    if (!birthDateRaw) {
-        return '미상';
-    }
-    const bStr = String(birthDateRaw).trim();
-    if (!bStr) {
-        return '미상';
-    }
+/**
+ * 나이(숫자 또는 숫자 문자열)에서 연령대 밴드 도출 (1~130세 유효 범위)
+ * @param {any} age
+ * @returns {string}
+ */
+export function deriveAgeBandFromAge(age) {
+    const n = Number(age);
+    if (isNaN(n) || n <= 0 || n > 130) return '미상';
+    if (n < 10) return '10대 미만';
+    if (n <= 19) return '10대';
+    if (n <= 29) return '20대';
+    if (n <= 39) return '30대';
+    if (n <= 49) return '40대';
+    if (n <= 59) return '50대';
+    if (n <= 64) return '60대';
+    return '65세 이상';
+}
 
-    let birthYear = null;
+/**
+ * 생년월일 문자열에서 연령대 밴드 도출 (폴백용)
+ * @param {string} birthDateStr - 'YYYY-MM-DD' 등 형식
+ * @param {number|string|null} [refYear] - 기준 연도 또는 기준 일자
+ * @returns {string}
+ */
+export function deriveAgeBandFromBirthDate(birthDateStr, refYear) {
+    if (!birthDateStr) return '미상';
+    const bStr = String(birthDateStr).trim();
+    if (!bStr) return '미상';
     const match = bStr.match(/^(\d{4})/);
-    if (match) {
-        birthYear = parseInt(match[1], 10);
-    } else {
-        const d = new Date(bStr);
-        if (!isNaN(d.getTime())) {
-            birthYear = d.getFullYear();
-        }
-    }
+    if (!match) return '미상';
+    const birthYear = parseInt(match[1], 10);
+    if (isNaN(birthYear) || birthYear < 1900) return '미상';
 
-    if (!birthYear || isNaN(birthYear) || birthYear < 1900 || birthYear > 2100) {
-        return '미상';
-    }
-
-    let refYear = null;
-    if (referenceDateStr) {
-        const rStr = String(referenceDateStr).trim();
-        const rMatch = rStr.match(/^(\d{4})/);
+    let resolvedRefYear = null;
+    if (typeof refYear === 'number') {
+        resolvedRefYear = refYear;
+    } else if (refYear) {
+        const rMatch = String(refYear).trim().match(/^(\d{4})/);
         if (rMatch) {
-            refYear = parseInt(rMatch[1], 10);
+            resolvedRefYear = parseInt(rMatch[1], 10);
         } else {
-            const rd = new Date(rStr);
+            const rd = new Date(refYear);
             if (!isNaN(rd.getTime())) {
-                refYear = rd.getFullYear();
+                resolvedRefYear = rd.getFullYear();
             }
         }
     }
-    if (!refYear || isNaN(refYear) || refYear < 1900 || refYear > 2100) {
-        refYear = new Date().getFullYear();
+    if (!resolvedRefYear || isNaN(resolvedRefYear) || resolvedRefYear < 1900 || resolvedRefYear > 2100) {
+        resolvedRefYear = new Date().getFullYear();
     }
 
-    const age = refYear - birthYear;
-    if (age < 0 || age > 130) {
-        return '미상';
+    if (birthYear > resolvedRefYear) return '미상';
+    const age = resolvedRefYear - birthYear;
+    if (age < 0 || age > 130) return '미상';
+    return deriveAgeBandFromAge(age);
+}
+
+/**
+ * 연령대 밴드 도출 (메인 진입점): demographics.age 우선 → birthDate 폴백
+ * @param {object|string} contact - contact 객체 또는 생년월일 문자열 (호환성)
+ * @param {object|string|number} [identity] - identity 객체 또는 기준일 (호환성)
+ * @param {string|number|null} [referenceDateStr] - 기준일 (제출일 등)
+ * @returns {string}
+ */
+export function deriveAgeBand(contact, identity, referenceDateStr) {
+    if (typeof contact === 'string') {
+        return deriveAgeBandFromBirthDate(contact, identity);
+    }
+    const cAge = contact?.demographics?.age;
+    if (cAge !== undefined && cAge !== null && cAge !== '') {
+        return deriveAgeBandFromAge(cAge);
+    }
+    const iAge = identity?.demographics?.age;
+    if (iAge !== undefined && iAge !== null && iAge !== '') {
+        return deriveAgeBandFromAge(iAge);
+    }
+    if (contact?.birthDate) {
+        return deriveAgeBandFromBirthDate(contact.birthDate, referenceDateStr);
+    }
+    if (identity?.birthDate) {
+        return deriveAgeBandFromBirthDate(identity.birthDate, referenceDateStr);
+    }
+    return '미상';
+}
+
+/**
+ * icheon-screening-23의 scaleScores에서 5개 척도별 severity 추출
+ * @param {object} assessment - assessment 객체
+ * @returns {Record<string, string>}
+ */
+export function deriveScaleSeverities(assessment) {
+    if (!assessment || typeof assessment !== 'object') return {};
+
+    const sources = [
+        assessment.scaleScores,
+        assessment.scales,
+        assessment.scores
+    ].filter(Boolean);
+
+    const result = {};
+    const targetScales = ['phq-9', 'gad-7', 'bepsi-k', 'sbq-r', 'isi-k'];
+
+    for (const source of sources) {
+        if (typeof source !== 'object') continue;
+
+        for (const scale of targetScales) {
+            if (result[scale]) continue;
+            let scaleData = source[scale];
+            if (!scaleData) {
+                if (scale === 'phq-9') scaleData = source.phq9 || (source.phqLevel ? { severity: source.phqLevel } : null);
+                else if (scale === 'gad-7') scaleData = source.gad7 || (source.gadLevel ? { severity: source.gadLevel } : null);
+                else if (scale === 'isi-k') scaleData = source.isik || (source.isiLevel ? { severity: source.isiLevel } : null);
+                else if (scale === 'bepsi-k') scaleData = source.bepsik || source.bepsi;
+                else if (scale === 'sbq-r') scaleData = source.sbqr || source['sbq-r'];
+            }
+            if (!scaleData) continue;
+
+            let label = null;
+            if (typeof scaleData === 'string') {
+                label = scaleData;
+            } else if (typeof scaleData === 'object') {
+                label = scaleData.label ?? scaleData.severity ?? scaleData.resultLabel;
+                if (!label && scale === 'sbq-r' && (scaleData.totalScore !== undefined || scaleData.score !== undefined)) {
+                    const score = Number(scaleData.totalScore ?? scaleData.score);
+                    if (!isNaN(score)) {
+                        label = score >= 7 ? '고위험군' : '저위험군';
+                    }
+                }
+            }
+
+            if (label && typeof label === 'string' && label.trim()) {
+                result[scale] = label.trim();
+            }
+        }
+        if (Object.keys(result).length >= 5) break;
     }
 
-    if (age < 10) return '10대 미만';
-    if (age <= 19) return '10대';
-    if (age <= 29) return '20대';
-    if (age <= 39) return '30대';
-    if (age <= 49) return '40대';
-    if (age <= 59) return '50대';
-    if (age <= 64) return '60대';
-    return '65세 이상';
+    return result;
 }
 
 /**
@@ -642,7 +726,8 @@ export function createSurveyImportRouter(deps = {}) {
                     meanScore: sub?.assessment?.meanScore ?? null,
                     severity: sub?.assessment?.severity ?? null,
                     ageBand: deriveAgeBand(
-                        sub?.contact?.birthDate ?? sub?.identity?.birthDate,
+                        sub?.contact,
+                        sub?.identity,
                         sub?.submittedAt || item.submittedAt || sub?.screeningCompletedAt || item.screeningCompletedAt || sub?.importedAt || item.importedAt
                     ),
                     gender: deriveGender(sub?.contact?.gender ?? sub?.identity?.gender),
@@ -669,7 +754,11 @@ export function createSurveyImportRouter(deps = {}) {
                     assignmentNote: sub?.assignmentNote || '',
                     retentionUntil: sub?.retentionUntil || null,
                     retentionDays: sub?.retentionDays || 30,
-                    version: sub?.version || 1
+                    version: sub?.version || 1,
+                    // icheon-screening-23: 5개 척도별 severity 추출
+                    scaleSeverities: (sub?.assessmentId || '').toLowerCase().trim() === 'icheon-screening-23'
+                        ? deriveScaleSeverities(sub?.assessment)
+                        : null
                 };
             });
 

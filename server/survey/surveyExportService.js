@@ -34,6 +34,71 @@ function maskPhone(phone) {
     return phone.replace(/(\d{2,3})-?(\d{3,4})-?(\d{4})/, '$1-****-$3');
 }
 
+/**
+ * Extract numeric scale score from comprehensive screening (icheon-screening-23)
+ * Priority: assessment.scaleScores -> assessment.scales -> assessment.scores
+ * Values: totalScore ?? total ?? meanScore ?? score
+ * NEVER uses assessment.totalScore (overall total)
+ */
+export function extractScaleScore(assessment, targetId) {
+    if (!assessment || typeof assessment !== 'object') return '-';
+
+    const sources = [
+        assessment.scaleScores,
+        assessment.scales,
+        assessment.scores
+    ];
+
+    const keyMap = {
+        'phq-9': ['phq-9', 'phq9', 'phq'],
+        'gad-7': ['gad-7', 'gad7', 'gad'],
+        'isi-k': ['isi-k', 'isik', 'isi'],
+        'bepsi-k': ['bepsi-k', 'bepsik', 'bepsi'],
+        'sbq-r': ['sbq-r', 'sbqr']
+    };
+    const keys = keyMap[targetId] || [targetId];
+
+    for (const source of sources) {
+        if (!source || typeof source !== 'object') continue;
+
+        if (Array.isArray(source)) {
+            const found = source.find((s) => {
+                if (!s || typeof s !== 'object') return false;
+                const id = String(s.scaleId || s.id || s.assessmentId || '').toLowerCase().trim();
+                return keys.includes(id);
+            });
+            if (found) {
+                const v = found.totalScore ?? found.total ?? found.meanScore ?? found.score;
+                if (v !== undefined && v !== null) {
+                    if (typeof v === 'number' && !Number.isNaN(v)) return v;
+                    if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v);
+                }
+            }
+            continue;
+        }
+
+        for (const k of keys) {
+            const entry = source[k];
+            if (entry !== undefined && entry !== null) {
+                if (typeof entry === 'number' && !Number.isNaN(entry)) {
+                    return entry;
+                }
+                if (typeof entry === 'object') {
+                    const v = entry.totalScore ?? entry.total ?? entry.meanScore ?? entry.score;
+                    if (v !== undefined && v !== null) {
+                        if (typeof v === 'number' && !Number.isNaN(v)) return v;
+                        if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v);
+                    }
+                } else if (typeof entry === 'string' && entry.trim() !== '' && !Number.isNaN(Number(entry))) {
+                    return Number(entry);
+                }
+            }
+        }
+    }
+
+    return '-';
+}
+
 export class SurveyExportService {
     /**
      * Generate an in-memory XLSX Buffer for survey submissions.
@@ -79,7 +144,12 @@ export class SurveyExportService {
             const scoreOf = (item, targetId) => {
                 const a = item.assessment;
                 if (!a || typeof a !== 'object') return '-';
-                // 1. 직접 totalScore
+                // 종합검진(icheon-screening-23): 척도별 객체에서만 점수 추출 (전체 totalScore 복사 절대 금지)
+                const aid = String(item.assessmentId || '').toLowerCase().trim();
+                if (aid === 'icheon-screening-23') {
+                    return extractScaleScore(a, targetId);
+                }
+                // 1. 직접 totalScore (개별 척도 기록)
                 if (a.totalScore !== undefined && a.totalScore !== null) return a.totalScore;
                 // 2. scores 서브오브젝트 (phq9, gad7, isi, bepsi, sbqr 등)
                 const scores = a.scores;
@@ -160,9 +230,10 @@ export class SurveyExportService {
                     : maskPhone(latest.contact?.phone);
 
                 const scoreCells = ASSESSMENT_COLUMNS.map((targetId) => {
-                    const match = sorted.find(({ item }) =>
-                        String(item.assessmentId || '').toLowerCase() === targetId
-                    );
+                    const match = sorted.find(({ item }) => {
+                        const aid = String(item?.assessmentId || '').toLowerCase().trim();
+                        return aid === targetId || aid === 'icheon-screening-23';
+                    });
                     return match ? scoreOf(match.item, targetId) : '-';
                 });
 

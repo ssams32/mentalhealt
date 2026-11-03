@@ -325,6 +325,7 @@ export interface SurveyImportItem {
     reportAttachment?: any;
     ageBand?: string;
     gender?: string;
+    scaleSeverities?: Record<string, string> | null;
 }
 
 export interface SurveyStatusSummary {

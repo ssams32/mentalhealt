@@ -683,6 +683,27 @@ export const aggregateUnifiedSeverity = (validUniqueItems: SurveyImportItem[]): 
 
     validUniqueItems.forEach(item => {
         const aid = (item.assessmentId || '').toLowerCase().trim();
+        if (aid === 'icheon-screening-23') {
+            if (item.scaleSeverities && typeof item.scaleSeverities === 'object') {
+                Object.entries(item.scaleSeverities).forEach(([scaleId, rawSeverity]) => {
+                    const normScaleId = scaleId.toLowerCase().trim();
+                    if (!testMap[normScaleId] || !rawSeverity) {
+                        return;
+                    }
+
+                    const grade = classifySeverity(normScaleId, rawSeverity);
+                    testMap[normScaleId].total += 1;
+                    testMap[normScaleId].counts[grade] = (testMap[normScaleId].counts[grade] || 0) + 1;
+
+                    const stdGrades = STANDARD_GRADE_ORDER[normScaleId] || [];
+                    if (!stdGrades.includes(grade) && !testMap[normScaleId].rawExtraOrder.includes(grade)) {
+                        testMap[normScaleId].rawExtraOrder.push(grade);
+                    }
+                });
+            }
+            return;
+        }
+
         if (!testMap[aid]) {
             return;
         }
