@@ -21,7 +21,8 @@ import {
     Clock,
     Home, // [New] Icon for Home
     PhoneCall, // [New] Icon for Voice Calls
-    ClipboardList // [Track B] Icon for Survey Management
+    ClipboardList, // [Track B] Icon for Survey Management
+    GitBranch // Genogram icon
 } from 'lucide-react';
 
 import { NotificationBell } from '../notifications/NotificationBell';
@@ -64,6 +65,7 @@ const PAGE_ICONS: Record<Page, React.ElementType> = {
     antiGravity: Rocket,
     voiceCalls: PhoneCall,
     surveyManagement: ClipboardList,
+    genogram: GitBranch,
     //  officialDocuments: FileText,
 };
 
@@ -107,7 +109,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
 
                     {/* Navigation */}
                     <nav className="flex-1 px-3 space-y-1 overflow-y-auto custom-scrollbar">
-                        {(['home', 'referrals', 'suicideAttempters', 'caseAnalysis', 'voiceCalls', 'surveyManagement', 'data', 'reports', 'budget', 'assets', 'accounts'] as Page[]).filter(p => {
+                        {(['home', 'referrals', 'suicideAttempters', 'caseAnalysis', 'voiceCalls', 'surveyManagement', 'genogram', 'data', 'reports', 'budget', 'assets', 'accounts'] as Page[]).filter(p => {
                             if (p === 'accounts') return true;
                             if (p === 'caseAnalysis') return true; // 모든 실무 직원이 사례분석시스템 메뉴 접근 가능
                             if (p === 'voiceCalls') {

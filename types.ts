@@ -287,7 +287,7 @@ export interface CalendarEvent {
 }
 
 export type Page = 'home' | 'referrals' | 'suicideAttempters' | 'caseAnalysis' | 'data' | 'reports' | 'accounts' | 'calendar' | 'budget'
-    | 'aiNotepad' | 'assets' | 'antiGravity' | 'voiceCalls' | 'surveyManagement';
+    | 'aiNotepad' | 'assets' | 'antiGravity' | 'voiceCalls' | 'surveyManagement' | 'genogram';
 
 export interface SurveyImportItem {
     internalImportId: string;

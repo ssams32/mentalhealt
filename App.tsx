@@ -1080,6 +1080,15 @@ function App() {
                 />;
             case 'antiGravity':
                 return <AntiGravityDashboard />;
+            case 'genogram':
+                return (
+                    <iframe
+                        src="/TalkFile.html"
+                        title="가계도 도구"
+                        className="w-full h-full border-0"
+                        sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"
+                    />
+                );
             // case 'officialDocuments':
             //     return <OfficialDocumentPage />;
             default:

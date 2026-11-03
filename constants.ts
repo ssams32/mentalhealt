@@ -97,6 +97,14 @@ export const PAGES_CONFIG: Record<string, PageConfig> = {
         bg: 'bg-indigo-50',
         activeBg: 'bg-indigo-600',
         activeText: 'text-white'
+    },
+    genogram: {
+        title: '가계도',
+        icon: 'fa-solid fa-diagram-project',
+        color: 'text-cyan-600',
+        bg: 'bg-cyan-50',
+        activeBg: 'bg-cyan-100',
+        activeText: 'text-cyan-700'
     }
     /*
         officialDocuments: {

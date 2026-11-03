@@ -1,0 +1,2267 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; media-src 'none'; manifest-src 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>글로 쓰는 가계도</title>
+<style>
+[hidden] { display: none !important; }
+:root {
+  --font: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", "Noto Sans KR", system-ui, sans-serif;
+  --bg: #eef1ef; --surface: #ffffff; --surface-2: #f5f7f6; --ink: #18211f; --muted: #58645f; --line: #d6dedb;
+  --accent: #22614f; --accent-ink: #ffffff; --accent-soft: #e2efe9;
+  --warn: #93460f; --warn-bg: #fcefe2; --info-bg: #edf1f6; --info: #3b5570; --risk: #b3261e;
+  --hl-kin: #d6e5ff; --hl-num: #e9e1ff; --hl-attr: #d6efdf; --hl-evt: #fde4c1; --hl-rel: #f9d6e1; --hl-neg: #e2e2e2;
+  --paper-edge: #cfd8d4; --shadow: 0 1px 2px rgba(20, 40, 35, .06), 0 4px 16px rgba(20, 40, 35, .05);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f1513; --surface: #171f1d; --surface-2: #1d2724; --ink: #e2eae7; --muted: #9aa8a4; --line: #2b3835;
+    --accent: #6cc3a5; --accent-ink: #0c1411; --accent-soft: #1d3a31;
+    --warn: #f1b47d; --warn-bg: #372819; --info-bg: #1a2430; --info: #a9c3de; --risk: #ff8a80;
+    --hl-kin: #1e3558; --hl-num: #342a52; --hl-attr: #1b3d2b; --hl-evt: #4a3616; --hl-rel: #4b2231; --hl-neg: #343434;
+    --paper-edge: #33423e; --shadow: 0 1px 2px rgba(0, 0, 0, .3);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1513; --surface: #171f1d; --surface-2: #1d2724; --ink: #e2eae7; --muted: #9aa8a4; --line: #2b3835;
+  --accent: #6cc3a5; --accent-ink: #0c1411; --accent-soft: #1d3a31;
+  --warn: #f1b47d; --warn-bg: #372819; --info-bg: #1a2430; --info: #a9c3de; --risk: #ff8a80;
+  --hl-kin: #1e3558; --hl-num: #342a52; --hl-attr: #1b3d2b; --hl-evt: #4a3616; --hl-rel: #4b2231; --hl-neg: #343434;
+  --paper-edge: #33423e; --shadow: 0 1px 2px rgba(0, 0, 0, .3);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1440px; margin: 0 auto; padding-inline: 20px; padding-block: 18px 28px; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 머리 */
+.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; margin-bottom: 16px; }
+.brand h1 { margin: 0; font-size: 22px; letter-spacing: -0.02em; line-height: 1.25; text-wrap: balance; }
+.brand h1 .mark { display: inline-block; width: 22px; height: 16px; margin-right: 8px; vertical-align: -1px; }
+.brand p { margin: 4px 0 0; color: var(--muted); max-width: 62ch; }
+.safe { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 13px; white-space: nowrap; }
+.safe svg { flex: none; }
+
+/* 작업 영역 */
+.work { display: grid; grid-template-columns: minmax(340px, 460px) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 980px) { .work { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); min-width: 0; }
+.card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 14px 16px 10px; }
+.card-head h2 { margin: 0; font-size: 15px; letter-spacing: -0.01em; }
+.card-body { padding: 0 16px 16px; display: grid; gap: 14px; }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.btn { border: 1px solid var(--line); background: var(--surface-2); padding: 5px 10px; border-radius: 8px; font-size: 13px; line-height: 1.3; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.07); }
+.btn.ghost { background: transparent; }
+
+/* 입력창 + 강조 */
+.sample-note { font-size: 12.5px; color: var(--info); background: var(--info-bg); border-radius: 8px; padding: 7px 10px; }
+.editor { position: relative; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.editor:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.editor .hl, .editor textarea {
+  margin: 0; border: 0; padding: 14px 16px; font-family: var(--font); font-size: 15px; line-height: 1.8; letter-spacing: 0;
+  white-space: pre-wrap; overflow-wrap: break-word; word-break: keep-all; tab-size: 4;
+}
+.editor .hl { position: absolute; inset: 0; color: transparent; overflow: hidden; pointer-events: none; }
+.editor textarea { position: relative; display: block; width: 100%; min-height: 260px; resize: none; overflow: hidden; background: transparent; color: var(--ink); caret-color: var(--ink); outline: none; }
+.editor textarea::placeholder { color: var(--muted); }
+.hl mark { color: transparent; border-radius: 3px; }
+.hl .kin { background: var(--hl-kin); box-shadow: 0 0 0 1px var(--hl-kin); }
+.hl .num { background: var(--hl-num); box-shadow: 0 0 0 1px var(--hl-num); }
+.hl .attr { background: var(--hl-attr); box-shadow: 0 0 0 1px var(--hl-attr); }
+.hl .evt { background: var(--hl-evt); box-shadow: 0 0 0 1px var(--hl-evt); }
+.hl .rel { background: var(--hl-rel); box-shadow: 0 0 0 1px var(--hl-rel); }
+.hl .unk { background: var(--warn-bg); box-shadow: 0 0 0 1px var(--warn); }
+.hl .hdr { background: transparent; box-shadow: none; }
+.hl .neg { background: var(--hl-neg); box-shadow: 0 0 0 1px var(--hl-neg); text-decoration: line-through; text-decoration-color: var(--muted); }
+.keys { display: flex; flex-wrap: wrap; gap: 6px 10px; font-size: 12px; color: var(--muted); }
+.keys span { display: inline-flex; align-items: center; gap: 5px; }
+.keys i { width: 14px; height: 10px; border-radius: 3px; display: inline-block; }
+
+/* 확인할 것 */
+.checks h3, .found summary, .help summary { font-size: 13.5px; margin: 0; font-weight: 700; }
+.checks-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.badge { font-size: 12px; font-weight: 700; min-width: 20px; text-align: center; padding: 0 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.qlist { display: grid; gap: 8px; }
+.q { border: 1px solid var(--line); border-left-width: 4px; border-radius: 8px; padding: 9px 10px 9px 12px; background: var(--surface); display: grid; gap: 7px; }
+.q.ask { border-left-color: var(--accent); }
+.q.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+.q.info { border-left-color: var(--info); background: var(--info-bg); }
+.q .qt { display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; }
+.q .qt p { margin: 0; font-size: 13.5px; }
+.q .tag { font-size: 11.5px; font-weight: 700; margin-right: 6px; color: var(--muted); }
+.q.warn .tag { color: var(--warn); } .q.ask .tag { color: var(--accent); } .q.info .tag { color: var(--info); }
+.q .x { border: 0; background: transparent; color: var(--muted); font-size: 16px; line-height: 1; padding: 0 2px; }
+.q .acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.q .rows { display: grid; gap: 5px; }
+.q .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.q .row b { min-width: 46px; font-size: 13px; }
+.q .tip { margin: 0; font-size: 12px; color: var(--muted); background: var(--surface-2); border-radius: 6px; padding: 6px 8px; }
+.btn.sm { padding: 2px 9px; font-size: 12px; }
+.field.check { gap: 5px; cursor: pointer; }
+.field.check input { width: 15px; height: 15px; accent-color: var(--accent); }
+.allgood { font-size: 13px; color: var(--muted); margin: 0; }
+
+/* 인식 목록 */
+details { border-top: 1px solid var(--line); padding-top: 10px; }
+summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; }
+summary::-webkit-details-marker { display: none; }
+summary::before { content: "▸"; color: var(--muted); font-size: 11px; transition: transform .15s; }
+details[open] summary::before { transform: rotate(90deg); }
+.tbl-wrap { overflow-x: auto; margin-top: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+td.auto { color: var(--muted); }
+td .risk { color: var(--risk); font-weight: 600; }
+.help .body { font-size: 13px; color: var(--ink); display: grid; gap: 8px; margin-top: 8px; }
+.help .body p { margin: 0; }
+.help code { font-family: var(--font); background: var(--surface-2); border: 1px solid var(--line); padding: 1px 5px; border-radius: 5px; font-size: 12.5px; }
+.help dt { font-weight: 700; margin-top: 4px; }
+.help dd { margin: 2px 0 0; color: var(--muted); }
+.help .reltbl { margin: 6px 0; font-size: 12.5px; }
+.help .reltbl th { width: 44px; color: var(--ink); padding: 3px 6px 3px 0; }
+.help .reltbl td { color: var(--muted); padding: 3px 0; }
+
+/* 가계도 */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.tb-group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.field { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.field input { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 5px 8px; color: var(--ink); min-width: 0; }
+.field input#caseNo { width: 130px; }
+.zoom { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.zoom button { border: 0; background: var(--surface-2); padding: 5px 10px; font-size: 13px; }
+.zoom button + button { border-left: 1px solid var(--line); }
+.zoom button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.stage { padding: 16px; background: var(--surface-2); border-radius: 0 0 12px 12px; }
+.paper { background: #fff; border: 1px solid var(--paper-edge); border-radius: 6px; overflow: auto; max-height: 78vh; touch-action: pan-y; }
+.paper svg { display: block; margin: 0 auto; }
+.paper .node:hover > * { filter: drop-shadow(0 0 2px rgba(34, 97, 79, .35)); }
+.paper.dragging { cursor: ew-resize; user-select: none; }
+.empty { padding: 60px 20px; text-align: center; color: #5b6663; font-size: 14px; }
+.hint { margin: 10px 2px 0; font-size: 12.5px; color: var(--muted); }
+.foot { margin-top: 18px; font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: space-between; }
+.foot p { margin: 0; max-width: 90ch; }
+.toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%) translateY(20px); opacity: 0; background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; transition: opacity .2s, transform .2s; pointer-events: none; z-index: 5; max-width: calc(100% - 32px); }
+.toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (max-width: 560px) { .wrap { padding-inline: 16px; } .field input#caseNo { width: 110px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1><svg class="mark" viewBox="0 0 22 16" aria-hidden="true"><rect x="1" y="1" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="17" cy="5" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 5h4M11 5v6M7 11h8M7 11v4M15 11v4" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>글로 쓰는 가계도</h1>
+      <p>대상자를 중심으로 가족관계를 문장으로 적으면 가계도를 그립니다. 애매한 부분은 아래에서 되묻습니다.</p>
+    </div>
+    <div class="safe" title="이 페이지는 입력 내용을 어떤 서버로도 보내지 않고, 브라우저에 저장하지도 않습니다.">
+      <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+      외부 전송 차단 · 저장 안 함
+    </div>
+  </header>
+
+  <main class="work">
+    <section class="card" aria-labelledby="h-input">
+      <div class="card-head">
+        <h2 id="h-input">가족관계 적기</h2>
+        <div class="seg">
+          <button class="btn" id="ex1" type="button">문장 예시</button>
+          <button class="btn" id="ex2" type="button">한 줄 예시</button>
+          <button class="btn ghost" id="clear" type="button">지우기</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="sample-note" id="sampleNote">지금 들어 있는 글은 예시입니다. 지우고 대상자의 가족관계를 적어 보세요. 이름 대신 호칭만 쓰세요.</div>
+        <div class="editor">
+          <div class="hl" id="hl" aria-hidden="true"></div>
+          <label class="sr" for="src">가족관계 입력</label>
+          <textarea id="src" spellcheck="false" autocomplete="off" placeholder="예) 대상자는 34세 여성으로 남편과 별거 중이다. 아버지(62)는 알코올 문제가 있고 어머니와 이혼했다. 친할머니는 85세이다."></textarea>
+        </div>
+        <div class="keys" aria-label="색 설명">
+          <span><i style="background:var(--hl-kin)"></i>호칭</span>
+          <span><i style="background:var(--hl-num)"></i>나이·연도</span>
+          <span><i style="background:var(--hl-attr)"></i>사망·질환·메모</span>
+          <span><i style="background:var(--hl-evt)"></i>결혼·동거·형제 순서</span>
+          <span><i style="background:var(--hl-rel)"></i>정서적 관계</span>
+          <span><i style="background:var(--hl-neg)"></i>부정(제외)</span>
+          <span><i style="background:var(--warn-bg);box-shadow:0 0 0 1px var(--warn)"></i>알아듣지 못한 호칭</span>
+        </div>
+        <section class="checks" aria-labelledby="h-checks">
+          <div class="checks-head"><h3 id="h-checks">확인할 것</h3><span class="badge" id="qCount">0</span></div>
+          <div class="qlist" id="qlist"></div>
+        </section>
+        <details class="found" id="found" open>
+          <summary>인식한 가족 <span class="badge" id="pCount">0</span></summary>
+          <div class="tbl-wrap"><table><thead><tr><th>호칭</th><th>성별</th><th>나이</th><th>내용</th></tr></thead><tbody id="ptable"></tbody></table></div>
+        </details>
+        <details class="help">
+          <summary>쓰는 법과 알아듣는 말</summary>
+          <div class="body">
+            <p>문장으로 써도 되고 한 줄에 한 사람씩 써도 됩니다. 예: <code>대상자는 34세 여성으로 남편과 별거 중이다</code>, <code>부: 62 알코올</code>, <code>부모: 이혼(2010)</code></p>
+            <p>짧은 메모도 알아듣습니다. 예: <code>IP 여 34, 부 62 알코올, 모 58 우울, 부모 이혼</code>, <code>부(故, 2019 간암)</code>, <code>S/A 2회, SI(+)</code>, <code>배우자 無, 자녀 2(15, 12)</code>. 표를 붙여 넣을 때는 첫 줄에 <code>관계⇥연령⇥동거</code> 같은 제목을 두면 동거 칸의 O·X도 읽습니다.</p>
+            <dl>
+              <dt>호칭</dt><dd>대상자·본인·내담자, 아버지·어머니(부·모·아빠·엄마·친부·생모), 친조부·친조모·외조부·외조모(친할아버지…), 양가 조부모·나머지 조부모, 남편·아내·배우자·전남편·전처·동거인(동거녀), 아들·딸·자녀·손자·손녀·사위·며느리, 형·오빠·누나·언니·남동생·여동생·동생, 이복·이부 형제, 형수·매형·형부·올케, 큰아버지·작은아버지·삼촌·고모·이모·외삼촌, 시부·시모·장인·장모·시누이·처남, 시댁·처가·친정, 계부·계모, 조카·사촌. 다른 가족의 자녀는 “전남편 소생 딸”, “전처와의 사이에 아들”처럼 적습니다.</dd>
+              <dt>나이·연도</dt><dd>34세, 8살, (62), 1962년생, 40대 초반, 2010년, 작년, 3년 전, 62세에 사망</dd>
+              <dt>상태</dt><dd>사망·돌아가심(“사망(2019, 간암)”, “향년 71세”, “뇌졸중으로”), 생존, 결혼·이혼·별거·재혼·사별(“사별(폐암)”)·사실혼, 함께 산다·동거·혼자 산다·“3인 가구(본인, 남편, 딸)”·“동거가족: 본인, 모”, 입양·위탁·쌍둥이, 모름·정보 없음, “2남 1녀 중 둘째”, “자녀는 2남”, “아들 둘(12, 9)”, “오빠 2명은 모두 사망(교통사고, 간경화)”</dd>
+              <dt>질환·위험</dt><dd>우울, 조현병, 양극성장애, 불안, 공황, 치매, 알코올, 도박, 약물, 자해, 자살시도, 자살사고(“죽고 싶다”), 암·뇌졸중 등. 불면은 메모로 적힙니다. “자살사고는 부인”, “음주 문제 없음”처럼 부정하면 넣지 않습니다.</dd>
+              <dt>정서적 관계</dt><dd>문장이 애매하면 <code>관계: 대상자-남동생 소원</code>처럼 한 줄로 적으면 가장 정확합니다.
+                <table class="reltbl"><tbody>
+                  <tr><th>친밀</th><td>친밀, 가깝다, 사이 좋음·원만, 의지한다, 잘 따른다</td></tr>
+                  <tr><th>밀착</th><td>밀착, 과보호, 집착</td></tr>
+                  <tr><th>소원</th><td>소원, 서먹, 대화·소통 거의 없음, 간혹 통화, 제한적 교류, 가깝지 않음</td></tr>
+                  <tr><th>갈등</th><td>갈등, 불화, 다툼, 사이 나쁨·원만하지 않음, 관계 스트레스, 원망, 고부갈등</td></tr>
+                  <tr><th>단절</th><td>단절, 연락 두절·끊김·안 함, 왕래 없음, 절연</td></tr>
+                  <tr><th>폭력</th><td>폭력, 학대, 폭행, 폭언, 체벌, ○○에게 맞음 (A→B로 방향 표시)</td></tr>
+                </tbody></table>
+                “갈등 없음”, “나쁘지 않음”처럼 부정하면 그리지 않고, “친밀하기 원하나”처럼 바람은 관계로 보지 않습니다. “과거엔 친밀했으나 현재 단절”이면 지금 관계만 그립니다. 친밀(또는 밀착)과 갈등이 함께 나오면 합친 선 하나로 그립니다.</dd>
+              <dt>메모</dt><dd>괄호 안에서 알아듣지 못한 말(회사원, 기숙사 거주 등)과 주 보호자·주 양육자·요양시설·입원·가출·외도 같은 말은 그 사람 아래 메모로 적힙니다. 대괄호도 메모가 됩니다. 예: <code>남편 [일용직]</code>. 줄 맨 앞 <code>[가족관계]</code> 같은 소제목은 무시합니다.</dd>
+              <dt>조부모를 모를 때</dt><dd>적지 않은 부모·조부모는 점선과 ‘미확인’으로 자동 표시되고, ‘확인할 것’에서 생존·사망·모름을 눌러 채울 수 있습니다. 필요 없으면 ‘미확인 조부모 표시’를 끄세요.</dd>
+            </dl>
+            <p>‘사별’은 “남편과 사별”처럼 대상자가 배우자를 잃은 경우에 쓰고, 다른 가족이 돌아가셨으면 “부 사망”처럼 적는 것이 정확합니다. 다른 가족의 자녀는 “오빠 자녀 2”, “오빠는 자녀 2명”처럼 적으면 조카로 그립니다.</p>
+            <p>다른 가족의 가족은 “남편의 누나”, “딸의 여동생”처럼 ‘의’로 이어 써 주세요. ‘그/그녀’ 대신 호칭을 다시 쓰면 정확합니다.</p>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="h-draw">
+      <h2 id="h-draw" class="sr">가계도 미리보기</h2>
+      <div class="toolbar">
+        <div class="tb-group">
+          <label class="field" for="caseNo">사례번호 <input id="caseNo" type="text" maxlength="20" placeholder="이름 대신 번호"></label>
+          <label class="field" for="baseDate">작성일 <input id="baseDate" type="date"></label>
+          <label class="field check" for="autoGP"><input id="autoGP" type="checkbox" checked> 미확인 조부모 표시</label>
+        </div>
+        <div class="tb-group">
+          <div class="zoom" role="group" aria-label="확대">
+            <button type="button" id="zOut" aria-label="축소">－</button>
+            <button type="button" id="zFit" aria-pressed="true">맞춤</button>
+            <button type="button" id="zIn" aria-label="확대">＋</button>
+          </div>
+          <button class="btn" id="resetPos" type="button">위치 초기화</button>
+          <button class="btn" id="saveTxt" type="button">입력문 저장</button>
+          <button class="btn" id="loadTxt" type="button">불러오기</button>
+          <input id="fileIn" type="file" accept=".txt,text/plain" hidden>
+          <button class="btn primary" id="savePng" type="button">PNG 저장</button>
+        </div>
+      </div>
+      <div class="stage">
+        <div class="paper" id="paper"><div id="geno"></div></div>
+        <p class="hint">인물을 좌우로 끌어 위치를 옮길 수 있어요. MHIS에 올리기 전에 호칭·나이·관계선을 한 번 더 확인해 주세요.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p>입력한 내용은 이 브라우저 안에서만 처리됩니다. 어떤 서버로도 보내지 않고 저장하지도 않으므로 창을 닫으면 사라집니다. 보관이 필요하면 ‘입력문 저장’으로 직접 내려받으세요.</p>
+    <p>기호는 McGoldrick·Gerson·Petry의 가계도 표기법을 따릅니다 · v0.3</p>
+  </footer>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* 글로 쓰는 가계도 — 해석·배치·그리기 엔진 (외부 통신 없음) */
+const GenoEngine = (() => {
+'use strict';
+
+/* ---------------- 공통 ---------------- */
+const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escXML = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const opposite = s => s === 'M' ? 'F' : s === 'F' ? 'M' : 'U';
+const sexK = s => s === 'M' ? '남성' : s === 'F' ? '여성' : '미상';
+
+/* ---------------- 호칭 사전 ---------------- */
+const KIN = new Map();
+function K(terms, ops, label, extra) { for (const t of terms.split('|')) KIN.set(t, Object.assign({ t, ops, label }, extra || {})); }
+K('대상자|본인|내담자|당사자|클라이언트|사례자|이용자|이용인|신청인|의뢰인|어르신|유족|아동|대상아동|피해아동|해당아동|사례아동|대상청소년|pt|PT|Pt|IP|CL|Cl', [], '대상자', { self: true });
+// 정신과 기록식 영문 약어: F=아버지, M=어머니 (숫자와 붙으면 성별로 봄 — findMentions에서 거름)
+K('F', ['F'], '부', { latin: true });
+K('M', ['M'], '모', { latin: true });
+K('아버지|아빠|부친|아버님|부|친부|생부|친아버지|친정부|친정아버지|친정아빠|父', ['F'], '부');
+K('어머니|엄마|모친|어머님|모|친모|생모|친어머니|친정모|친정어머니|친정엄마|母', ['M'], '모');
+K('부모|부모님|양친|친부모|생부모|친정', ['P'], '부모', { group: true });
+K('양부|양아버지', ['F'], '양부', { adoptive: true, keep: true });
+K('양모|양어머니', ['M'], '양모', { adoptive: true, keep: true });
+K('양부모', ['P'], '양부모', { group: true, adoptive: true });
+K('증조부|증조할아버지|친증조부', ['F', 'F', 'F'], '증조부', { keep: true });
+K('증조모|증조할머니|친증조모', ['F', 'F', 'M'], '증조모', { keep: true });
+K('외증조부|외증조할아버지', ['M', 'F', 'F'], '외증조부', { keep: true });
+K('외증조모|외증조할머니', ['M', 'F', 'M'], '외증조모', { keep: true });
+K('친할아버지|친조부', ['F', 'F'], '친조부');
+K('친할머니|친조모', ['F', 'M'], '친조모');
+K('외할아버지|외조부', ['M', 'F'], '외조부');
+K('외할머니|외조모', ['M', 'M'], '외조모');
+K('할아버지|조부', ['?', 'F'], '조부', { ambig: true });
+K('할머니|조모', ['?', 'M'], '조모', { ambig: true });
+K('친조부모|친조부모님', ['F', 'P'], '친조부모', { group: true });
+K('외조부모|외조부모님', ['M', 'P'], '외조부모', { group: true });
+K('조부모|조부모님', ['?', 'P'], '조부모', { group: true, ambig: true });
+K('양가 조부모|양가조부모', ['GP4'], '조부모', { group: true });
+K('남편|신랑', ['S:M'], '남편', { speaker: 'F' });
+K('아내|부인|처|와이프|집사람|안사람', ['S:F'], '아내', { speaker: 'M' });
+K('배우자', ['S:U'], '배우자');
+K('전남편|전 남편', ['X:M'], '전남편', { speaker: 'F' });
+K('전처|전아내|전 아내|전부인|전 부인', ['X:F'], '전처', { speaker: 'M' });
+K('전배우자|전 배우자', ['X:U'], '전배우자');
+K('동거인|동거남|동거녀|사실혼 배우자|애인|남자친구|남친|여자친구|여친', ['PT'], '동거인');
+K('아들|아드님', ['C:M'], '아들');
+K('딸|따님', ['C:F'], '딸');
+K('자녀|자식|아이', ['C:U'], '자녀', { childGroup: true });
+K('손자', ['C:U*', 'C:M'], '손자');
+K('손녀', ['C:U*', 'C:F'], '손녀');
+K('손주', ['C:U*', 'C:U'], '손주');
+K('사위', ['C:F*', 'S:M'], '사위');
+K('며느리', ['C:M*', 'S:F'], '며느리');
+K('형|형님', ['B:M:o'], '형', { speaker: 'M' });
+K('오빠', ['B:M:o'], '오빠', { speaker: 'F' });
+K('누나|누님', ['B:F:o'], '누나', { speaker: 'M' });
+K('언니', ['B:F:o'], '언니', { speaker: 'F' });
+K('남동생', ['B:M:y'], '남동생');
+K('여동생', ['B:F:y'], '여동생');
+K('동생', ['B:U:y'], '동생', { ambigSex: true });
+K('형제|자매|남매|형제자매', ['B:U:?'], '형제', { sibGroup: true });
+K('큰아버지|백부', ['F', 'B:M:o'], '큰아버지', { keep: true });
+K('작은아버지|숙부', ['F', 'B:M:y'], '작은아버지', { keep: true });
+K('삼촌', ['F', 'B:M:?'], '삼촌');
+K('고모', ['F', 'B:F:?'], '고모');
+K('이모', ['M', 'B:F:?'], '이모');
+K('외삼촌|외숙부', ['M', 'B:M:?'], '외삼촌');
+K('큰어머니|큰엄마', ['F', 'B:M:o', 'S:F'], '큰어머니', { keep: true });
+K('작은어머니|작은엄마|숙모', ['F', 'B:M:y', 'S:F'], '작은어머니', { keep: true });
+K('고모부', ['F', 'B:F:?', 'S:M'], '고모부');
+K('이모부', ['M', 'B:F:?', 'S:M'], '이모부');
+K('외숙모', ['M', 'B:M:?', 'S:F'], '외숙모');
+K('시아버지|시부', ['S:M', 'F'], '시부', { speaker: 'F' });
+K('시어머니|시모', ['S:M', 'M'], '시모', { speaker: 'F' });
+K('시부모', ['S:M', 'P'], '시부모', { group: true, speaker: 'F' });
+K('장인|장인어른', ['S:F', 'F'], '장인', { speaker: 'M' });
+K('장모|장모님', ['S:F', 'M'], '장모', { speaker: 'M' });
+K('시누이|시누', ['S:M', 'B:F:?'], '시누이', { speaker: 'F', keep: true });
+K('시동생', ['S:M', 'B:M:y'], '시동생', { speaker: 'F', keep: true });
+K('시아주버니|아주버님|시숙', ['S:M', 'B:M:o'], '시숙', { speaker: 'F', keep: true });
+K('처남', ['S:F', 'B:M:?'], '처남', { speaker: 'M', keep: true });
+K('처제', ['S:F', 'B:F:y'], '처제', { speaker: 'M', keep: true });
+K('처형', ['S:F', 'B:F:o'], '처형', { speaker: 'M', keep: true });
+K('시댁|시가', ['S:M', 'P'], '시부모', { group: true, speaker: 'F' });
+K('처가|처갓집', ['S:F', 'P'], '처가 부모', { group: true, speaker: 'M' });
+K('형수', ['B:M:o', 'S:F'], '형수', { speaker: 'M', keep: true });
+K('제수|계수', ['B:M:y', 'S:F'], '제수', { speaker: 'M', keep: true });
+K('매형|자형', ['B:F:o', 'S:M'], '매형', { speaker: 'M', keep: true });
+K('매제', ['B:F:y', 'S:M'], '매제', { speaker: 'M', keep: true });
+K('형부', ['B:F:o', 'S:M'], '형부', { speaker: 'F', keep: true });
+K('제부', ['B:F:y', 'S:M'], '제부', { speaker: 'F', keep: true });
+K('새언니', ['B:M:o', 'S:F'], '올케', { speaker: 'F', keep: true });
+K('올케', ['B:M:?', 'S:F'], '올케', { speaker: 'F', keep: true });
+K('계부|새아버지|의붓아버지', ['SF'], '계부');
+K('계모|새어머니|새엄마|의붓어머니', ['SM'], '계모');
+K('조카', ['B:U:?*', 'C:U'], '조카');
+K('사돈', ['C:U*', 'S:U', 'P'], '사돈', { group: true });
+K('의붓형제|의붓자매|의붓남매', ['SS:U'], '의붓형제', { keep: true });
+K('의붓형|의붓오빠|의붓남동생', ['SS:M'], '의붓형제', { keep: true });
+K('의붓누나|의붓언니|의붓여동생', ['SS:F'], '의붓형제', { keep: true });
+K('의붓동생', ['SS:U'], '의붓형제', { keep: true });
+K('사촌|친사촌', ['F', 'B:M:?*', 'C:U'], '사촌', { keep: true });
+K('사촌형|사촌오빠|사촌남동생', ['F', 'B:M:?*', 'C:M'], '사촌', { keep: true });
+K('사촌누나|사촌언니|사촌여동생', ['F', 'B:M:?*', 'C:F'], '사촌', { keep: true });
+K('고종사촌', ['F', 'B:F:?*', 'C:U'], '고종사촌', { keep: true });
+K('이종사촌', ['M', 'B:F:?*', 'C:U'], '이종사촌', { keep: true });
+K('외사촌', ['M', 'B:M:?*', 'C:U'], '외사촌', { keep: true });
+for (const t of ['부인', '처', '아이']) KIN.get(t).reqFollow = true;
+
+const TERM_ALT = [...KIN.keys()].sort((a, b) => b.length - a.length).map(escRe).join('|');
+const ORD_ALT = '첫째|둘째|셋째|넷째|다섯째|막내|큰|작은|첫';
+const MENTION_RE = new RegExp(`(?<![가-힣A-Za-z])(?:(${ORD_ALT})(?!아버지|어머니|엄마|아빠)\\s?)?(?:(이복|배다른|이부|씨다른)\\s?)?(${TERM_ALT})(들)?`, 'g');
+const PARTS = '께서|에게서|한테서|로부터|에게|한테|이랑|하고|으로|로서|이었고|이었다|이지만|이며|이고|인데|이다|였고|였다|과|와|은|는|이|가|의|도|를|을|랑|로|만|께|에|보다|처럼|부터|까지';
+const PART_RE = new RegExp(`^((?:${PARTS}){0,3})(?![가-힣A-Za-z])`);
+const TERM_TEST = new RegExp(`(?<![가-힣])(?:${TERM_ALT})`);
+const ORDW = { 첫째: 1, 첫: 1, 큰: 1, 둘째: 2, 셋째: 3, 넷째: 4, 다섯째: 5, 여섯째: 6, 막내: 99, 작은: 99, 장남: 1, 장녀: 1, 차남: 2, 차녀: 2, 삼남: 3, 삼녀: 3 };
+const NUMK = { 한: 1, 하나: 1, 두: 2, 둘: 2, 세: 3, 셋: 3, 네: 4, 넷: 4, 다섯: 5, 여섯: 6, 일곱: 7, 여덟: 8, 아홉: 9 };
+const TENK = { 열: 10, 스물: 20, 스무: 20, 서른: 30, 마흔: 40, 쉰: 50, 예순: 60, 일흔: 70, 여든: 80, 아흔: 90 };
+const numOf = s => s == null ? null : /^\d+$/.test(s) ? +s : (NUMK[s] || null);
+const ordOf = s => { if (!s) return null; s = s.replace(/\s/g, ''); if (ORDW[s]) return ORDW[s]; const m = s.match(/^(\d+)(?:째|번째)$/); return m ? +m[1] : null; };
+
+/* ---------------- 단어 규칙 ---------------- */
+const CONDS = [
+  [/자살\s*(?:시도|기도)|극단적\s*선택\s*시도|(?<![A-Za-z])(?:S\/A|SA)(?![A-Za-z])/g, '자살시도', true],
+  [/자살\s*(?:사고|생각|충동|위험|계획|념)|죽고\s*싶|죽을\s*생각|삶을\s*(?:끝내|마감하)고\s*싶|(?<![A-Za-z])(?:S\/I|SI)(?![A-Za-z])/g, '자살사고', true],
+  [/자해|(?<![A-Za-z])NSSI(?![A-Za-z])/g, '자해', true],
+  [/우울|(?<![A-Za-z])MDD(?![A-Za-z])/g, '우울'],
+  [/조울|양극성|(?<![A-Za-z])(?:BPAD|BD)(?![A-Za-z])/g, '양극성장애'],
+  [/조현|(?<![A-Za-z])SCZ(?![A-Za-z])/g, '조현병'],
+  [/정신증|환청|망상/g, '정신증'],
+  [/공황/g, '공황'],
+  [/불안(?!정)/g, '불안'],
+  [/강박|(?<![A-Za-z])OCD(?![A-Za-z])/g, '강박'],
+  [/외상\s*후|PTSD|트라우마/g, '외상후스트레스'],
+  [/ADHD|주의력\s*결핍|과잉\s*행동/g, 'ADHD'],
+  [/치매|인지\s*저하|알츠하이머|알쯔하이머/g, '치매'],
+  [/파킨슨/g, '파킨슨'],
+  [/알코올|알콜|음주|술\s*문제|과음|주취|폭음|알중|술(?:을|만)?\s*(?:자주|매일|많이|계속)?\s*(?:마시|먹)|(?<![A-Za-z])AUD(?![A-Za-z])/g, '알코올'],
+  [/도박|토토|경마|카지노|사설\s*베팅/g, '도박'],
+  [/약물(?!\s*(?:치료|복용|순응|관리|조절|처방|요법|투여|중단|부작용))|마약|필로폰|히로뽕|메스암페타민|대마|본드\s*흡입|향정/g, '약물'],
+  [/지적\s*장애/g, '지적장애'],
+  [/자폐|발달\s*장애/g, '발달장애'],
+  [/뇌전증|간질/g, '뇌전증'],
+  [/(?<![가-힣])(?:간|위|폐|대장|유방|췌장|갑상선|자궁|전립선|혈액|식도|담도|방광|신장)?암(?=$|[^가-힣]|으|이|을|가|은|는|도|과|와|투|진|수|판)/g, null],
+  [/당뇨|(?<![A-Za-z])DM(?![A-Za-z])/g, '당뇨'],
+  [/고혈압|(?<![A-Za-z])HTN(?![A-Za-z])/g, '고혈압'],
+  [/뇌졸중|뇌경색|뇌출혈|중풍|(?<![A-Za-z])CVA(?![A-Za-z])/g, '뇌졸중'],
+  [/심근경색|심장\s*질환|심부전|심장마비/g, '심장질환'],
+  [/(?:신체|지체|시각|청각|뇌병변)\s*장애/g, null],
+  [/수감|복역|교도소/g, '수감'],
+  [/실직|무직/g, '실직'],
+];
+const NEG_AFTER = /^\s*\(\s*[-−–]\s*\)|^[^,.;]{0,8}?(?:없|아니|않|부인|안\s*(?:함|한|해|하)|無|无|음성)|^\s*[:：]?\s*(?:[xX✕×](?![A-Za-z])|무(?![가-힣]))/;
+const CAUSE_WORD = /(?:교통사고|사고|추락|익사|화재|심근경색|심장마비|심부전|뇌졸중|뇌출혈|뇌경색|간경화|간경변|지병|노환|과로|산재|코로나|패혈증|폐렴|자살|[가-힣]{0,3}암|[가-힣]{1,4}(?:질환|병|증|경화|마비|출혈|경색))$/;
+const DEATH_RE = /사망|돌아가(?:셨|시|심|신)|작고|별세|숨졌|숨지|숨짐|세상을\s*떠|타계|소천|영면|운명(?:하|했|함)|하늘나라|故/g;
+const SUIC_NOUN_RE = /(?<![가-힣])자살(?!\s*(?:시도|기도|사고|생각|위험|고위험|충동|계획|예방|률|관련|징후|암시|념|의도|행동|위기|문제|자|유가족|유족|우려|염려|가능|위협|언급|표현|협박|의사|시늉|경향|기록|이력|력|과거|방법|도구|수단|상담|교육|평가|척도|\(\s*[+\-−]))(?![^,.\n]{0,6}(?:아님|아니|없|부인))(?=$|[\s,.)/(]|로|으로|함|했|하였)/g;
+const QMARK_RE = /(?<=[:：]\s{0,3})[?？]+(?=\s*(?:$|[,/\n]))|(?<=\(\s{0,2})[?？]+(?=\s{0,2}\))|(?<=[가-힣A-Za-z]\s{1,3})[?？]+(?=\s*(?:$|[,/\n]))/g;
+const COMPOUND_START = /^(?:이혼|별거|재혼|사망|사별|생존|생사|알코올|알콜|우울|조현|조울|치매|무직|실직|가출|동거|비동거|결혼|기혼|미혼|자살|폭력|갈등|뇌졸중|당뇨|고혈압|작고|별세|거주|독거|연락|단절|밀착|친밀|소원|학대|주부|회사원|요양|입원|불명|모름|미상|정보\s*없|없음|공황|불안|도박|약물|수감|장애|자해|혼자|[xX✕×](?![A-Za-z])|DV|S\/?A|S\/?I|MDD|AUD|NSSI|BPAD|SCZ|OCD|PTSD|ADHD|DM|HTN|CVA)/;
+const SUIC_DEATH_RE = /(?:자살|극단적\s*선택)\s*(?:로|으로)?\s*(?:인해\s*)?(?:사망|숨|돌아가|생을)|자살(?:했|하였|함|하셨)/g;
+const EVENTS = [
+  [/이혼\s*(?:소송|진행|협의|절차|조정)/g, 'separated'],
+  [/이혼(?!\s*(?:요구|요청|고려|위기|생각|언급|협박|얘기|이야기|원함|원해|희망|소송\s*준비|상담|숙려))/g, 'divorced'],
+  [/별거/g, 'separated'],
+  [/재혼|재결혼/g, 'remarried'],
+  [/사별/g, 'widowed'],
+  [/사실혼/g, 'cohabit'],
+  [/(?<![재미비이사초])(?:결혼|혼인|기혼)/g, 'married'],
+  [/(?<!비)동거(?!\s*가족|인|남|녀)/g, 'cohab?'],
+  [/미혼|비혼|독신/g, 'single'],
+];
+const COUPLE_RE = /부부\s*(?:둘이|둘만|단둘이|만|함께|같이)?\s*(?:살|산다|사는|삽니|거주|생활|지내)|부부\s*가구|노부부\s*(?:가구|거주)/g;
+const RAISE_RE = /양육(?!\s*(?:비|권|수당|책임|자|태도|방식|스트레스|부담|환경|시설))\s*(?:중|함|하고|하며|하는|했|해|하여)?|키우(?:고|며|는|다)|키움/g;
+const HOUSE_RE = /(?:함께|같이|한\s*집에서?|둘이서?|셋이서?|넷이서?|단둘이)[^,.;\n]{0,20}?(?:살|산다|사는|삽니|사시|사세|사심|삼(?![가-힣])|삶(?![가-힣])|거주|지내|지냄|지냈|생활)|(?:집|댁)\s*(?:에서|에)\s*(?:지내|지냄|지냈|살|삶|거주|생활|머물|머뭄)|(?<=(?:랑|와|과|하고)\s)(?:삼|삶|사심|산다)(?=$|[\s,.])|동거\s*가족|동반(?:\s*(?:입소|거주|중))?|(?<![가-힣])(?:살고\s*있|살고|살며|산다|삽니다|거주\s*(?:중|하|함|한)|거주(?=$|[\s,.)/]))/g;
+const APART_RE = /따로\s*(?:살|산|거주|지내)|분가|떨어져\s*(?:살|지내)|비동거|별도\s*거주|출가/g;
+const ALONE_RE = /혼자\s*(?:살|산|사시|사신|사는|삽|삶|삼(?![가-힣])|사심|거주|지내|지냄|지냈|생활)|독거|1인\s*가구|홀로\s*(?:살|산|사시|사신|거주|지내)/g;
+const RELS = [
+  [/(?<=(?:에게|한테|에게서|한테서|께)\s{0,2}(?:자주|많이|심하게|매일|계속|종종|가끔|수시로|어릴\s*때부터|어려서부터)?\s{0,2})맞(?:았|음|아|고|는|은)|폭력|학대|폭행|구타|때리|때림|때려|때렸|때린|체벌|폭언|손찌검|욕설|밀치|밀쳐|밀친|멱살|(?<![A-Za-z])DV(?![A-Za-z])/g, 'violence'],
+  [/애증/g, 'closeConflict'],
+  [/(?:사이|관계)(?:가|는)?\s*(?:매우|아주|꽤|무척|굉장히|정말|몹시|비교적|대체로|그럭저럭|다소|조금|좀)?\s*(?:나쁘|나쁨|안\s*좋|좋지(?:는|도)?\s*(?:않|못)|원만하지(?:는|도)?\s*(?:않|못)|불량|불편)|원만하지(?:는|도)?\s*(?:않|못)|관계(?:상|에서|로|로\s*인한|로\s*인해)?\s*(?:오는\s*)?스트레스|불편한\s*(?:관계|사이)|껄끄|원망|적개심|앙금|증오|미워|갈등|불화|다툼|다투|싸우|싸움|언쟁|마찰|적대/g, 'conflict'],
+  [/단절|연락(?:이|을)?\s*(?:끊|두절|안\s*(?:됨|된|함|한|하|해))|연락(?:을|은)?\s*하지\s*(?:않|못)|연락(?:이)?\s*닿지\s*않|연락\s*불가|연락\s*안\s*닿|연락\s*(?:x|X|無|无)(?![A-Za-z])|연락\s*없|왕래(?:가|를)?\s*(?:없|끊|안)|절연|의절|인연을\s*끊/g, 'cutoff'],
+  [/밀착|융합|과잉\s*보호|과보호|집착/g, 'fused'],
+  [/소원|서먹|거리감|멀어|데면데면|무관심|냉담|(?:소통|대화|교류|교감|만남)(?:하는\s*일|할\s*일)?(?:이|은|을|는|도)?\s*(?:거의|별로|잘|자주)?\s*(?:없|안\s*(?:함|해|하|됨)|못|드물|드묾|적)|제한적\s*(?:교류|왕래|연락|소통|만남)|(?:소통|대화|교류|교감)(?:을|를)?\s*(?:잘\s*)?(?:하지\s*(?:않|못)|안\s*(?:함|해|하))|(?:간혹|가끔|드물게|이따금)\s*(?:통화|연락|왕래|만남|교류|방문|안부)|연락(?:이|은|을)?\s*(?:거의|잘|자주)\s*(?:안|못|없)|가끔\s*연락|연락(?:이|은)?\s*(?:가끔|뜸|드물|드묾)|왕래(?:가|는)?\s*(?:드물|드묾|뜸|가끔)|명절에만/g, 'distant'],
+  [/친밀|가깝|가까운|가까움|(?:사이|관계)(?:가|는)?\s*(?:매우|아주|꽤|무척|굉장히|정말|몹시|비교적|대체로|그럭저럭|다소|조금|좀)?\s*(?:좋|원만|양호|괜찮)|원만|의지하|의지함|의지한|의지해|의지가|의지를|잘\s*따르|믿고\s*따르|친하(?:게|다|고|며|여|지)|친한\s*(?:사이|편)|애착|지지적|유대|돈독|화목/g, 'close'],
+];
+const REL_K = { close: '친밀', fused: '밀착', distant: '소원', conflict: '갈등', cutoff: '단절', violence: '폭력', closeConflict: '친밀·갈등', fusedConflict: '밀착·갈등' };
+const SPOUSE_REL_RE = /부부\s*(?:갈등|불화|싸움|문제|사이)/g;
+const UNKNOWN_RE = /모름|미상|알\s*수\s*없|정보\s*없|파악\s*(?:안|불가|되지)|불명|확인\s*(?:안\s*됨|불가)/g;
+const DESC1 = /(\d)\s*남\s*(\d)\s*녀\s*(?:중|의|가운데)?\s*(첫째|둘째|셋째|넷째|다섯째|여섯째|장남|장녀|차남|차녀|삼남|삼녀|막내|외동|\d\s*(?:째|번째))?/g;
+const DESC2 = /(\d)\s*(남매|형제|자매)\s*(?:중|의|가운데)?\s*(첫째|둘째|셋째|넷째|다섯째|여섯째|장남|장녀|차남|차녀|삼남|삼녀|막내|\d\s*(?:째|번째))?/g;
+const DESC3 = /(\d)\s*(남|녀)\s*(?:중|의|가운데)\s*(첫째|둘째|셋째|넷째|다섯째|장남|장녀|차남|차녀|막내|\d\s*(?:째|번째))/g;
+const ONLY_RE = /외동딸|외동아들|외아들|외동|무남독녀|독자(?![가-힣])/g;
+const POS_RE = /(?<![가-힣\d])(장남|장녀|차남|차녀|삼남|삼녀|막내)(?=$|[^가-힣]|이|로|으|인|였)/g;
+const SEX_RE = /(?<![가-힣\d])(?:(남성|여성|남자|여자|남아|여아|남학생|여학생|남중생|여중생|남고생|여고생|소년|소녀)(?=$|[^가-힣]|으로|로|이고|이며|이다|이|인|은|는|였|로서)|(남|여)(?![가-힣]))/g;
+const AGE_RE = /(?<![\d.])(?:만\s*)?(\d{1,3})\s*(?:세|살)(?!대)/g;
+const AGE_NATIVE_RE = /(?<![가-힣])(?:(열|스물|스무|서른|마흔|쉰|예순|일흔|여든|아흔)\s?)?(한|두|세|네|다섯|여섯|일곱|여덟|아홉)?\s?살(?![고며아았던면림])/g;
+const DECADE_RE = /(?<!\d)([1-9])0\s*대(?:\s*(초반|중반|후반))?/g;
+const MONTH_RE = /(?<!\d)(\d{1,2})\s*개월(?!\s*(?:전|째|간|동안|후))/g;
+const BYEAR_RE = /(?<!\d)((?:19|20)?\d{2})\s*년생/g;
+const YEAR_RE = /(?<![\d'])((?:19|20)\d{2})(?!\s*년\s*(?:생|대))(?:\s*년|\.\s?\d{1,2}\.?(?:\s?\d{1,2}\.?)?)?(?!\d)/g;
+const YEAR2_RE = /'(\d{2})\s*년?/g;
+const YEAR3_RE = /(?<![\d'.])(\d{2})\s*년(?:도)?(?!\s*(?:생|전|간|째|차|동안|만|경과|넘|이상|가량|정도|후|이후|뒤|대|말|초|쯤|이|가|을|를|은|는))/g;
+const AGE_Y_RE = /(?<![\d.A-Za-z])(\d{1,3})\s*[yY](?:rs?|o|ears?)?(?![A-Za-z])/g;
+const NOKIDS_RE = /무자녀|무자식/g;
+const YEAR3_EVT = /^\s*(?:에|도|경|께|쯤|부터|년도)?\s*(?:[가-힣A-Za-z]{1,8}\s*(?:(?:으로|로)\s*(?:인해\s*)?)?)?(?:사망|돌아가|작고|별세|숨|이혼|결혼|혼인|재혼|별거|사별|동거|진단|입원|퇴원|시도|자살|출생|태어|분가|가출|수감|출소|실직|퇴직|은퇴|발병|이사|입소)/;
+const YEAR3_PRE = /(?:사망|이혼|결혼|혼인|재혼|별거|사별|동거|진단|입원|시도|자살|가출|분가|출생|작고|별세|입소)\s*\(\s*$/;
+const RELYEAR = [[/재작년/g, -2], [/작년|지난\s*해/g, -1], [/올해|금년|이번\s*해|올\s*초/g, 0]];
+const AGO_RE = /(\d{1,2})\s*(년|개월|달)\s*전/g;
+const SIDE1 = /(?<![가-힣])(친가|외가|부계|모계)\s*(?:쪽|측)?\s*(?:의\s*)?/g;
+const SIDE2 = /(?<![가-힣])(아버지|아빠|부친|어머니|엄마|모친)\s*(?:쪽|측|편)\s*(?:의\s*)?/g;
+const MEMO_RE = /\[([^\]\n]{1,40})\]/g;
+const ADOPT_RE = /입양/g, FOSTER_RE = /위탁/g, TWIN_RE = /쌍둥이|쌍생아/g;
+const ALIVE_RE = /생존|살아\s*계|건강히\s*계/g;
+const DESC4 = /(?<![\d가-힣])([1-9])\s*(남|녀)(?![가-힣]|\s*\d|\s*중)/g;
+const NHOUSE_RE = /(?<!\d)([2-9])\s*인\s*가구/g;
+const MEMO_WORDS = [
+  [/주\s*보호자/g, '주 보호자'], [/불면(?:증)?|수면\s*(?:장애|문제)|잠을\s*(?:잘\s*)?못\s*(?:잠|자)/g, '불면'], [/주\s*양육자|(?<![가-힣])양육자/g, '주 양육자'], [/쉼터/g, '쉼터'], [/방관/g, '방관'], [/방임|방치/g, '방임'], [/기초\s*(?:생활\s*)?수급|수급자|(?<![가-힣])수급(?![가-힣])/g, '수급'], [/요양원|요양병원|요양시설/g, null], [/그룹홈|보호\s*시설|시설\s*입소/g, '시설 입소'],
+  [/입원\s*(?:중|상태)/g, '입원 중'], [/입원\s*치료/g, '입원 치료'], [/가출/g, '가출'], [/주부/g, '주부'], [/회사원|직장인/g, '회사원'],
+  [/자영업/g, '자영업'], [/일용직/g, '일용직'], [/공무원/g, '공무원'], [/군\s*복무|군인|입대/g, '군 복무'], [/대학생/g, '대학생'],
+  [/(?<![남여])(?:고등학생|고교생)/g, '고등학생'], [/(?<![남여])중학생/g, '중학생'], [/초등학생/g, '초등학생'], [/(?<![가-힣A-Za-z\d])(?:초|중|고)\s?[1-6](?![0-9])(?:\s*학년)?/g, null], [/은퇴|퇴직/g, '은퇴'],
+  [/농업|농사/g, '농업'], [/(?:간호사|요양보호사|간병인|교사|아르바이트|알바(?![가-힣])|배달|택배|택시|운전기사|경비원?|미화원|환경미화|학생(?![가-힣]))(?!\s*(?:와|과|에게|한테|랑|로부터|의))/g, null], [/기숙사/g, '기숙사'], [/외도/g, '외도'], [/금전\s*요구/g, '금전 요구'], [/노숙/g, '노숙'],
+];
+const UNSUP_RE = /(?<![가-힣])(동서|고조부|고조모|고조할아버지|고조할머니|대부|대모|의붓아들|의붓딸)(?=$|[^가-힣]|은|는|이|가|과|와|의|도|을|를|께|에게)/g;
+const PRON_RE = /(?<![가-힣])(그녀|그분|그)(?=는|은|가|의|를|을|와|과|에게|한테|도(?![가-힣]))/g;
+const PASSIVE_RE = /^[^,.]{0,6}?(?:당하|당했|당함|당해|당한|당하고|받았|받음|받아|받고|받는|받은)/;
+
+/* ---------------- 가족 모델 ---------------- */
+class Fam {
+  constructor(base) { this.base = base; this.P = new Map(); this.U = []; this.R = []; this.house = new Set(); this.seq = 0; this.useq = 0; this.ref = 0;
+    this.ambig = new Set(); this.ambigSex = new Set(); this.warn = []; this.ptSexInfer = null; this.alone = false;
+    this.subjectless = []; this.deathUnassigned = []; this.sabyeolAsk = []; this.pronNotes = []; this.anchorNotes = []; this.countNotes = []; this.descAsk = []; this.adoptive = false; this.lastStrongTerm = null; }
+  person(o) { const id = 'p' + (++this.seq); const p = Object.assign({ id, sex: 'U', age: null, ageText: null, birthYear: null, dead: false, deathYear: null, deathAge: null, cause: null,
+    conds: [], memo: [], implied: true, unknown: false, lifeUnknown: false, isPt: false, term: null, termLabel: null, pu: null, rel: null, ord: null,
+    adopted: false, foster: false, twin: null, created: this.seq, lastRef: 0, desc: false, birthPos: null, sexExplicit: false, remarryPartner: false }, o || {});
+    this.P.set(id, p); return p; }
+  get pt() { if (!this._pt) this._pt = this.person({ isPt: true, implied: false }); return this._pt; }
+  union(a, b, o) { let m = a, f = b; if (a.sex === 'F' && b.sex !== 'F') { m = b; f = a; } else if (b.sex === 'M' && a.sex !== 'M') { m = b; f = a; }
+    const u = Object.assign({ id: 'u' + (++this.useq), a: m.id, b: f.id, status: 'married', start: null, end: null, sep: null, kids: [], order: this.useq, implied: true }, o || {});
+    this.U.push(u); return u; }
+  unionsOf(p) { return this.U.filter(u => u.a === p.id || u.b === p.id); }
+  other(u, p) { return this.P.get(u.a === p.id ? u.b : u.a); }
+  between(a, b) { return this.U.find(u => (u.a === a.id && u.b === b.id) || (u.a === b.id && u.b === a.id)); }
+  touch(p) { p.lastRef = ++this.ref; return p; }
+  addKid(u, c) { if (!u.kids.includes(c.id)) u.kids.push(c.id); c.pu = u.id; }
+  getU(id) { return this.U.find(u => u.id === id); }
+}
+
+function parentsUnion(F, x) {
+  if (x.pu) return F.getU(x.pu);
+  const fa = F.person({ sex: 'M' }), mo = F.person({ sex: 'F' });
+  const u = F.union(fa, mo, { implied: true }); F.addKid(u, x); return u;
+}
+function getParent(F, x, sex) { const u = parentsUnion(F, x); return F.P.get(sex === 'M' ? u.a : u.b); }
+function pickCand(cands, sex) {
+  if (!cands.length) return null;
+  const exact = cands.filter(c => c.sex === sex);
+  const pool = exact.length ? exact : cands;
+  return pool.slice().sort((a, b) => (b.lastRef - a.lastRef) || (a.created - b.created))[0];
+}
+function getSpouse(F, x, sex, ctx) {
+  ctx = ctx || {};
+  if (!ctx.forceNew) {
+    const us = F.unionsOf(x).filter(u => u.status !== 'divorced' && !(ctx.noCohab && u.status === 'cohabit')).sort((a, b) => (a.status === 'cohabit') - (b.status === 'cohabit') || b.order - a.order);
+    for (const u of us) { const o = F.other(u, x); if (sex === 'U' || o.sex === 'U' || o.sex === sex) { if (o.sex === 'U' && sex !== 'U') o.sex = sex; return o; } }
+  }
+  // 이혼만 적혀 있고 재혼 이야기가 없으면 '처·남편'은 그 전 배우자
+  if (!ctx.forceNew && !/재혼|재결혼|현\s*(?:배우자|남편|아내|처)|현재\s*(?:의\s*)?(?:남편|아내|처|배우자)|새\s*(?:남편|아내)/.test(F.text || '')) {
+    const dv = F.unionsOf(x).filter(u => u.status === 'divorced').map(u => F.other(u, x)).find(o => sex === 'U' || o.sex === 'U' || o.sex === sex);
+    if (dv) { if (dv.sex === 'U' && sex !== 'U') dv.sex = sex; return dv; }
+  }
+  const s = F.person({ sex: sex === 'U' ? opposite(x.sex) : sex });
+  F.union(x, s, { implied: false }); return s;
+}
+function getEx(F, x, sex, ctx) {
+  ctx = ctx || {};
+  if (!ctx.forceNew) {
+    const us = F.unionsOf(x).filter(u => u.status === 'divorced').sort((a, b) => a.order - b.order);
+    for (const u of us) { const o = F.other(u, x); if (sex === 'U' || o.sex === sex || o.sex === 'U') return o; }
+    // 이부·이복 형제 때문에 먼저 만든 '누군지 모르는 상대'가 있으면 그 사람이 전 배우자
+    const pt = F.pt; const iu = F.unionsOf(x).find(u => F.other(u, x).implied && !u.kids.includes(pt.id) && u.kids.length && (sex === 'U' || F.other(u, x).sex === sex));
+    if (iu) { iu.status = 'divorced'; const others = F.unionsOf(x).filter(v => v !== iu).map(v => v.order); if (others.length) iu.order = Math.min(...others) - 0.5; return F.other(iu, x); }
+  }
+  const s = F.person({ sex: sex === 'U' ? opposite(x.sex) : sex });
+  const before = F.unionsOf(x).map(v => v.order);
+  const u = F.union(x, s, { status: 'divorced', implied: false });
+  if (before.length) u.order = Math.min(...before) - 0.5;
+  return s;
+}
+function getPartner(F, x) {
+  const u = F.unionsOf(x).find(v => v.status === 'cohabit'); if (u) return F.other(u, x);
+  const s = F.person({ sex: opposite(x.sex) }); F.union(x, s, { status: 'cohabit', implied: false }); return s;
+}
+function childUnion(F, x) {
+  const us = F.unionsOf(x);
+  if (!us.length) { const s = F.person({ sex: opposite(x.sex) }); return F.union(x, s, { implied: true }); }
+  const act = us.filter(u => u.status !== 'divorced').sort((a, b) => b.order - a.order);
+  return act[0] || us.slice().sort((a, b) => b.order - a.order)[0];
+}
+function allKids(F, x) { const out = []; F.unionsOf(x).forEach(u => u.kids.forEach(k => out.push(F.P.get(k)))); return out; }
+function getChild(F, x, sex, ctx) {
+  ctx = ctx || {};
+  let cands = allKids(F, x).filter(k => sex === 'U' || k.sex === sex || k.sex === 'U');
+  if (ctx.withP) { const wu = F.between(x, ctx.withP); cands = wu ? cands.filter(k => wu.kids.includes(k.id)) : []; }
+  if (!ctx.forceNew) {
+    if (ctx.ord != null) { const ex = cands.filter(k => k.ord === ctx.ord); if (ex.length) return ex[0]; cands = cands.filter(k => k.ord == null); }
+    if (ctx.ageHint != null) cands = cands.filter(k => k.age == null || Math.abs(k.age - ctx.ageHint) <= 1);
+    const c = pickCand(cands, sex);
+    if (c) { if (c.sex === 'U' && sex !== 'U') c.sex = sex; if (ctx.ord != null) c.ord = ctx.ord; return c; }
+  }
+  const u = ctx.withP ? (F.between(x, ctx.withP) || F.union(x, ctx.withP, { implied: false })) : childUnion(F, x); const c = F.person({ sex, ord: ctx.ord == null ? null : ctx.ord }); F.addKid(u, c); return c;
+}
+function sibUnion(F, x, half) {
+  const pu = parentsUnion(F, x);
+  if (!half) return pu;
+  const par = F.P.get(half === 'F' ? pu.a : pu.b);
+  let other = F.unionsOf(par).filter(v => v.id !== pu.id).sort((a, b) => b.order - a.order)[0];
+  if (!other) { const s = F.person({ sex: opposite(par.sex) }); other = F.union(par, s, { implied: true }); }
+  return other;
+}
+function getSibling(F, x, sex, rel, ctx) {
+  ctx = ctx || {};
+  const u = sibUnion(F, x, ctx.half);
+  let cands = u.kids.filter(k => k !== x.id).map(k => F.P.get(k)).filter(s => sex === 'U' || s.sex === sex || s.sex === 'U');
+  if (!ctx.forceNew) {
+    if (rel === 'o') cands = cands.filter(s => !(s.rel && s.rel.anchor === x.id && s.rel.dir > 0) && !(x.age != null && s.age != null && s.age < x.age));
+    if (rel === 'y') cands = cands.filter(s => !(s.rel && s.rel.anchor === x.id && s.rel.dir < 0) && !(x.age != null && s.age != null && s.age > x.age));
+    if (ctx.ord != null) { const ex = cands.filter(k => k.ord === ctx.ord); if (ex.length) return ex[0]; cands = cands.filter(k => k.ord == null); }
+    if (ctx.ageHint != null) cands = cands.filter(k => k.age == null || Math.abs(k.age - ctx.ageHint) <= 1);
+    const s = pickCand(cands, sex);
+    if (s) { if (s.sex === 'U' && sex !== 'U') s.sex = sex; if (ctx.ord != null) s.ord = ctx.ord; if ((rel === 'o' || rel === 'y') && !s.rel) s.rel = { anchor: x.id, dir: rel === 'o' ? -1 : 1 }; return s; }
+  }
+  const s = F.person({ sex, ord: ctx.ord == null ? null : ctx.ord }); F.addKid(u, s);
+  if (rel === 'o' || rel === 'y') s.rel = { anchor: x.id, dir: rel === 'o' ? -1 : 1 };
+  return s;
+}
+function getStepParent(F, x, sex) {
+  const pu = parentsUnion(F, x); const par = F.P.get(sex === 'M' ? pu.b : pu.a);
+  const others = F.unionsOf(par).filter(v => v.id !== pu.id).sort((a, b) => b.order - a.order);
+  for (const v of others) { const o = F.other(v, par); if (o.sex === sex || o.sex === 'U') { o.sex = sex; return o; } }
+  const s = F.person({ sex }); F.union(par, s, { implied: false }); return s;
+}
+function getStepSibling(F, x, sex, ctx) {
+  ctx = ctx || {};
+  const pu = parentsUnion(F, x);
+  // 이미 있는 의붓 부모(부·모의 다른 배우자)를 먼저 찾고, 없으면 아버지의 새 배우자로 둠
+  let sp = null, stepU = null;
+  for (const par of [F.P.get(pu.a), F.P.get(pu.b)]) { const o = F.unionsOf(par).filter(v => v.id !== pu.id).sort((a, b) => b.order - a.order)[0]; if (o) { sp = F.other(o, par); stepU = o; break; } }
+  if (!sp) { sp = getStepParent(F, x, F.stepHint === 'M' ? 'M' : 'F'); stepU = F.unionsOf(sp).find(v => v.a === pu.a || v.b === pu.a || v.a === pu.b || v.b === pu.b) || F.unionsOf(sp)[0]; }
+  // 의붓형제 = 의붓 부모가 이전 결합에서 낳은 자녀
+  let prev = F.unionsOf(sp).filter(v => v !== stepU).sort((a, b) => a.order - b.order)[0];
+  if (!ctx.forceNew && prev) { const c = prev.kids.map(k => F.P.get(k)).find(k => sex === 'U' || k.sex === sex || k.sex === 'U'); if (c) { if (c.sex === 'U' && sex !== 'U') c.sex = sex; return c; } }
+  if (!prev) { const o = F.person({ sex: opposite(sp.sex) }); prev = F.union(sp, o, { implied: true }); prev.order = (stepU ? stepU.order : 0) - 0.5; }
+  const c = F.person({ sex }); F.addKid(prev, c); return c;
+}
+function allGrandparents(F, x) {
+  const fa = getParent(F, x, 'M'), mo = getParent(F, x, 'F');
+  return [getParent(F, fa, 'M'), getParent(F, fa, 'F'), getParent(F, mo, 'M'), getParent(F, mo, 'F')];
+}
+function execOps(F, anchor, entry, ctx) {
+  let cur = anchor; const ops = entry.ops;
+  for (let i = 0; i < ops.length; i++) {
+    let op = ops[i]; const last = i === ops.length - 1; const lctx = last ? ctx : {};
+    if (op.endsWith('*')) op = op.slice(0, -1);
+    if (op === '?') { op = ctx.side || 'F'; if (!ctx.side) ctx.ambigUsed = true; }
+    if (op === 'F') cur = getParent(F, cur, 'M');
+    else if (op === 'M') cur = getParent(F, cur, 'F');
+    else if (op === 'P') { const u = parentsUnion(F, cur); return { group: [F.P.get(u.a), F.P.get(u.b)], union: u }; }
+    else if (op === 'GP4') { return { group: allGrandparents(F, cur) }; }
+    else if (op.startsWith('S:')) cur = getSpouse(F, cur, op[2], op[2] !== 'U' && last ? Object.assign({ noCohab: true }, lctx) : lctx);
+    else if (op.startsWith('X:')) cur = getEx(F, cur, op[2], lctx);
+    else if (op === 'PT') cur = getPartner(F, cur);
+    else if (op.startsWith('C:')) cur = getChild(F, cur, op[2], lctx);
+    else if (op.startsWith('B:')) { const [, sx, rl] = op.split(':'); cur = getSibling(F, cur, sx, rl, lctx); }
+    else if (op.startsWith('SS:')) cur = getStepSibling(F, cur, op[3], lctx);
+    else if (op === 'SF') cur = getStepParent(F, cur, 'M');
+    else if (op === 'SM') cur = getStepParent(F, cur, 'F');
+  }
+  return { person: cur };
+}
+
+/* ---------------- 문장·절 나누기 ---------------- */
+function splitSentences(text) {
+  // 물음표는 "갈등?"처럼 말 끝에 붙을 때만 문장 끝으로 봄 ("부: ?"는 정보 없음)
+  const out = []; const re = /[.!。;]+(?=\s|$)|(?<=[가-힣A-Za-z)]{2})[?？]+(?=\s|$)|\n+/g; let last = 0, m;
+  while ((m = re.exec(text))) { if (m.index > last) out.push({ s: last, e: m.index }); last = m.index + m[0].length; }
+  if (last < text.length) out.push({ s: last, e: text.length });
+  return out.filter(x => text.slice(x.s, x.e).trim());
+}
+const CONN_RE = /[가-힣]+(?:고|며|지만|는데|은데|으나|면서|하여|해서|되어|돼서|하자|되자|자마자)(?=[\s,]|$)|(?<=[가-힣)\d]\s?)(?:후|뒤|이후|다음)(?:에|에는|로|부터)?(?=[\s,]|$)/g;
+const CONN_EXCL = /(?:사고|최고|참고|경고|광고|창고|금고|원고|피고|신고|보고|재고|중고|휴고|등고)$/;
+function splitClauses(text, s, e) {
+  const seg = text.slice(s, e); const cuts = [];
+  for (const m of seg.matchAll(CONN_RE)) {
+    const w = m[0]; if (CONN_EXCL.test(w)) continue;
+    if (/하고$/.test(w)) { const stem = w.slice(0, -2); if (KIN.has(stem)) continue; }
+    // "죽고 싶다", "치료받고 있다"는 한 덩어리
+    if (/고$/.test(w) && /^\s*(?:싶|있|계시|계심|계셨|지내|지냄)/.test(text.slice(s + m.index + w.length, e))) continue;
+    cuts.push(s + m.index + w.length);
+  }
+  const out = []; let st = s;
+  for (const c of cuts) { if (c > st) { out.push({ s: st, e: c }); st = c; } }
+  if (st < e) out.push({ s: st, e });
+  return out;
+}
+
+/* ---------------- 호칭 찾기 ---------------- */
+function roleOf(part, after) {
+  if (/^(?:와|과|랑|이랑|하고)/.test(part)) return 'comp';
+  if (/^(?:께서|은|는|가|도)/.test(part) || /^이(?!다|고|며|지만|었|랑)/.test(part)) return 'topic';
+  if (/^(?:을|를|에게|한테|께(?!서)|로부터|에게서|한테서)/.test(part)) return 'obj';
+  if (part === '의') return 'poss';
+  if (!part && /^\s*[:：]/.test(after)) return 'topic';
+  return 'none';
+}
+function findMentions(text, s, e, blockers, ptSex) {
+  const seg = text.slice(s, e); const out = []; const sides = [];
+  for (const re of [SIDE1, SIDE2]) for (const m of seg.matchAll(re)) {
+    const side = /친가|부계|아버지|아빠|부친/.test(m[1]) ? 'F' : 'M';
+    sides.push({ start: s + m.index, end: s + m.index + m[0].length, side, two: re === SIDE2 });
+  }
+  for (const m of seg.matchAll(MENTION_RE)) {
+    let st = s + m.index; let en = st + m[0].length; let term = m[3]; let entry = KIN.get(term);
+    if (sides.some(x => st >= x.start && st < x.end)) continue;
+    if (blockers.some(b => st < b.end && en > b.start)) continue;
+    if (/^전 /.test(term) && /\d\s*(?:년|개월|달|주|일)\s*$/.test(text.slice(Math.max(s, st - 8), st))) { term = term.slice(2); entry = KIN.get(term); st += 2; }
+    const after0 = text.slice(en, e);
+    let paren = null; let j = en;
+    // "부 김OO(67, 당뇨)"처럼 가린 이름 뒤의 괄호도 그 사람 것
+    const pm = after0.match(/^\s?(?:[가-힣](?:OO|○○|◯◯|oo|00|\*\*|XX|xx|ㅇㅇ|○|◯|O|\*){1,3}\s?)?\(([^()\n]{0,40})\)/);
+    if (pm) { const open = en + pm[0].indexOf('('); paren = { start: open + 1, end: en + pm[0].length - 1 }; j = en + pm[0].length; }
+    let rest = text.slice(j, e);
+    // 높임 "남편분은", "아버님분" → '분'은 호칭의 일부로 봄
+    if (/^분(?=께서|은|는|이|가|의|도|을|를|과|와|$|[\s,.)])/.test(rest)) { j += 1; rest = text.slice(j, e); }
+    let pmatch = rest.match(PART_RE); let compound = false;
+    // 띄어쓰기 없이 붙여 쓴 메모 ("부모이혼", "부알코올", "모우울")
+    if (!pmatch) {
+      const gp = rest.match(/^(와|과|랑|이랑|하고|에게|한테|는|은|이|가|도|의)/);
+      if (!pm && !entry.reqFollow && COMPOUND_START.test(rest)) { pmatch = ['', '']; compound = true; }
+      else if (gp && COMPOUND_START.test(rest.slice(gp[1].length))) { pmatch = [gp[1], gp[1]]; compound = true; }
+      else continue; }
+    const part = pmatch[1];
+    if (entry.reqFollow && !part && !pm && !/^\s*[:\-–,·ㆍ/]|^\s+['\d]/.test(rest) && !COMPOUND_START.test(rest.trimStart())) continue;
+    // 영문 F/M: 숫자·괄호 옆이면 성별 표기("34/M", "M 34", "(F/34)")이므로 사람으로 보지 않음
+    if (entry.latin && (/\d\s*[/,]?\s*$|\(\s*$/.test(text.slice(Math.max(s, st - 4), st)) || /^\s*[/,]?\s*\d/.test(text.slice(en, e)) || !/^(?:\s*[/·,]\s*[FM](?![A-Za-z])|(?:와|과|는|은|가|이|의|를|을|에게|한테|도)|\s*[:(]|\s+(?:[가-힣]|'\d))/.test(text.slice(en, e)))) continue;
+    let pEnd = j + part.length;
+    const after = text.slice(pEnd, e);
+    let role = roleOf(part, after);
+    // "부x('22 교통사고)"처럼 x 뒤에 연도·사인이 오면 사망 표시로 봄
+    const xm = after.match(/^\s*[xX✕×](?![A-Za-z])\s*\(([^()\n]{1,40})\)/);
+    const xDeath = !!xm && /^\s*(?:'?\d{2}|(?:19|20)\d{2}|[가-힣]{2,})/.test(xm[1]);
+    const xParen = xDeath ? { start: pEnd + after.indexOf('(') + 1, end: pEnd + after.indexOf('(') + 1 + xm[1].length, inner: xm[1] } : null;
+    const neg = !xDeath && /^\s*[:：]?\s*(?:없|無|无|무(?![가-힣])|[xX✕×](?![A-Za-z]))/.test(after) && part !== '의';
+    const qmark = !part && /^\s*[?？]+(?=\s*(?:$|[,/\n)]))/.test(after);
+    // 양식의 빈칸 ("모: ")은 사람을 만들지 않음
+    const blank = !part && !pm && /^\s*[:：]\s*[-–—]?\s*$/.test(after);
+    const exist = role === 'topic' && /^(?:이|가)$/.test(part) && /^\s*(?:(?:\d+|한|두|세|네)\s*명\s*)?(?:있|없)/.test(after);
+    let count = null, countEnd = null, countNote = false;
+    let cm = after.match(/^\s*(\d+|한|두|세|네|다섯|여섯)\s*(?:명|분)/) || (!part ? after.match(/^\s*()(하나|둘|셋|넷|다섯)(?=$|[^가-힣]|은|는|이|가|을|를|과|와|도|만|의|모두)(?!이서|이\s*(?:살|사|지내))/) : null);
+    // "자녀 2", "형제: 3" → 인원수
+    if (!cm && !part && (entry.childGroup || entry.sibGroup)) cm = after.match(/^\s*[:：]?\s*(\d{1,2})(?![\d.]|\s*(?:세|살|년|개월|대|[yY]|남|녀|%|명|분))/);
+    // "형1", "딸 2" → 1~3은 인원수로 봄 (나이라면 "딸 2세")
+    if (!cm && !part && !pm && entry.ops.length === 1 && /^(?:C|B):/.test(entry.ops[0]) && !entry.childGroup && !entry.sibGroup) { cm = after.match(/^\s*([1-3])(?![\d.]|\s*(?:세|살|년|개월|대|[yY]|남|녀|%|명|분|\/))/); if (cm) countNote = true; }
+    // "두 자녀", "세 딸"처럼 수가 앞에 온 경우
+    const lastOp0 = (entry.ops[entry.ops.length - 1] || '').replace('*', '');
+    const pcm = !cm && (entry.childGroup || entry.sibGroup || /^(?:C|B):/.test(lastOp0)) ? text.slice(Math.max(s, st - 7), st).match(/(?:^|[^가-힣\d])(한|두|세|네|다섯|여섯|[2-9])\s*(?:명의\s*)?$/) : null;
+    if (pcm) count = numOf(pcm[1]);
+    if (cm) { count = numOf(cm[1] || cm[2]); countEnd = pEnd + cm[0].length;
+      if (!part) { const p2 = (text.slice(countEnd, e).match(PART_RE) || ['', ''])[1]; role = roleOf(p2, text.slice(countEnd + p2.length, e)); pEnd = countEnd + p2.length; } }
+    if (count && !paren) { const pm2 = text.slice(pEnd, e).match(/^\s?\(([^()\n]{0,40})\)/); if (pm2) { const open = pEnd + pm2[0].indexOf('('); paren = { start: open + 1, end: pEnd + pm2[0].length - 1 }; const q = pEnd + pm2[0].length; const p3 = (text.slice(q, e).match(PART_RE) || ['', ''])[1]; if (!part) role = roleOf(p3, text.slice(q + p3.length, e)); pEnd = q + p3.length; } }
+    const half = m[2] ? (/이복|배다른/.test(m[2]) ? 'F' : 'M') : null;
+    const aft = text.slice(pEnd, e);
+    const tm0 = aft.match(/^[^,.;(]{0,14}?(?:때|무렵|시절|당시)(?:부터|에는|에|는|도|까지)?(?![가-힣])/);
+    const temporal = !!tm0 && !TERM_TEST.test(tm0[0]) && /^(?:이|가|)$/.test(part);
+    const strong0 = /^(?:은|는|께서)/.test(part) || (!part && /^\s*[:：]/.test(aft));
+    const tw = strong0 ? aft.match(/^[^,.;]{0,10}?(?:때|무렵|시절|당시)(?:부터|에는|에|는|도|까지)?(?![가-힣])/) : null;
+    const temporalStrong = !!(tw && !TERM_TEST.test(tw[0]));
+    const strong = strong0 && !temporalStrong;
+    const caregiver = /^\s*(?:의\s*)?(?:손에서|밑에서)\s*(?:자라|자람|자랐|양육|컸|키워|성장)/.test(aft) || (/^(?:이|가|께서)$/.test(part) && /^\s*(?:대상자를\s*|손주를\s*|아이를\s*)?(?:양육|키워|키웠|키움|돌봐|돌봄|돌보)/.test(aft));
+    const pre = text.slice(s, st);
+    const rest2 = /(?:나머지|그\s*외(?:의)?|다른)\s*$/.test(pre);
+    // "부 사망 시 대상자 10세" → 그 시점의 나이
+    const tpre = /(?:사망|이혼|재혼|결혼|별거|사별|입원|가출|출생|시도|발병|진단|사고)\s*(?:시|당시|때|무렵)\s*$/.test(pre);
+    // "조모(친)", "할아버지(외)" → 친가·외가
+    let side0 = null, sideParen = false;
+    if (paren) { const sm = text.slice(paren.start, paren.end).match(/^\s*(친|친가|외|외가|부계|모계)\s*(?:쪽|측)?\s*$/); if (sm) { sideParen = true; if (entry.ambig) side0 = /^(?:친|친가|부계)$/.test(sm[1]) ? 'F' : 'M'; } }
+    const all4 = entry.label === '조부모' && !!entry.ambig && /^\s*(?:모두|다|전부|양쪽|양가|4분|네\s*분)(?![가-힣])/.test(aft);
+    out.push({ start: st, end: en, pEnd, entry, term, full: text.slice(st, en), ord: ordOf(m[1]), half, role, part, paren, neg, exist, count, plural: !!m[4], temporal: temporal || temporalStrong || tpre, tpre, strong, caregiver, rest: rest2, colon: !part && /^\s*[:：]/.test(after), blank, compound, countNote, side0, sideParen, all4, xDeath, xParen, qmark });
+  }
+  // 아직 알아듣지 못하는 호칭은 자리만 차지하게 해서 뒤의 정보가 엉뚱한 사람에게 붙지 않게 함
+  for (const m of seg.matchAll(UNSUP_RE)) {
+    const st = s + m.index, en = st + m[1].length;
+    if (out.some(x => st < x.end && en > x.start)) continue;
+    const pp = (text.slice(en, e).match(PART_RE) || ['', ''])[1];
+    out.push({ start: st, end: en, pEnd: en + pp.length, entry: { t: m[1], ops: [], label: m[1], unsup: true }, term: m[1], full: m[1], role: roleOf(pp, text.slice(en + pp.length, e)), part: pp, strong: /^(?:은|는)/.test(pp), unsup: true, paren: null });
+  }
+  // 대명사 "그는", "그녀가" → 앞에서 말한 사람
+  for (const m of seg.matchAll(PRON_RE)) {
+    const st = s + m.index, en = st + m[1].length;
+    if (out.some(x => st < x.end && en > x.start)) continue;
+    const pp = (text.slice(en, e).match(PART_RE) || ['', ''])[1];
+    out.push({ start: st, end: en, pEnd: en + pp.length, entry: { t: m[1], ops: [], label: m[1], pron: true }, term: m[1], full: m[1], role: roleOf(pp, text.slice(en + pp.length, e)), part: pp, strong: /^(?:은|는|께서)/.test(pp), pron: true, paren: null, ord: null, half: null, neg: false, exist: false, count: null, plural: false, temporal: false, caregiver: false, rest: false });
+  }
+  // 친가·외가만 쓰고 사람이 없으면 그쪽 조부모 묶음으로 처리 ("친가 쪽 정보는 모름")
+  for (const sd of sides) {
+    const attached = out.some(x => x.start >= sd.end - 1 && x.start - sd.end <= 2);
+    if (attached || sd.two) continue;
+    const q = sd.end; const p4 = (text.slice(q, e).match(PART_RE) || ['', ''])[1];
+    out.push({ start: sd.start, end: sd.end, pEnd: q + p4.length, entry: { t: sd.side === 'F' ? '친가' : '외가', ops: [sd.side, 'P'], label: sd.side === 'F' ? '친조부모' : '외조부모', group: true }, term: sd.side === 'F' ? '친가' : '외가', full: text.slice(sd.start, sd.end), ord: null, half: null, role: p4 ? roleOf(p4, '') : 'topic', part: p4, paren: null, neg: false, exist: false, count: null, plural: false, temporal: false, strong: true, caregiver: false, rest: false, pseudoSide: true });
+  }
+  out.sort((a, b) => a.start - b.start);
+  // "본인: 아내 50세" → 대상자가 곧 아내 (따로 사람을 만들지 않음)
+  for (let i = 0; i < out.length - 1; i++) if (out[i].entry.self && /^\s*[:：]\s*$/.test(text.slice(out[i].pEnd, out[i + 1].start)) && /^(?:아내|남편|처|부인|와이프|신랑)$/.test(out[i + 1].term)) { out[i + 1].apposSex = /^(?:아내|처|부인|와이프)$/.test(out[i + 1].term) ? 'F' : 'M'; out[i + 1].apposOf = i; }
+  const opSex = x => { const op = x.entry.ops[0] || ''; return op === 'PT' ? opposite(ptSex || 'U') : /^[SX]:[MF]$/.test(op) ? op[2] : null; };
+  for (let i = 0; i < out.length - 1; i++) {
+    if (out[i].role === 'poss' && out[i + 1].start - out[i].pEnd <= 2) out[i + 1].chainFrom = i;
+    else if (/^\s*(?:의\s*)?소생(?:의|인|으로)?\s*$/.test(text.slice(out[i].pEnd, out[i + 1].start)) && /^C:/.test(out[i + 1].entry.ops[0] || '')) { out[i + 1].chainFrom = i; out[i].role = 'poss'; }
+    // "남편 전처", "아내 오빠": 대상자가 쓸 수 없는 호칭이 배우자 바로 뒤에 붙으면 배우자의 가족
+    else if (ptSex && ptSex !== 'U' && out[i].role === 'none' && !out[i].count && !out[i].paren && /^\s+$/.test(text.slice(out[i].pEnd, out[i + 1].start)) && out[i].entry.ops.length === 1 && /^(?:[SX]:[MF]|PT)$/.test(out[i].entry.ops[0]) && out[i + 1].entry.speaker && out[i + 1].entry.speaker !== ptSex && out[i + 1].entry.speaker === opSex(out[i])) { out[i + 1].chainFrom = i; out[i].role = 'poss'; }
+  }
+  // "오빠 자녀 2", "외삼촌 아들" → 형제·삼촌 등 바로 뒤의 자녀 호칭은 그 사람의 자녀
+  for (let i = 0; i < out.length - 1; i++) { const a = out[i], b = out[i + 1];
+    if (b.chainFrom == null && a.role === 'none' && !a.count && !a.entry.group && !a.entry.sibGroup && !a.entry.self && /^B:/.test((a.entry.ops[a.entry.ops.length - 1] || '').replace('*', '')) && /^\s+$/.test(text.slice(a.pEnd, b.start)) && b.entry.ops.length === 1 && /^C:/.test(b.entry.ops[0])) { b.chainFrom = i; a.role = 'poss'; } }
+  // "모와 전남편 사이" → 뒤의 배우자 호칭은 앞사람의 배우자
+  for (let i = 0; i < out.length - 1; i++) if (/^(?:와|과)$/.test(out[i].part) && /^\s*$/.test(text.slice(out[i].pEnd, out[i + 1].start)) && /^(?:S|X):|^PT$/.test(out[i + 1].entry.ops[0] || '') && out[i + 1].entry.ops.length === 1 && /^\s*사이/.test(text.slice(out[i + 1].pEnd, e)) && !out[i].entry.self) { out[i + 1].chainFrom = i; out[i].role = 'poss'; }
+  // "전처와의 사이에(서) 딸" → 그 결합의 자녀
+  for (let i = 0; i < out.length - 1; i++) if (/^(?:와|과)의?$/.test(out[i].part) && /^\s*(?:사이에서|사이에|사이의)/.test(text.slice(out[i].pEnd, e))) { for (let j = i + 1; j < out.length; j++) if (/^C:/.test(out[j].entry.ops[0] || '')) { out[j].withFrom = i; } out[i].role = 'poss'; }
+  for (const sd of sides) { const m = out.find(x => x.start >= sd.end - 1 && x.start - sd.end <= 2); if (m) m.side = sd.side; }
+  for (const m of out) if (m.side0) m.side = m.side0;
+  // "모와 삼촌 모두 알코올" → 둘 다
+  for (let i = out.length - 2; i >= 0; i--) { const a = out[i], b = out[i + 1];
+    if (/^(?:와|과|랑|이랑|하고)$/.test(a.part || '') && /^\s*$/.test(text.slice(a.pEnd, b.start)) && /^\s*(?:모두|둘\s*다|다(?![가-힣])|전부)/.test(text.slice(b.pEnd, e)) && b.role !== 'poss') { a.role = b.role; a.strong = b.strong; a.coord = i + 1; b.coordPrev = i; } }
+  for (let i = out.length - 2; i >= 0; i--) {
+    const a = out[i], b = out[i + 1];
+    if (a.coord != null) continue;
+    const gap = text.slice(a.pEnd, b.start);
+    if (a.role === 'none' && b.chainFrom !== i && /^[\s,·ㆍ및/]*(?:\d{1,3}\s*(?:세|살)\s*)?[\s,·ㆍ및/]*(?:(?:한|두|세|네|다섯|[2-9])\s*(?:명의\s*)?)?$/.test(gap) && /,|·|ㆍ|및|\//.test(gap)) {
+      if (b.role !== 'poss') { a.role = b.role; a.strong = b.strong; a.coord = i + 1; b.coordPrev = i; if (b.exist) a.exist = true; }
+    }
+  }
+  return { mentions: out, sides };
+}
+
+/* ---------------- 속성 찾기 ---------------- */
+function yearOfAgo(n, unit, base) { return unit === '년' ? base - n : base; }
+function parenAfter(text, pos, e) {
+  const m = text.slice(pos, e).match(/^\s?\(([^()\n]{1,40})\)/);
+  if (!m) return null;
+  return { start: pos + m[0].indexOf('(') + 1, end: pos + m[0].length - 1, inner: m[1], o: pos + m[0].indexOf('('), c: pos + m[0].length };
+}
+function parseDeathParen(inner, base) {
+  let year = null, age = null; const causes = [];
+  inner.split(/[,，/·]/).map(x => x.trim()).filter(Boolean).flatMap(pc => { const sm = pc.match(/^('?\d{2}\s*년(?:도)?|(?:19|20)\d{2}(?:\s*년)?(?:\.\s?\d{1,2}\.?)?|'\d{2}(?:\.\d{1,2})?)\s+(.+)$/); return sm ? [sm[1], sm[2]] : [pc]; }).forEach(pc => {
+    let m;
+    if ((m = pc.match(/^((?:19|20)\d{2})(?:\s*년)?(?:\s*\d{1,2}\s*월)?(?:\.\s?\d{1,2}\.?)?(?:\s*경)?$/))) { year = +m[1]; return; }
+    if ((m = pc.match(/^'(\d{2})\.\d{1,2}$/))) { const y2 = +m[1]; year = y2 + (y2 <= base % 100 ? 2000 : 1900); return; }
+    if ((m = pc.match(/^'?(\d{2})\s*년(?:도)?(?:\s*\d{1,2}\s*월)?(?:\s*경)?$|^'(\d{2})$/))) { const y2 = +(m[1] || m[2]); year = y2 + (y2 <= base % 100 ? 2000 : 1900); return; }
+    if ((m = pc.match(/^(?:향년\s*)?(?:만\s*)?(\d{1,3})\s*(?:세|살)(?:\s*에)?$/))) { age = +m[1]; return; }
+    if (/^(?:작년|지난해|재작년|올해)$/.test(pc)) { year = base + (pc === '재작년' ? -2 : pc === '올해' ? 0 : -1); return; }
+    if ((m = pc.match(/^(\d{1,2})\s*년\s*전$/))) { year = base - +m[1]; return; }
+    if (/^(?:미상|모름|불명|원인\s*미상)$/.test(pc)) { causes.push('미상'); return; }
+    const c = pc.replace(/\s*(?:으로|로)\s*(?:인한|인해)?$/, '').replace(/\s*사망$/, '').trim();
+    if (c) causes.push(/^(?:자살|극단적\s*선택)$/.test(c) ? '자살' : c);
+  });
+  return { year, age, causes };
+}
+const isYearOnly = inner => /^\s*(?:(?:19|20)\d{2}\s*년?|'?\d{2}\s*년|작년|재작년|올해|\d{1,2}\s*년\s*전)\s*$/.test(inner);
+function findItems(text, s, e, base) {
+  const seg = text.slice(s, e); const items = [];
+  const add = (re, fn) => { for (const m of seg.matchAll(re)) { const it = fn(m); if (it) { it.start = it.start ?? (s + m.index); it.end = it.end ?? (s + m.index + m[0].length); items.push(it); } } };
+  // 우선순위 순서 (겹치면 앞의 것이 이김)
+  add(DESC1, m => ({ type: 'desc', nB: +m[1], nS: +m[2], pos: ordOf(m[3]), posW: m[3] || null, cls: 'evt' }));
+  add(DESC3, m => ({ type: 'desc', nB: m[2] === '남' ? +m[1] : null, nS: m[2] === '녀' ? +m[1] : null, pos: ordOf(m[3]), posW: m[3], cls: 'evt' }));
+  add(DESC2, m => ({ type: 'desc', total: +m[1], kind: m[2], pos: ordOf(m[3]), posW: m[3] || null, cls: 'evt' }));
+  add(ONLY_RE, m => ({ type: 'only', cls: 'evt', w: m[0] }));
+  add(SUIC_DEATH_RE, m => { const pa = parenAfter(text, s + m.index + m[0].length, e); return { type: 'death', cause: '자살', cls: 'attr', risk: true, dp: pa ? parseDeathParen(pa.inner, base) : null, consume: pa ? [pa.o, pa.c] : null }; });
+  add(DEATH_RE, m => {
+    const before = text.slice(s, s + m.index);
+    const cm = before.match(/(?<![\d가-힣A-Za-z])([가-힣A-Za-z]{1,10}?)\s*(?:으로|로)\s*(?:인해\s*)?$/);
+    let cause = null; if (cm && !KIN.has(cm[1]) && !/^(?:갑자기|그|이|최근|병원|집|자택|현장|결국|끝내|지병|나이)$/.test(cm[1])) cause = cm[1];
+    if (cm && cm[1] === '지병') cause = '지병';
+    // "교통사고 사망", "간암 사망"처럼 '로' 없이 붙은 사인
+    if (!cause) { const cw = before.match(/(?<![\d가-힣A-Za-z])([가-힣]{2,8})\s*$/); if (cw && CAUSE_WORD.test(cw[1]) && !KIN.has(cw[1])) cause = cw[1]; }
+    const pa = parenAfter(text, s + m.index + m[0].length, e);
+    const gukAfter = m[0] === '故' && /^\s*(?:$|[,/;)\n]|\()/.test(text.slice(s + m.index + 1, e));
+    return { type: 'death', cause, cls: 'attr', guk: m[0] === '故' && !gukAfter, dp: pa ? parseDeathParen(pa.inner, base) : null, consume: pa ? [pa.o, pa.c] : null };
+  });
+  // "딸을 자살로 잃은", "남편을 여의고" → 목적어가 사망
+  add(/(?:(자살|사고|교통사고|병|지병|암|[가-힣]{1,6}암)\s*(?:으로|로)\s*)?(?:먼저\s*)?(?:잃(?:은|었|고|음|어)|여의(?:었|고|은|어)|떠나보(?:냈|낸|내)|먼저\s*(?:떠나\s*)?보(?:냈|낸|내)|먼저\s*떠나보(?:냈|낸|내))/g, m => ({ type: 'death', cause: m[1] || null, cls: 'attr', loss: true }));
+  // "사촌 자살"처럼 명사로 끝난 자살 = 자살 사망
+  add(SUIC_NOUN_RE, m => { const pa = parenAfter(text, s + m.index + m[0].length, e); return { type: 'death', cause: '자살', cls: 'attr', risk: true, dp: pa && !/^\s*[+\-−]\s*$/.test(pa.inner) ? parseDeathParen(pa.inner, base) : null, consume: pa && !/^\s*[+\-−]\s*$/.test(pa.inner) ? [pa.o, pa.c] : null }; });
+  add(NOKIDS_RE, m => ({ type: 'nokids', cls: 'neg' }));
+  add(SPOUSE_REL_RE, m => ({ type: 'rel', kind: 'conflict', spouse: true, cls: 'rel' }));
+  add(/고부\s*(?:갈등|간\s*갈등|문제|불화)/g, m => ({ type: 'rel', kind: 'conflict', gobu: true, cls: 'rel' }));
+  for (const [re, kind0] of RELS) add(re, m => {
+    const aft = text.slice(s + m.index + m[0].length, e), bef = text.slice(Math.max(s, s + m.index - 16), s + m.index);
+    let kind = kind0;
+    // 부정: "가깝지 않다"(→ 소원), "원만하지 못함"(→ 갈등), "갈등 없음"·"나쁘지 않음"(→ 그리지 않음)
+    const negVerb = /^[가-힣]{0,3}?지\s*(?:는|도|가)?\s*(?:않|못)/.test(aft);
+    const negNoun = /^\s*(?:은|는|이|가|도)?\s*(?:없|無|无|전혀\s*없|부인|\(\s*[-−]\s*\)|[xX](?![A-Za-z]))/.test(aft);
+    if (negVerb || negNoun) { if (kind === 'close' && negVerb) kind = /원만/.test(m[0]) ? 'conflict' : 'distant'; else return null; }
+    // 바람은 관계가 아님: "친밀하기 원하나", "친해지기를 바람"
+    if ((kind === 'close' || kind === 'fused') && /^[가-힣]{0,4}?(?:기를?|고|게)\s*(?:원하|원함|원해|바라|바람|희망|싶)/.test(aft)) return null;
+    // 지난 관계: "과거에는 친밀했으나", "갈등이 있었으나"
+    const past = (/(?:과거|예전|이전|전에는|한때|어릴\s*때|어렸을\s*때|어린\s*시절)(?:에|에는|엔|에도|는)?[^,.]*$/.test(bef) && !/(?:현재|지금|최근|요즘|근래)/.test(bef)) || /^[가-힣\s]{0,6}?(?:었|았|였|웠|했|됐|졌|왔)(?:으나|지만|는데|다가)/.test(aft);
+    return { type: 'rel', kind, cls: 'rel', past };
+  });
+  for (const [re, kind] of EVENTS) add(re, m => { const aft = text.slice(s + m.index + m[0].length, e); if ((kind === 'married' || kind === 'cohab?') && /^\s*(?:신고)?\s*(?:[xX✕×](?![A-Za-z])|안\s*(?:함|했|됨|된)|안\s*해|無|없|\(\s*[-−]\s*\)|미(?:신고|등록))/.test(aft)) return null; const it = { type: 'event', kind, cls: 'evt' }; if (kind === 'widowed') { const pa = parenAfter(text, s + m.index + m[0].length, e); if (pa) { it.dp = parseDeathParen(pa.inner, base); it.consume = [pa.o, pa.c]; }
+      // "위암 사별", "폐암으로 사별" → 사인
+      const cw = text.slice(s, s + m.index).match(/(?<![\d가-힣A-Za-z])([가-힣]{1,8}?)\s*(?:으로|로)?\s*(?:인해\s*)?$/); if (cw && CAUSE_WORD.test(cw[1]) && !KIN.has(cw[1])) it.cause = cw[1]; } return it; });
+  add(COUPLE_RE, m => ({ type: 'house', couple: true, strong: true, cls: 'evt' }));
+  add(RAISE_RE, m => ({ type: 'raise', cls: 'evt' }));
+  add(NHOUSE_RE, m => { const pa = parenAfter(text, s + m.index + m[0].length, e); return { type: 'house', strong: true, nHouse: +m[1], hp: pa, cls: 'evt' }; });
+  add(ALONE_RE, m => ({ type: 'house', alone: true, cls: 'evt' }));
+  add(APART_RE, m => ({ type: 'house', apart: true, w: m[0], cls: 'evt' }));
+  add(HOUSE_RE, m => ({ type: 'house', strong: /함께|같이|한\s*집|동거|동반|둘이|셋이|넷이|단둘이|집|댁/.test(m[0]), cls: 'evt' }));
+  for (const [re, label, risk] of CONDS) add(re, m => {
+    const after = text.slice(s + m.index + m[0].length, e);
+    if (/^(?:\s*중독)?(?:자|환자|중독자)?\s*(?:의\s*)?가족/.test(after)) return null;
+    const neg = NEG_AFTER.test(after);
+    const it = { type: 'cond', label: label || m[0].replace(/\s+/g, ''), raw: m[0].replace(/\s+/g, ''), risk: !!risk, neg, cls: neg ? 'neg' : 'attr' };
+    const pa = parenAfter(text, s + m.index + m[0].length, e);
+    if (pa && /^\s*[+＋]+\s*$/.test(pa.inner)) it.consume = [pa.o, pa.c];
+    else if (pa && !isYearOnly(pa.inner) && !/^\s*\d{1,3}\s*(?:세|살)?\s*$/.test(pa.inner) && !/^\s*[\-−–]\s*$/.test(pa.inner)) { it.extra = pa.inner.trim(); it.consume = [pa.o, pa.c]; }
+    return it;
+  });
+  add(QMARK_RE, m => ({ type: 'unknown', q: true, cls: 'attr' }));
+  add(UNKNOWN_RE, m => {
+    const pre = text.slice(Math.max(s, s + m.index - 6), s + m.index);
+    if (/사인\s*$/.test(pre)) return { type: 'causeUnknown', cls: 'attr' };
+    if (/생사\s*$/.test(pre)) return { type: 'lifeUnknown', cls: 'attr' };
+    if (/(?:나이|연령|직업|생년|연락처|주소|학력|종교)\s*$/.test(pre)) return null;
+    return { type: 'unknown', cls: 'attr' };
+  });
+  add(ADOPT_RE, m => ({ type: 'adopt', cls: 'attr' }));
+  add(FOSTER_RE, m => ({ type: 'foster', cls: 'attr' }));
+  add(TWIN_RE, m => ({ type: 'twin', cls: 'attr' }));
+  add(MEMO_RE, m => { const abs = s + m.index; const ls = text.lastIndexOf('\n', abs - 1) + 1; if (!text.slice(ls, abs).trim()) return null; return { type: 'memo', text: m[1].trim(), cls: 'attr' }; });
+  add(ALIVE_RE, m => ({ type: 'alive', cls: 'attr' }));
+  add(DESC4, m => { if (!/(?:슬하|자녀|자식)/.test(text.slice(s, s + m.index))) return null; return { type: 'desc', nB: m[2] === '남' ? +m[1] : 0, nS: m[2] === '녀' ? +m[1] : 0, childMode: true, cls: 'evt' }; });
+  add(POS_RE, m => ({ type: 'pos', pos: ordOf(m[1]), posW: m[1], cls: 'evt' }));
+  add(BYEAR_RE, m => { let y = +m[1]; if (y < 100) y += (y <= base % 100 ? 2000 : 1900); return { type: 'byear', v: y, cls: 'num' }; });
+  add(AGE_RE, m => { const v = +m[1]; if (v > 120) return null; return { type: 'age', v, cls: 'num' }; });
+  add(AGE_Y_RE, m => { const v = +m[1]; if (v > 120 || v < 1) return null; return { type: 'age', v, cls: 'num' }; });
+  // 호칭 없이 쓴 "9/M", "78/F", "34/남", "여23" → 나이 (성별은 따로 잡힘)
+  add(/(?<![\d가-힣A-Za-z.'])(\d{1,3})(?=\s*\/\s*(?:[MF]|남|여)(?![A-Za-z가-힣]))|(?<=(?:^|[^\d가-힣A-Za-z])(?:남|여)\s?)(\d{1,3})(?![\d.]|\s*(?:년|명|개월|세|살|남|녀|[yY]))/g, m => { const v = +(m[1] || m[2]); if (v < 1 || v > 120) return null; return { type: 'age', v, cls: 'num' }; });
+  add(AGE_NATIVE_RE, m => { if (!m[1] && !m[2]) return null; const v = (TENK[m[1]] || 0) + (NUMK[m[2]] || 0); return v ? { type: 'age', v, cls: 'num' } : null; });
+  add(DECADE_RE, m => ({ type: 'ageText', text: `${m[1]}0대${m[2] ? ' ' + m[2] : ''}`, cls: 'num' }));
+  add(MONTH_RE, m => ({ type: 'ageText', text: `${m[1]}개월`, cls: 'num' }));
+  add(YEAR_RE, m => ({ type: 'year', v: +m[1], cls: 'num' }));
+  add(YEAR2_RE, m => { let y = +m[1]; y += (y <= base % 100 ? 2000 : 1900); return { type: 'year', v: y, cls: 'num' }; });
+  // "19년 사망", "이혼(15년)" 처럼 두 자리 연도는 사건 말과 붙어 있을 때만
+  add(YEAR3_RE, m => {
+    const after = text.slice(s + m.index + m[0].length, e), before = text.slice(s, s + m.index);
+    if (!YEAR3_EVT.test(after) && !YEAR3_PRE.test(before)) return null;
+    if (/(?:지|된\s*지|한\s*지)\s*$/.test(before)) return null;
+    let y = +m[1]; y += (y <= base % 100 ? 2000 : 1900); return { type: 'year', v: y, cls: 'num' };
+  });
+  for (const [re, d] of RELYEAR) add(re, m => ({ type: 'year', v: base + d, cls: 'num' }));
+  add(AGO_RE, m => ({ type: 'year', v: yearOfAgo(+m[1], m[2], base), cls: 'num' }));
+  add(SEX_RE, m => ({ type: 'sex', v: /남/.test(m[1] || m[2]) ? 'M' : 'F', cls: 'attr' }));
+  // 나이 옆의 영문 성별 "45y F", "F/34", "34 M"
+  add(/(?<=\d{1,3}\s*(?:세|살|[yY](?:rs?|o|ears?)?|y\/o)?\s*[,/]?\s*)(?<![A-Za-z])([MF])(?![A-Za-z])|(?<![A-Za-z])([MF])(?![A-Za-z])(?=\s*[,/]?\s*\d{1,3}(?!\d))/g, m => ({ type: 'sex', v: (m[1] || m[2]) === 'M' ? 'M' : 'F', cls: 'attr' }));
+  for (const [re, label] of MEMO_WORDS) add(re, m => { const aftM = text.slice(s + m.index + m[0].length, e); if (/^\s*(?:때|시절|무렵|당시)/.test(aftM)) return null; if (/^\s*(?:은|는|이|가|도)?\s*(?:없|無|无|아님|부인|\(\s*[-−]\s*\)|[xX](?![A-Za-z]))|^[가-힣]{0,3}?지\s*(?:는|도)?\s*않/.test(aftM)) return null; return { type: 'memo', text: label || m[0].replace(/\s+/g, ''), auto: true, cls: 'attr' }; });
+  // 겹침 제거 (앞선 규칙 우선)
+  let kept = [];
+  for (const it of items) if (!kept.some(k => it.start < k.end && it.end > k.start)) kept.push(it);
+  // 괄호를 먹은 항목(사망 사인 등) 안쪽의 다른 항목 제거
+  const cons = kept.filter(k => k.consume).map(k => k.consume);
+  kept = kept.filter(it => it.consume || !cons.some(r => it.start >= r[0] && it.end <= r[1]));
+  // 사망 나이 표시: "62세에 사망"
+  for (const it of kept) if (it.type === 'age') {
+    const after = text.slice(it.end, e), before = text.slice(s, it.start);
+    if (/향년\s*$/.test(before)) { it.deathAge = true; continue; }
+    if (/^\s*(?:에|로|의\s*나이로|때|무렵)?\s*(?:사망|돌아가|작고|별세|숨|자살|극단)/.test(after)) { it.deathAge = true; continue; }
+    if (/^\s*(?:때|무렵|경|쯤|시절|당시|이던|였던|이었던)/.test(after)) it.drop = true;
+    // "20살에 첫 결혼", "30세에 이혼" → 그때의 나이
+    if (/^\s*(?:에|에는)\s*(?:첫\s*)?(?:결혼|이혼|재혼|출산|입대|가출|이사|상경|취업|입원|발병|진단)/.test(after)) it.drop = true;
+  }
+  return kept.filter(it => !it.drop).sort((a, b) => a.start - b.start);
+}
+
+/* ---------------- 해석 ---------------- */
+const HEADER_WORD = /^(?:성명|이름|(?:가족\s*)?관계|연령|나이|만\s*나이|성별|직업|동거(?:\s*여부)?|비고|상태|건강(?:\s*상태)?|학력|종교|연락처|특이\s*사항|생년(?:월일)?|출생|질환|장애|학년|학교)$/;
+function findTable(text) {
+  // 표를 붙여 넣은 경우: "관계⇥연령⇥동거⇥비고" 같은 제목 줄의 칸 이름을 기억
+  let off = 0;
+  for (const ln of text.split('\n')) {
+    const cells = ln.split('\t').map(c => c.trim());
+    if (cells.length >= 3 && cells.filter(c => HEADER_WORD.test(c)).length >= 2 && cells.some(c => /^(?:가족\s*)?관계$/.test(c))) return { start: off, end: off + ln.length, cols: cells };
+    off += ln.length + 1;
+  }
+  return null;
+}
+function parse(text, base, preset) {
+  const F = new Fam(base); const pt = F.pt; if (preset) pt.sex = preset;
+  F.table = findTable(text);
+  // 의붓형제가 어느 쪽 재혼에서 왔는지 짐작 (계부·모 재혼 → 어머니 쪽, 계모·부 재혼 → 아버지 쪽)
+  const hM = /계부|새아버지|의붓아버지|(?:모|어머니|엄마|모친)(?:는|가|이)?\s*(?:\d{2,4}\s*년\s*)?재혼/.test(text), hF = /계모|새어머니|새엄마|의붓어머니|(?<![가-힣])(?:부|아버지|아빠|부친)(?:는|가|이)?\s*(?:\d{2,4}\s*년\s*)?재혼/.test(text);
+  F.stepHint = hM && !hF ? 'M' : hF && !hM ? 'F' : null; F.text = text;
+  if (!preset) { if (/모녀(?:\s*(?:갈등|관계|사이|간|지간))/.test(text)) F.ptSexInfer = { sex: 'F', term: '모녀' }; else if (/부자(?:\s*(?:갈등|관계|사이|간|지간))/.test(text)) F.ptSexInfer = { sex: 'M', term: '부자' }; }
+  F.adoptiveText = /(?<![가-힣])(?:양부|양모|양아버지|양어머니|양부모)(?![가-힣])|(?<![가-힣])(?:양부|양모)(?=는|가|은|이|와|과|의|를|을|도|에게)/.test(text);
+  const spans = []; const unrec = [];
+  let lastRef = null, prevTopic = null;
+  for (const S of splitSentences(text)) {
+    if (F.table && S.s >= F.table.start && S.e <= F.table.end) { spans.push({ start: S.s, end: S.e, cls: 'hdr' }); continue; }
+    let found = false, nMent = 0, nAttr = 0;
+    let subj = null, strongSubj = null, subjStrong = false; let mentioned = []; let noneSubj = null;
+    const Cs = splitClauses(text, S.s, S.e);
+    Cs.forEach((C, ci) => {
+      const last = ci > 0 && ci === Cs.length - 1;
+      const useStrong = last && !!strongSubj;
+      const inSubj = useStrong ? strongSubj : subj;
+      const r = parseClause(F, text, C.s, C.e, inSubj, spans, { prevOthers: mentioned.filter(p => !(inSubj || []).includes(p)), pronRef: lastRef, sent: S, subjStrong: useStrong || subjStrong, noneSubj });
+      noneSubj = !r.strong && !r.weak ? r.tailNone : null;
+      if (r.found) found = true;
+      nMent += r.nMent; nAttr += r.nAttr;
+      if (r.strong) { strongSubj = r.strong; subj = r.weak || r.strong; subjStrong = !r.weak; } else if (r.weak) { subj = r.weak; subjStrong = false; }
+      r.persons.forEach(p => { mentioned = mentioned.filter(q => q !== p); mentioned.push(p); });
+      if (r.refs) lastRef = r.refs;
+    });
+    // 누가 주어인지 없는 문장: 앞 문장의 주어가 대상자가 아니면 되물음
+    if (!nMent && nAttr && prevTopic && prevTopic.p.length === 1 && !prevTopic.p[0].isPt) F.subjectless.push({ text: text.slice(S.s, S.e).trim(), prev: prevTopic });
+    prevTopic = strongSubj ? { p: strongSubj, w: F.lastStrongTerm } : (nMent ? null : prevTopic);
+    if (!found) unrec.push(text.slice(S.s, S.e).trim());
+  }
+  return { F, spans, unrec };
+}
+
+const MARRIED_CTX = /기혼|결혼|혼인|슬하|자녀|자식|남편|아내|배우자|사별/;
+const BARE_RE = /^[\s:：\-–=]*(?:(남|여|男|女|M|F)(?![가-힣A-Za-z])\s*[,/]?\s*)?(?:([가-힣](?:OO|○○|◯◯|oo|00|\*\*|XX|xx|ㅇㅇ|○|◯|O|\*){1,3})\s+)?(\d{1,3})(?![\d.]|(?:년|명|남|녀|개월|대|%|세|살|회|번|차|째|층|시|분|kg|cm|월|일|인|평|만|천|억|원|호|동|급|학년|점|[yY]|:)|\s(?:세|살|명|년|개월|%)(?![가-힣]))(?:\s*[/,]?\s*(남|여|M|F)(?![가-힣A-Za-z]))?/d;
+function parseClause(F, text, s, e, subject, spans, cx) {
+  cx = cx || {};
+  const base = F.base; const pt = F.pt;
+  const items0 = findItems(text, s, e, base);
+  const blockers = items0.filter(i => i.type === 'desc' || i.type === 'only');
+  const { mentions: M, sides } = findMentions(text, s, e, blockers, pt.sex);
+  // 양부모가 있으면 생부·생모 호칭은 아직 그리지 않음 (같은 자리에 겹치지 않게)
+  if (F.adoptiveText) M.forEach(m => { if (/^(?:생부|생모|친부|친모|친아버지|친어머니|생부모|친부모)$/.test(m.term)) { m.unsup = true; spans.push({ start: m.start, end: m.end, cls: 'unk' }); } });
+  let items = items0.filter(it => !M.some(m => (it.start < m.end && it.end > m.start) || (m.xParen && it.start >= m.xParen.start && it.end <= m.xParen.end)));
+  // 구조형 숫자 나이 ("부: 62", "대상자: 여 34")
+  const first = M[0];
+  if (first && first.colon && !first.blank) {
+    const segEnd = M[1] ? M[1].start : e; const sub = text.slice(first.pEnd, segEnd);
+    for (const m of sub.matchAll(/(?<![\d.'])(\d{1,3})(?![\d.]|(?:년|명|남|녀|개월|대|%|세|살|회|번|차|째|층|시|분|kg|cm|월|일|y|Y)|\s(?:세|살|명|년|개월|%)(?![가-힣]))/g)) {
+      const st = first.pEnd + m.index, en = st + m[0].length;
+      if (items.some(i => st < i.end && en > i.start)) continue;
+      const v = +m[1]; if (v > 0 && v <= 120) items.push({ type: 'age', v, start: st, end: en, cls: 'num', forced: 0 });
+    }
+  }
+  // 호칭 바로 뒤의 맨 숫자 = 나이 ("부 62", "IP 여 34", "부 김OO 62", "IP 34/M")
+  M.forEach((m, idx) => {
+    if (m.count || m.unsup || m.pron || m.blank || m.neg || m.entry.group || m.entry.childGroup || m.entry.sibGroup) return;
+    if (!(m.part === '' || /^(?:은|는)$/.test(m.part))) return;
+    const nxt = M[idx + 1] ? M[idx + 1].start : e;
+    const bm = text.slice(m.pEnd, nxt).match(BARE_RE); if (!bm) return;
+    const at = k => [m.pEnd + bm.indices[k][0], m.pEnd + bm.indices[k][1]];
+    const [ns, ne] = at(3); const v = +bm[3];
+    if (v < 1 || v > 120 || items.some(i => ns < i.end && ne > i.start && !(i.type === 'age' && i.v === v))) return;
+    items = items.filter(i => !(ns < i.end && ne > i.start));
+    items.push({ type: 'age', v, start: ns, end: ne, cls: 'num', forced: idx });
+    for (const k of [1, 4]) if (bm[k]) { const [a, b] = at(k); items = items.filter(i => !(a < i.end && b > i.start && i.type === 'sex')); if (!items.some(i => a < i.end && b > i.start)) items.push({ type: 'sex', v: /^[남M男]$/.test(bm[k]) ? 'M' : 'F', start: a, end: b, cls: 'attr', forced: idx }); }
+  });
+  // 괄호 안 숫자 나이 "부(62)", "IP(F/34)"
+  M.forEach((m, idx) => {
+    if (!m.paren) return; const inner = text.slice(m.paren.start, m.paren.end);
+    if (m.sideParen) { items = items.filter(i => !(i.start >= m.paren.start && i.end <= m.paren.end)); spans.push({ start: m.paren.start, end: m.paren.end, cls: 'kin' }); return; }
+    if (m.count && /^\s*\d{1,3}\s*(?:세|살)?(?:\s*[,/·]\s*\d{1,3}\s*(?:세|살)?)+\s*$/.test(inner)) {
+      items = items.filter(i => !(i.start >= m.paren.start && i.end <= m.paren.end));
+      items.push({ type: 'ageList', vals: inner.match(/\d{1,3}/g).map(Number), start: m.paren.start, end: m.paren.end, cls: 'num', forced: idx }); return;
+    }
+    const nm = inner.match(/^\s*(?:만\s*)?(\d{1,3})\s*(?:세|살|[yY])?\s*(?=$|[,/·\s])/);
+    if (nm && +nm[1] <= 120 && !/^\s*\d{4}/.test(inner)) {
+      const st = m.paren.start + inner.indexOf(nm[1]), en = st + nm[1].length;
+      items = items.filter(i => !(i.start < en + 1 && i.end > st && i.type === 'age'));
+      items.push({ type: 'age', v: +nm[1], start: st, end: en, cls: 'num', forced: idx });
+    } else if (!M.some(x => x !== m && x.start >= m.paren.start && x.end <= m.paren.end)) {
+      // 조각마다 나이·성별 ("F/34", "여/45")
+      let off = 0; let got = items.some(i => i.type === 'age' && i.start >= m.paren.start && i.end <= m.paren.end);
+      for (const piece of inner.split(/[,/·]/)) {
+        const ps = m.paren.start + off + (piece.length - piece.trimStart().length), pe = ps + piece.trim().length; off += piece.length + 1;
+        const t = piece.trim(); let mm;
+        if (!got && (mm = t.match(/^(?:만\s*)?(\d{1,3})\s*(?:세|살|[yY])?$/)) && +mm[1] > 0 && +mm[1] <= 120) { items = items.filter(i => !(i.start < pe && i.end > ps)); items.push({ type: 'age', v: +mm[1], start: ps, end: pe, cls: 'num', forced: idx }); got = true; }
+        else if (/^(?:M|F|m|f|男|女)$/.test(t)) { items = items.filter(i => !(i.start < pe && i.end > ps)); items.push({ type: 'sex', v: /^[Mm男]$/.test(t) ? 'M' : 'F', start: ps, end: pe, cls: 'attr', forced: idx }); }
+        else if (!got && (mm = t.match(/^(?:(남|여|M|F)\s*(\d{1,3})|(\d{1,3})\s*(남|여|M|F))(?:\s*(?:세|살))?$/)) && +(mm[2] || mm[3]) > 0 && +(mm[2] || mm[3]) <= 120) {
+          // "남 55", "34 여"
+          const v = +(mm[2] || mm[3]), sx = mm[1] || mm[4]; const ns = ps + t.indexOf(String(v)); items = items.filter(i => !(i.start < pe && i.end > ps));
+          items.push({ type: 'age', v, start: ns, end: ns + String(v).length, cls: 'num', forced: idx }); const ss0 = ps + t.indexOf(sx); items.push({ type: 'sex', v: /^[남M]$/.test(sx) ? 'M' : 'F', start: ss0, end: ss0 + sx.length, cls: 'attr', forced: idx }); got = true; }
+      }
+    }
+    for (const it of items) if (it.forced == null && it.start >= m.paren.start && it.end <= m.paren.end && !M.some(x => x !== m && x.start >= m.paren.start && x.end <= it.start)) it.forced = idx;
+    // 괄호 안에서 알아듣지 못한 말은 그 사람의 메모로 ("회사원", "기숙사 거주")
+    let off = 0;
+    for (const piece of inner.split(/[,/·]/)) {
+      const ps = m.paren.start + off + (piece.length - piece.trimStart().length), pe = ps + piece.trim().length; off += piece.length + 1;
+      const t = piece.trim(); if (!t || /^\d+$/.test(t)) continue;
+      if (items.some(i => i.start < pe && i.end > ps)) continue;
+      if (M.some(x => x !== m && x.start < pe && x.end > ps)) continue;
+      if (t.length > 14) continue;
+      items.push({ type: 'memo', text: t, start: ps, end: pe, cls: 'attr', forced: idx, auto: true });
+    }
+  });
+  // "외조모 생존(86, 요양병원)"처럼 생존·모름 뒤 괄호의 내용은 그 말의 주인에게
+  for (const it of items.slice()) {
+    if (!['alive', 'unknown'].includes(it.type)) continue;
+    const pa = parenAfter(text, it.end, e); if (!pa) continue;
+    if (M.some(m => m.start >= pa.start && m.end <= pa.end)) continue;
+    for (const x of items) if (x !== it && x.start >= pa.start && x.end <= pa.end && x.forced == null) x.follow = it;
+    let off = 0; let got = items.some(x => x.type === 'age' && x.start >= pa.start && x.end <= pa.end);
+    for (const piece of pa.inner.split(/[,/·]/)) {
+      const ps = pa.start + off + (piece.length - piece.trimStart().length), pe = ps + piece.trim().length; off += piece.length + 1;
+      const t = piece.trim(); if (!t || items.some(x => x.start < pe && x.end > ps)) continue; let mm;
+      if (!got && (mm = t.match(/^(?:만\s*)?(\d{1,3})\s*(?:세|살|[yY])?$/)) && +mm[1] > 0 && +mm[1] <= 120) { items.push({ type: 'age', v: +mm[1], start: ps, end: pe, cls: 'num', follow: it }); got = true; }
+      else if (!/^\d+$/.test(t) && t.length <= 14) items.push({ type: 'memo', text: t, start: ps, end: pe, cls: 'attr', follow: it, auto: true });
+    }
+  }
+  // 표의 한 행: 관계 칸의 사람이 그 행의 주인. 동거 칸 O/X, 성별·연령 칸을 그 사람에게
+  let rowM = null;
+  if (F.table && text.slice(s, e).includes('\t')) {
+    const cells = []; let st = s; text.slice(s, e).split('\t').forEach(c => { cells.push({ s: st, e: st + c.length, t: c.trim(), o: st + (c.length - c.trimStart().length) }); st += c.length + 1; });
+    const col = re => F.table.cols.findIndex(n => re.test(n));
+    const ri = col(/^(?:가족\s*)?관계$/);
+    rowM = (ri >= 0 && cells[ri] ? M.find(m => m.start >= cells[ri].s && m.start < cells[ri].e) : null) || M[0] || null;
+    if (rowM) {
+      const idx = M.indexOf(rowM); const cellItem = (k, o) => { const c = cells[k]; items = items.filter(i => !(i.start >= c.s && i.end <= c.e && i.type === o.type)); items.push(Object.assign({ start: c.o, end: c.o + c.t.length, forced: idx }, o)); };
+      const hi = col(/^동거/), si = col(/^성별$/), ai = col(/^(?:연령|나이|만\s*나이)$/);
+      if (hi >= 0 && cells[hi]) { const t = cells[hi].t; if (/^(?:O|o|○|◯|Y|y|예|유|동거|함께)$/.test(t)) cellItem(hi, { type: 'house', strong: true, cls: 'evt' }); else if (/^(?:X|x|×|✕|N|n|아니오|무|비동거|별거|따로)$/.test(t)) cellItem(hi, { type: 'house', apart: true, w: '', cls: 'evt' }); }
+      if (si >= 0 && cells[si] && /^(?:남|여|M|F|남자|여자|남성|여성)$/.test(cells[si].t)) cellItem(si, { type: 'sex', v: /^(?:남|M|남자|남성)$/.test(cells[si].t) ? 'M' : 'F', cls: 'attr' });
+      if (ai >= 0 && cells[ai] && /^\d{1,3}\s*(?:세|살)?$/.test(cells[ai].t) && +cells[ai].t.match(/\d+/)[0] <= 120) cellItem(ai, { type: 'age', v: +cells[ai].t.match(/\d+/)[0], cls: 'num' });
+    }
+  }
+  items.sort((a, b) => a.start - b.start);
+  const found = M.length > 0 || items.length > 0;
+
+  // 대상 찾기
+  const between = (a, b) => text.slice(a, b);
+  // 인원수 없이 쓴 "형제", "자녀"는 사람을 가리키지 않으므로 대상 후보에서 뺌
+  const bareGroup = m => !!(m.entry && m.entry.sibGroup && !m.count);
+  // 쉼표·빗금·화살표로 나뉜 조각의 시작 (괄호 안 쉼표는 건너뜀)
+  const segStartOf = pos => { let k = pos, depth = 0; while (k > s) { const ch = text[k - 1]; if (ch === ')') depth++; else if (ch === '(') depth = Math.max(0, depth - 1); else if (!depth && (/[,;→\/]/.test(ch) || (ch === '~' && /\s/.test(text[k - 2] || '')))) break; k--; } return k; };
+  const segEndOf = pos => { let k = pos, depth = 0; while (k < e) { const ch = text[k]; if (ch === '(') depth++; else if (ch === ')') depth = Math.max(0, depth - 1); else if (!depth && (/[,;→\/]/.test(ch) || (ch === '~' && /\s/.test(text[k - 1] || '')))) break; k++; } return k; };
+  const inSeg = (m, it) => { const a = segStartOf(it.start), b = segEndOf(it.end); return m.start >= a && m.start < b; };
+  // "남편 폭력으로 쉼터 입소": '폭력으로' 앞의 사람은 폭력의 주체일 뿐 뒤 말의 주어가 아님
+  const causalRels = items.filter(r => r.type === 'rel' && r.kind === 'violence' && /^\s*(?:으로|로)(?:\s*인해|\s*인한)?(?![가-힣])/.test(text.slice(r.end, e)));
+  const capturedAt = (m, pos) => !m.entry.group && causalRels.some(r => m.pEnd <= r.start && r.end <= pos && /^[\s가-힣]{0,6}$/.test(between(m.pEnd, r.start)));
+  const captured = (m, it) => capturedAt(m, it.start);
+  // kind: 'attr'(질환·메모 등) | 'rel'(정서적 관계) | 'evt'(결혼·동거 등 사건과 가구)
+  const localFocus = (pos, kind) => {
+    kind = kind || 'attr';
+    const ss = segStartOf(pos); let best = null;
+    for (const m of M) { if (m.pEnd > pos || m.start < ss || m.exist || m.temporal || m.blank || bareGroup(m) || capturedAt(m, pos)) continue; if (m.role === 'topic' || m.role === 'none') best = m; }
+    if (best) return best;
+    let top = null;
+    for (const m of M) { if (m.pEnd > pos || m.role !== 'topic' || m.exist || m.temporal || bareGroup(m)) continue; top = m; }
+    if (top) return top;
+    // 관계: 호칭 없는 조각("…, DV", "→ 가정폭력")은 바로 앞 조각의 사람이 주체
+    if (kind === 'rel') { let pv = null; for (const m of M) { if (m.pEnd > pos || m.exist || m.temporal || m.blank || bareGroup(m) || m.unsup) continue; if ((m.role === 'none' || m.role === 'topic') && !m.entry.self) pv = m; } const segM = M.filter(m => m.start >= ss && m.start < pos); if (pv && (!segM.length || (segM.every(m => m.role !== 'none' && m.role !== 'topic') && segM.some(m => m.entry.self)))) return pv; }
+    // 질환·메모: 절이 호칭으로 시작하면 그 사람 (사건·가구는 같은 조각 안에서만)
+    if (first && first.role === 'none' && !first.temporal && !first.blank && !capturedAt(first, pos) && first.start <= pos && (kind === 'attr' || first.start >= ss) && /^[\s\d세살(),:\[\]가-힣]*?$/.test(between(s, first.start)) && !/[가-힣]{2,}/.test(between(s, first.start).replace(/\[[^\]]*\]/g, ''))) return first;
+    return null;
+  };
+  let ageStyle = null;
+  const ageTarget = it => {
+    if (it.forced != null) return M[it.forced];
+    let prev = null, next = null;
+    for (const m of M) { if (!bareGroup(m) && m.pEnd <= it.start && /^[\s:：(,]*$/.test(between(m.pEnd, it.start))) prev = m; }
+    for (const m of M) { if (!bareGroup(m) && m.start >= it.end && /^\s*$/.test(between(it.end, m.start))) { next = m; break; } }
+    if (prev && next) { if (ageStyle === 'before') return next; if (ageStyle === 'after') return prev; ageStyle = 'after'; return prev; }
+    if (prev) { ageStyle = ageStyle || 'after'; return prev; }
+    if (next) { ageStyle = ageStyle || 'before'; return next; }
+    return localFocus(it.start);
+  };
+  const nearTarget = it => {
+    if (it.forced != null) return M[it.forced];
+    // "대상자의 음주 문제", "남편의 잦은 음주" → '의' 앞의 사람이 주인
+    const po = M.filter(m => m.role === 'poss' && m.pEnd <= it.start && /^\s*(?:[가-힣]{1,4}\s+)?$/.test(between(m.pEnd, it.start)) && !M.some(x => x !== m && x.start >= m.pEnd && x.start < it.start)).pop();
+    if (po && (it.type === 'cond' || it.type === 'death' || it.type === 'memo')) return po;
+    let adj = null, top = null, non = null;
+    for (const m of M) {
+      if (m.pEnd > it.start || m.temporal || m.blank || bareGroup(m) || captured(m, it) || /[,;→]/.test(between(m.pEnd, it.start))) continue;
+      if (m.role === 'none' && /^[\s\d세살():：'.년월~-]*$/.test(between(m.pEnd, it.start))) adj = m;
+      if (m.role === 'topic') top = m; else if (m.role === 'none') non = m;
+    }
+    return adj || top || non || localFocus(it.start);
+  };
+  const nextTarget = it => { if (it.forced != null) return M[it.forced]; for (const m of M) if (!bareGroup(m) && m.start >= it.end && m.start - it.end <= 4) return m; return nearTarget(it); };
+  items.forEach(it => {
+    if (it.follow) it.tm = it.follow.tm || null;
+    else if (it.forced != null && M[it.forced]) it.tm = M[it.forced];
+    else if (it.type === 'age' || it.type === 'ageText' || it.type === 'byear' || it.type === 'ageList') it.tm = ageTarget(it);
+    else if (it.type === 'adopt' || it.type === 'foster' || it.type === 'twin') it.tm = nextTarget(it);
+    // "父 故, …, 3남1녀 중 막내": 형제 순서는 같은 조각에 사람이 없으면 대상자 이야기
+    else if (it.type === 'desc' || it.type === 'pos' || it.type === 'only') { const t = nearTarget(it); it.tm = t && inSeg(t, it) ? t : null; if (!it.tm) it.ptDefault = true; }
+    // "고2 아들 중1 딸": 학년은 나이처럼 앞뒤 호칭에 붙임
+    else if (it.type === 'memo' && /^(?:초|중|고)\s?[1-6]/.test(it.text || '')) it.tm = ageTarget(it);
+    else if (it.type === 'death' && it.guk) it.tm = nextTarget(it);
+    else if (it.type === 'memo' && it.text === '방임' && M.some(m => m.pEnd <= it.start && /^(?:로부터|에게서|한테서|에게|한테)$/.test(m.part || ''))) it.tm = M.filter(m => m.pEnd <= it.start && /^(?:로부터|에게서|한테서|에게|한테)$/.test(m.part || '')).pop();
+    else if (it.type === 'death' && it.loss) { let o = null; for (const m of M) if (m.pEnd <= it.start && m.role === 'obj') o = m; it.tm = o; it.noDefault = true; }
+    else if (it.type === 'sex') { const t = ageTarget(it); it.tm = t; }
+    else if (it.type === 'rel') it.tm = localFocus(it.start, 'rel');
+    else if (it.type === 'event' || it.type === 'house' || it.type === 'raise') it.tm = localFocus(it.start, 'evt');
+    else it.tm = nearTarget(it);
+  });
+  // "부 사망 시 대상자 10세" → 그때의 나이는 현재 나이로 쓰지 않음
+  items = items.filter(it => !(it.type === 'age' && it.tm && it.tm.tpre && !it.deathAge));
+  // 자녀·형제 묶음 뒤에 "2남 1녀"가 오면 묶음 자체는 인물을 만들지 않음
+  items.filter(i => i.type === 'desc').forEach(d => {
+    const m = d.tm; if (m && (m.entry.childGroup || m.entry.sibGroup)) { m.skip = true; d.childMode = !!m.entry.childGroup; d.anchorOf = m; }
+    else if (/(?:슬하|자녀|자식)[^\s]*\s*(?:에|는|은|가|이)?\s*$/.test(between(s, d.start)) || /슬하/.test(between(s, d.start))) d.childMode = true;
+    // 순서 없이 쓴 "1남1녀": 결혼 이야기와 함께면 자녀, 아니면 되물음
+    else if (!d.childMode && d.pos == null && d.nB != null && d.nS != null && (!m || m.entry.self)) {
+      const sent = cx.sent ? text.slice(cx.sent.s, cx.sent.e) : text.slice(s, e);
+      if (MARRIED_CTX.test(sent)) d.childMode = true; else F.descAsk.push(text.slice(d.start, d.end).trim());
+    }
+  });
+
+  const personsOf = m => m ? (m.group ? m.group : m.person ? [m.person] : []) : [];
+  const coordPersons = m => { let a = m; while (a.coordPrev != null) a = M[a.coordPrev]; const out = []; for (let c = a; c; c = c.coord != null ? M[c.coord] : null) out.push(...personsOf(c)); return out.length ? out : personsOf(m); };
+  const isKidOfPt = p => !!p.pu && (F.getU(p.pu).a === pt.id || F.getU(p.pu).b === pt.id);
+  const isSpouseOfPt = p => !!F.between(p, pt);
+  // 호칭 → 인물
+  M.forEach((m, idx) => {
+    if (m.skip || m.unsup || m.blank) return;
+    if (m.apposSex) { if (pt.sex === 'U') { pt.sex = m.apposSex; pt.sexExplicit = true; } m.person = pt; return; }
+    const entry = m.entry;
+    let anchor = pt;
+    if (m.chainFrom != null) { const pm = M[m.chainFrom]; anchor = pm.person || (pm.group ? pm.group[0] : pt); }
+    if (m.pron) { const r = cx.pronRef; if (r && r.length) { if (r.length === 1) { m.person = r[0]; F.touch(r[0]); } else m.group = r; F.pronNotes.push({ w: m.full, to: r }); } else { m.person = pt; F.pronNotes.push({ w: m.full, to: null }); } return; }
+    if (entry.self) { m.person = pt; F.touch(pt); return; }
+    if (m.all4) { const g = allGrandparents(F, anchor); m.group = g; g.forEach(p => { p.implied = false; F.touch(p); }); return; }
+    if (m.rest && entry.label === '조부모') { const g = allGrandparents(F, pt).filter(p => p.implied); m.group = g; g.forEach(p => { p.implied = false; F.touch(p); }); return; }
+    if (m.plural && !m.count && entry.ops.length === 1 && /^C:[MF]$/.test(entry.ops[0])) { const ks = allKids(F, anchor).filter(k => k.sex === entry.ops[0][2]); if (ks.length > 1) { m.group = ks; ks.forEach(k => F.touch(k)); return; } }
+    if (entry.childGroup && !m.count && !m.neg && (m.plural || m.role === 'obj' || m.role === 'comp')) {
+      const lf = localFocus(m.start); const owner = (lf && lf !== m && personsOf(lf)[0]) || (subject && subject[0]) || pt;
+      const kids = allKids(F, owner);
+      if (kids.length && (owner !== pt || m.plural)) { m.group = kids; kids.forEach(k => F.touch(k)); return; }
+      if (m.plural) { m.skip = true; return; }
+    }
+    if (entry.sibGroup) {
+      if (m.neg) { anchor.noSibs = true; m.negDone = true; return; }
+      if (m.count) { const u = parentsUnion(F, anchor); const have = u.kids.filter(k => k !== anchor.id).length; for (let i = have; i < m.count; i++) { const sb = F.person({ sex: 'U', implied: false, desc: true }); F.addKid(u, sb); } }
+      return;
+    }
+    if (entry.childGroup && m.neg) { anchor.noKids = true; m.negDone = true; return; }
+    // "배우자 없음", "아들 무" → 사람을 만들지 않음
+    const lastOp = (entry.ops[entry.ops.length - 1] || '').replace('*', '');
+    if (m.neg && /^(?:S:|X:|PT|C:|B:|SS:|SF|SM)/.test(lastOp)) { if (/^(?:S:|X:|PT)/.test(lastOp)) anchor.noSpouse = true; if (/^C:/.test(lastOp)) anchor.noKids = true; if (/^B:/.test(lastOp)) anchor.noSibs = true; m.negDone = true; return; }
+    // 대상자의 자녀·배우자가 주어일 때 나온 형제 호칭은 그 사람의 형제 ("딸은 … 여동생은 사망")
+    if (m.chainFrom == null && anchor.isPt && entry.ops.length === 1 && /^B:/.test(entry.ops[0]) && !entry.sibGroup) {
+      let tp = null; for (let k = 0; k < idx; k++) { const q = M[k]; if (q.role === 'topic' && q.strong && q.person && !q.temporal) tp = q.person; }
+      if (!tp && subject && subject.length === 1) tp = subject[0];
+      if (tp && !tp.isPt && (isKidOfPt(tp) || (isSpouseOfPt(tp) && entry.speaker && entry.speaker !== pt.sex && pt.sex !== 'U'))) { anchor = tp; F.anchorNotes.push({ w: m.full, to: tp }); }
+    }
+    // "오빠는 자녀 2명", "오빠(45)는 결혼하여 아들 1명" → 주어(대상자·배우자가 아닌 가족)의 자녀
+    if (m.chainFrom == null && anchor.isPt && entry.ops.length === 1 && /^C:/.test(entry.ops[0]) && m.count != null) {
+      let tp = null; for (let k = 0; k < idx; k++) { const q = M[k]; if (q.role === 'topic' && q.strong && q.person && !q.temporal && !q.entry.childGroup && !q.entry.sibGroup && !q.entry.group) tp = q.person; }
+      if (!tp && subject && subject.length === 1) tp = subject[0];
+      if (tp && !tp.isPt && !isSpouseOfPt(tp) && tp.term !== '자녀') { anchor = tp; F.anchorNotes.push({ w: m.full, to: tp }); }
+    }
+    const ageHint = (items.find(i => i.type === 'age' && i.tm === m && !i.deathAge) || {}).v ?? null;
+    const ctx = { ord: m.ord, ageHint, half: m.half, side: m.side };
+    if (m.withFrom != null && M[m.withFrom].person) ctx.withP = M[m.withFrom].person;
+    if (entry.speaker && anchor.isPt) {
+      if (pt.sex === 'U') { if (!F.ptSexInfer) F.ptSexInfer = { sex: entry.speaker, term: m.term }; }
+      else if (pt.sex !== entry.speaker) F.warn.push(`‘${m.term}’은(는) 보통 ${sexK(entry.speaker)} 대상자가 쓰는 호칭이에요. 대상자 성별이나 호칭을 확인해 주세요.`);
+    }
+    if (entry.ops[0] === 'S:M' && anchor.isPt && pt.sex === 'U' && !F.ptSexInfer) F.ptSexInfer = { sex: 'F', term: m.term };
+    const res = execOps(F, anchor, entry, ctx);
+    if (ctx.ambigUsed) F.ambig.add(m.term);
+    if (entry.adoptive && anchor.isPt && m.chainFrom == null) { pt.adopted = true; F.adoptive = true; }
+    if (res.group) { m.group = res.group; res.group.forEach(p => { p.implied = false; F.touch(p); if (m.caregiver && !p.memo.includes('주 양육자')) p.memo.push('주 양육자'); }); if (entry.adoptive) res.group.forEach(p => { p.termLabel = p.sex === 'M' ? '양부' : '양모'; }); return; }
+    const p = res.person; m.person = p;
+    if (m.neg || m.qmark) { p.unknown = true; }
+    if (m.xDeath) { p.dead = true; const dp = parseDeathParen(m.xParen.inner, F.base); if (dp.year) p.deathYear = dp.year; if (dp.age != null) p.deathAge = dp.age; if (dp.causes.length) p.cause = dp.causes.join(', '); spans.push({ start: m.xParen.start, end: m.xParen.end, cls: 'attr' }); }
+    p.implied = false; if (!p.term) p.term = entry.label; if (entry.keep && anchor.isPt && m.chainFrom == null) p.termLabel = entry.label;
+    if (m.half) p.halfTerm = true;
+    F.touch(p);
+    if (entry.ambigSex && p.sex === 'U') F.ambigSex.add(m.full);
+    if (m.caregiver && !p.memo.includes('주 양육자')) p.memo.push('주 양육자');
+    if (m.countNote) F.countNotes.push(`${m.full} ${m.count}`);
+    if (m.count && m.count > 1) {
+      const last = entry.ops[entry.ops.length - 1].replace('*', '');
+      const par = anchorOfLast(F, anchor, entry, ctx);
+      let pool = [];
+      if (par && last.startsWith('C:')) pool = allKids(F, par).filter(k => last[2] === 'U' || k.sex === last[2] || k.sex === 'U');
+      else if (par && last.startsWith('B:')) { const rl = last.split(':')[2]; const u = sibUnion(F, par, ctx.half); pool = u.kids.filter(k => k !== par.id).map(k => F.P.get(k)).filter(k => (last[2] === 'U' || k.sex === last[2] || k.sex === 'U') && !(rl === 'o' && k.rel && k.rel.anchor === par.id && k.rel.dir > 0) && !(rl === 'y' && k.rel && k.rel.anchor === par.id && k.rel.dir < 0)); }
+      const grp = [p, ...pool.filter(q => q !== p)].slice(0, m.count);
+      for (let guard = 0; grp.length < m.count && guard < 12; guard++) { const r2 = execOps(F, anchor, entry, Object.assign({}, ctx, { forceNew: true, ageHint: null, ord: null })); if (!r2.person || grp.includes(r2.person)) break; grp.push(r2.person); }
+      grp.forEach(q => { q.implied = false; if (!q.term) q.term = entry.label; if (q.sex === 'U' && last[2] !== 'U') q.sex = last[2];
+        if (last.startsWith('B:') && par) { const rl = last.split(':')[2]; if ((rl === 'o' || rl === 'y') && !q.rel) q.rel = { anchor: par.id, dir: rl === 'o' ? -1 : 1 }; } F.touch(q); });
+      m.group = grp;
+    }
+  });
+  M.forEach(m => { if (m.person || m.group) spans.push({ start: m.start, end: m.end, cls: 'kin' }); else if (m.negDone) spans.push({ start: m.start, end: m.end, cls: 'neg' }); });
+  sides.forEach(sd => spans.push({ start: sd.start, end: sd.end, cls: 'kin' }));
+  if (rowM && !rowM.entry.self && rowM.person && !subject) subject = [rowM.person];
+  // 이어받은 주어를 버리는 경우: "누나와는 …"처럼 대조 주제어가 새로 나오거나, 이어받은 사람이 '~와 함께'의 상대로 다시 나올 때
+  if (subject) {
+    const compP = M.filter(m => m.role === 'comp').flatMap(personsOf);
+    if (M.some(m => /(?:와|과|랑|하고|에게|한테|께)(?:는|은)$/.test(m.part || '') && !m.entry.self) || subject.some(p => compP.includes(p))) { subject = null; cx.subjStrong = false; }
+  }
+  if (cx.noneSubj) { const compP = M.filter(m => m.role === 'comp' || m.role === 'obj').flatMap(personsOf); if (M.some(m => /(?:와|과|랑|하고|에게|한테|께)(?:는|은)$/.test(m.part || '') && !m.entry.self) || cx.noneSubj.some(p => compP.includes(p))) cx.noneSubj = null; }
+
+  const subjOf = (pos, type) => { const m = localFocus(pos, type === 'rel' ? 'rel' : /^(?:event|house|raise)$/.test(type) ? 'evt' : 'attr'); if (m && (m.person || m.group)) return personsOf(m); if (subject) return subject; if (cx.noneSubj && (type === 'rel' || type === 'cond')) return cx.noneSubj; return [pt]; };
+  const tgtOf = it => { if (it.tm && it.tm.unsup) return []; if (!it.tm && it.noDefault) return []; if (!it.tm && it.ptDefault && !subject) return [pt]; if (it.tm && (it.tm.person || it.tm.group)) return (it.forced != null || it.follow || it.type === 'age' || it.type === 'ageText' || it.type === 'byear' || it.type === 'sex' || it.type === 'ageList') ? personsOf(it.tm) : coordPersons(it.tm); return subjOf(it.start, it.type); };
+  // 같은 조각(쉼표 사이)의 '~와/과' 상대만 (쉼표로 이어 쓴 나열은 함께)
+  const chainOf = m => { let a = m; while (a.coordPrev != null) a = M[a.coordPrev]; const out = []; for (let c = a; c; c = c.coord != null ? M[c.coord] : null) out.push(c); return out; };
+  const segOK = (m, it) => !it || chainOf(m).some(c => inSeg(c, it));
+  // '~와'가 바로 뒤의 다른 사건·관계 말에 붙어 있으면("남편과 별거중 딸 동거"의 남편) 그 말의 상대일 뿐
+  const takenBy = (m, it) => !!it && items.some(x => x !== it && (x.type === 'event' || x.type === 'rel' || x.type === 'house') && x.start >= m.pEnd && x.start < it.start && x.start - m.pEnd <= 8 && !M.some(y => y !== m && y.start >= m.pEnd && y.start < x.start));
+  const comps = (excl, it) => { const out = []; M.forEach(m => { if (m.role === 'comp' && segOK(m, it) && !takenBy(m, it)) personsOf(m).forEach(p => { if (!excl.includes(p) && !out.includes(p)) out.push(p); }); }); return out; };
+  const objs = (excl, it) => { const out = []; M.forEach(m => { if (m.role === 'obj' && segOK(m, it)) personsOf(m).forEach(p => { if (!excl.includes(p) && !out.includes(p)) out.push(p); }); }); return out; };
+  // "모-IP", "IP↔부"(방향 없음), "부→IP"(방향 있음)
+  const hyphenPairs = [];
+  for (let i = 0; i < M.length - 1; i++) if (/^\s*(?:[-–~↔]|→|->|=>|⇒)\s*$/.test(between(M[i].pEnd, M[i + 1].start))) { const a = personsOf(M[i]), b = personsOf(M[i + 1]); const pr = []; a.forEach(x => b.forEach(y => pr.push([x, y]))); hyphenPairs.push({ m1: M[i], m2: M[i + 1], pairs: pr }); }
+  const yearNear = it => {
+    const ys = items.filter(i => i.type === 'year');
+    const aft = ys.find(y => y.start >= it.end && y.start - it.end <= 3);
+    if (aft) return aft.v;
+    let best = null; for (const y of ys) if (y.end <= it.start) best = y; if (best) return best.v;
+    const any = ys.find(y => y.start >= it.end && /^[\s)(]*$/.test(between(it.end, y.start)));
+    return any ? any.v : null;
+  };
+  const touched = new Map(); const mark = (p, t) => { if (!touched.has(p)) touched.set(p, new Set()); touched.get(p).add(t); };
+
+  const order = ['desc', 'only', 'nokids', 'pos', 'sex', 'byear', 'age', 'ageList', 'ageText', 'death', 'causeUnknown', 'lifeUnknown', 'alive', 'cond', 'memo', 'adopt', 'foster', 'twin', 'event', 'house', 'raise', 'rel', 'unknown'];
+  const hl = text.slice(s, e).match(/^\s*\[?\s*(?:동거(?:\s*(?:가족|구성원))?|가구\s*구성원?|가구원|함께\s*사는\s*(?:가족|사람))\s*\]?\s*[:：]/);
+  const houseLine = !!hl;
+  if (houseLine) { F.house.add(pt.id); M.forEach(m => personsOf(m).forEach(p => F.house.add(p.id))); items = items.filter(it => !(it.start < s + hl[0].length && (it.type === 'event' || it.type === 'house'))); }
+  const clauseP = M.flatMap(personsOf);
+  if (/^\s*\[?\s*(?:고인|사망자)\s*\]?\s*[:：]/.test(text.slice(s, e))) { clauseP.forEach(p => { if (!p.isPt) p.dead = true; }); const g = clauseP.find(p => !p.isPt); if (g) subject = [g]; }
+  const sorted = items.slice().sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type) || a.start - b.start);
+  for (const it of sorted) {
+    if (it.type === 'year') continue;
+    const T = tgtOf(it);
+    switch (it.type) {
+      case 'age': T.forEach(p => { if (it.deathAge && p.isPt && !(it.tm && it.tm.entry && it.tm.entry.self)) return; if (it.deathAge) { p.deathAge = it.v; p.dead = true; } else p.age = it.v; mark(p, 'age'); }); break;
+      case 'ageList': T.forEach((p, i) => { if (it.vals[i] != null) { p.age = it.vals[i]; mark(p, 'age'); } }); break;
+      case 'alive': T.forEach(p => { p.alive = true; mark(p, 'alive'); }); break;
+      case 'ageText': T.forEach(p => { p.ageText = it.text; if (/개월/.test(it.text) && p.age == null) p.age = 0; mark(p, 'age'); }); break;
+      case 'byear': T.forEach(p => { p.birthYear = it.v; if (p.age == null) p.age = base - it.v; mark(p, 'age'); }); break;
+      case 'sex': T.forEach(p => { p.sex = it.v; if (p.isPt) p.sexExplicit = true; mark(p, 'sex'); fixUnionSides(F, p); }); break;
+      case 'death': { const dp = it.dp;
+        // 누구의 사망인지 호칭이 없어서 대상자로 떨어진 경우에는 그리지 않고 되물음 (대상자 사망은 호칭을 직접 쓴 경우만)
+        if (T.length === 1 && T[0].isPt && !(it.tm && it.tm.entry && it.tm.entry.self)) { F.deathUnassigned.push(text.slice(Math.max(s, it.start - 6), Math.min(e, it.end + 2)).trim()); break; }
+        T.forEach((p, i) => {
+        p.dead = true; const y = (dp && dp.year) || yearNear(it); if (y) p.deathYear = y; if (dp && dp.age != null) p.deathAge = dp.age;
+        let c = it.cause;
+        if (dp && dp.causes.length) { const pc = (dp.causes.length === T.length && T.length > 1) ? dp.causes[i] : dp.causes.join(', '); c = c && c !== pc && !pc.includes(c) ? c + ', ' + pc : pc; }
+        if (c) p.cause = c; mark(p, 'death'); }); break; }
+      case 'causeUnknown': T.forEach(p => { p.cause = '미상'; mark(p, 'cause'); }); break;
+      case 'lifeUnknown': T.forEach(p => { p.lifeUnknown = true; mark(p, 'life'); }); break;
+      case 'cond': if (it.neg) break; T.forEach(p => {
+        let lab = it.label;
+        const nearDeath = items.some(d => d.type === 'death' && ((d.start - it.end >= 0 && d.start - it.end <= 3) || (it.start - d.end >= 0 && /^[\s(),\d년]*$/.test(text.slice(d.end, it.start)) && it.start - d.end <= 14)));
+        if (p.dead && !p.cause && nearDeath && touched.get(p) && touched.get(p).has('death') && !it.risk) { p.cause = it.raw && it.raw.length <= 8 ? it.raw : lab; mark(p, 'cause'); return; }
+        if (p.cause && p.cause.includes(lab)) return;
+        if (it.extra) lab += `(${it.extra})`;
+        else if (it.risk) { const y = yearNear(it); if (y && y <= base) lab += `(${y})`; }
+        if (!p.conds.some(c => c.replace(/\(.*\)/, '') === it.label)) p.conds.push(lab);
+        mark(p, 'cond'); }); break;
+      case 'memo': T.forEach(p => { if (!p.memo.includes(it.text)) p.memo.push(it.text); mark(p, 'memo'); }); break;
+      case 'adopt': T.forEach(p => { p.adopted = true; mark(p, 'adopt'); }); break;
+      case 'foster': T.forEach(p => { p.foster = true; mark(p, 'adopt'); }); break;
+      case 'twin': T.forEach(p => applyTwin(F, p)); break;
+      case 'desc': T.forEach(p => applyDesc(F, it, it.anchorOf ? (it.anchorOf.chainFrom != null ? (M[it.anchorOf.chainFrom].person || pt) : pt) : p)); break;
+      case 'only': T.forEach(p => { p.noSibs = true; }); break;
+      case 'nokids': T.forEach(p => { p.noKids = true; }); break;
+      case 'pos': T.forEach(p => { if (it.pos) p.birthPos = it.pos; if (p.sex === 'U') { if (/남$/.test(it.posW)) p.sex = 'M'; if (/녀$/.test(it.posW)) p.sex = 'F'; } }); break;
+      case 'event': if (it.tm && it.tm.start != null && it.tm.start < it.start) it.snip = text.slice(it.tm.start, it.end); it.tmNone = !!(it.tm && it.tm.role === 'none'); applyEvent(F, it, T, comps(T, it), yearNear(it), clauseP); break;
+      case 'house': {
+        if (houseLine) break;
+        if (it.nHouse) { const mem = it.hp ? M.filter(m => m.start >= it.hp.start && m.end <= it.hp.end).flatMap(personsOf) : T.concat(comps(T, it)); if (!mem.includes(pt)) mem.push(pt); if (mem.length > 1) mem.forEach(p => F.house.add(p.id)); break; }
+        if (it.couple) { const sp = F.unionsOf(pt).filter(u => u.status !== 'divorced').map(u => F.other(u, pt))[0] || getSpouse(F, pt, 'U'); F.house.add(pt.id); F.house.add(sp.id); break; }
+        applyHouse(F, it, T, comps(T, it)); break; }
+      case 'raise': {
+        // "딸(5) IP가 양육", "아들 2 양육 중" → 대상자가 키우면 함께 사는 가족 / "할머니(외) 양육" → 주 양육자
+        const kidsOf = q => q.pu && (F.getU(q.pu).a === pt.id || F.getU(q.pu).b === pt.id);
+        const gen = q => { if (q.isPt) return 0; if (kidsOf(q)) return 1; if (q.pu && F.getU(q.pu).kids.includes(pt.id)) return 0; return null; };
+        const older = q => { const pu = pt.pu ? F.getU(pt.pu) : null; if (!pu) return false; const par = [pu.a, pu.b]; if (par.includes(q.id)) return true; const gp = par.map(id => F.P.get(id)).filter(x => x && x.pu).flatMap(x => [F.getU(x.pu).a, F.getU(x.pu).b]); if (gp.includes(q.id)) return true; return par.some(id => { const x = F.P.get(id); return x && x.pu && F.getU(x.pu).kids.includes(q.id); }) || F.P.get(q.id).termLabel === '계부' || F.P.get(q.id).termLabel === '계모'; };
+        const segP = M.filter(m => inSeg(m, it)).flatMap(personsOf);
+        if (/(?:에서|댁|집)\s*(?:[가-힣]{0,3}\s*)?$/.test(text.slice(Math.max(segStartOf(it.start), it.start - 8), it.start)) && /에서/.test(text.slice(Math.max(s, it.start - 8), it.start))) break;
+        if (T.includes(pt)) { segP.filter(q => !q.isPt && kidsOf(q)).forEach(q => { F.house.add(pt.id); F.house.add(q.id); }); break; }
+        T.forEach(q => {
+          if (kidsOf(q)) { F.house.add(pt.id); F.house.add(q.id); }
+          else if (!q.isPt && (older(q) || /조부|조모|삼촌|고모|이모|외삼촌|큰아버지|작은아버지|계부|계모|부|모/.test(q.label || q.term || ''))) {
+            if (!q.memo.includes('주 양육자')) q.memo.push('주 양육자');
+            // 미성년 대상자를 키우는 사람은 함께 사는 것으로 봄
+            const minor = (pt.age != null && pt.age < 20) || pt.memo.some(x => /^(?:초|중|고)\s?[1-6]|초등학생|중학생|고등학생/.test(x)) || /(?<![가-힣])(?:여아|남아|여고생|남고생|여중생|남중생|청소년|아동)/.test(F.text || '');
+            if (minor) { F.house.add(pt.id); F.house.add(q.id); } }
+        });
+        break; }
+      case 'rel': {
+        let pairs = [];
+        const hp = hyphenPairs.filter(h => inSeg(h.m2, it) || inSeg(h.m1, it));
+        const possM = M.filter(m => m.role === 'poss' && m.pEnd <= it.start && /^\s*$/.test(between(m.pEnd, it.start))).pop();
+        if (hp.length) pairs = hp.flatMap(h => h.pairs.map(x => x.slice()));
+        else if (it.gobu) { const sm = execOps(F, pt, KIN.get('시모'), {}).person; if (sm) { sm.implied = false; if (!sm.term) sm.term = '시모'; pairs = [[pt, sm]]; } }
+        else if (it.spouse) T.forEach(p => { const us = F.unionsOf(p).slice().sort((a, b) => (a.status === 'divorced') - (b.status === 'divorced') || b.order - a.order); const sp = us.map(u => F.other(u, p)).find(o => !o.implied) || null; if (sp) pairs.push([p, sp]); });
+        else if (possM && personsOf(possM).length) {
+          // "남편의 폭력", "부의 학대" → 소유격이 주체, 상대는 주어(없으면 대상자) / "부모의 갈등" → 두 사람 사이
+          const ag = personsOf(possM);
+          if (ag.length === 2 && it.kind !== 'violence') pairs = [[ag[0], ag[1]]];
+          else { let ob = comps(ag, it).concat(objs(ag, it)); if (!ob.length) ob = T.filter(p => !ag.includes(p)); if (!ob.length) ob = [pt]; ag.forEach(a => ob.forEach(b => pairs.push([a, b]))); }
+        }
+        else {
+          let S0 = T; let others = comps(T, it).concat(objs(T, it));
+          // 상대가 여럿이면 그 관계 말 바로 앞의 '~와/~에게'(나열은 함께)만: "모친과 가까운 편으로 대상자와 원만하지 않으나"
+          if (others.length > 1) {
+            const cm = M.filter(m => (m.role === 'comp' || m.role === 'obj') && segOK(m, it) && personsOf(m).some(p => others.includes(p)));
+            const before = cm.filter(m => m.pEnd <= it.start); const near = before.length ? before[before.length - 1] : cm.find(m => m.start >= it.end);
+            if (near) { const ch = chainOf(near); let k = M.indexOf(ch[0]);
+              // "아동과 친모에게 폭력" → '~와/과'로 바로 이어진 앞사람도 함께
+              while (k > 0 && /^(?:와|과|랑|이랑|하고)$/.test(M[k - 1].part || '') && /^\s*$/.test(between(M[k - 1].pEnd, M[k].start))) { ch.unshift(M[k - 1]); k--; }
+              const np = ch.flatMap(personsOf).filter(p => others.includes(p)); if (np.length) others = np; }
+          }
+          // "부모 불화", "부모 갈등" → 두 사람 사이의 관계
+          if (!others.length && !['violence', 'cutoff'].includes(it.kind) && T.length === 2 && F.between(T[0], T[1]) && !T.includes(pt)) { pairs.push([T[0], T[1]]); others = null; }
+          if (others) {
+          // 폭력: 조사 없이 나란히 적은 두 사람 ("남편 … IP 폭행") → 앞이 가해, 뒤가 피해
+          if (it.kind === 'violence' && !others.length) { const seq = M.filter(m => inSeg(m, it) && m.pEnd <= it.start && m.role === 'none' && !m.temporal && personsOf(m).length); if (seq.length >= 2) { S0 = personsOf(seq[0]); others = personsOf(seq[seq.length - 1]).filter(p => !S0.includes(p)); } }
+          if (!others.length) others = M.filter(m => (m.role === 'none' || m.role === 'topic') && inSeg(m, it) && !m.temporal).flatMap(personsOf).filter(p => !S0.includes(p));
+          if (!others.length && !M.length && S0.includes(pt) && cx.prevOthers && cx.prevOthers.length) others = cx.prevOthers.filter(p => !S0.includes(p)).slice(-1);
+          if (!localFocus(it.start, 'rel') && others.length && !others.includes(pt) && !cx.subjStrong) S0 = [pt];
+          if (!others.length && !S0.includes(pt)) others = [pt];
+          S0.forEach(p => others.forEach(o => pairs.push([p, o])));
+          }
+        }
+        const passive = it.kind === 'violence' && (/^맞/.test(text.slice(it.start, it.end)) || PASSIVE_RE.test(text.slice(it.end, Math.min(e, it.end + 8))));
+        pairs.forEach(([a, b]) => { if (a === b) return; if (passive) [a, b] = [b, a];
+          if (!F.R.some(r => r.type === it.kind && ((r.a === a.id && r.b === b.id) || (r.a === b.id && r.b === a.id)))) F.R.push({ a: a.id, b: b.id, type: it.kind, past: !!it.past }); });
+        break; }
+      case 'unknown': T.forEach(p => { const t = touched.get(p); if (!t || [...t].every(x => x === 'unknown')) { p.unknown = true; } mark(p, 'unknown'); }); break;
+    }
+  }
+  items.forEach(it => { if (it.type !== 'year' || items.some(o => o !== it && o.type !== 'year')) spans.push({ start: it.start, end: it.end, cls: it.cls }); if (it.consume) spans.push({ start: it.consume[0] + 1, end: it.consume[1] - 1, cls: it.cls }); });
+
+  // 다음 절로 이어질 주어: 은/는 주제어는 문장 끝까지, 이/가 주어는 바로 다음 절까지
+  let lastStrong = null, lastWeak = null, strongTerm = null;
+  for (const m of M) if (m.role === 'topic' && !m.exist && !m.temporal && (m.person || m.group)) { if (m.strong) { lastStrong = coordPersons(m); lastWeak = null; strongTerm = m.full; } else lastWeak = coordPersons(m); }
+  if (strongTerm) F.lastStrongTerm = strongTerm;
+  const refs = lastStrong || lastWeak || (clauseP.length ? [clauseP[clauseP.length - 1]] : null);
+  // 조사 없이 쓴 끝 조각의 사람("동거남 음주 후 …")은 바로 다음 절의 관계·질환 주어 후보
+  const tsg = segStartOf(e); const tn = M.filter(m => m.start >= tsg && m.role === 'none' && !m.temporal && !m.blank && (m.person || m.group)).pop();
+  const tailNone = tn && personsOf(tn).every(p => !p.dead && !p.isPt) ? personsOf(tn) : null;
+  const nAttr = items.filter(it => ['cond', 'death', 'memo', 'age', 'ageText', 'alive'].includes(it.type)).length;
+  return { found, strong: lastStrong, weak: lastWeak, persons: clauseP, refs, nMent: M.filter(m => !m.blank).length, nAttr, tailNone };
+}
+function anchorOfLast(F, anchor, entry, ctx) {
+  let cur = anchor; const ops = entry.ops;
+  for (let i = 0; i < ops.length - 1; i++) { const r = execOps(F, cur, { ops: [ops[i]] }, i === ops.length - 2 ? {} : {}); if (!r.person) return null; cur = r.person; }
+  return cur;
+}
+function fixUnionSides(F, p) {
+  F.unionsOf(p).forEach(u => { const a = F.P.get(u.a), b = F.P.get(u.b); if ((a.sex === 'F' && b.sex !== 'F') || (b.sex === 'M' && a.sex !== 'M')) { const t = u.a; u.a = u.b; u.b = t; } });
+}
+function applyTwin(F, p) {
+  const u = p.pu ? F.getU(p.pu) : null;
+  const g = p.twin || ('t' + p.id); p.twin = g;
+  if (p.rel && F.P.get(p.rel.anchor)) { const a = F.P.get(p.rel.anchor); a.twin = g; if (a.age != null && p.age == null) p.age = a.age; if (p.age != null && a.age == null) a.age = p.age; p.rel = null; return; }
+  if (u) { const sib = u.kids.map(k => F.P.get(k)).find(k => k !== p && k.twin === null && (k.sex === p.sex || k.sex === 'U')); if (sib) { sib.twin = g; } else { const t = F.person({ sex: p.sex, implied: false, term: p.term, age: p.age }); F.addKid(u, t); t.twin = g; } }
+}
+function applyDesc(F, it, x) {
+  if (it.childMode) {
+    const u = childUnion(F, x);
+    const need = { M: it.nB || 0, F: it.nS || 0 };
+    if (it.total) { const have = allKids(F, x).length; for (let i = have; i < it.total; i++) { const c = F.person({ sex: it.kind === '자매' ? 'F' : 'U', implied: false }); F.addKid(u, c); } return; }
+    for (const sx of ['M', 'F']) { const have = allKids(F, x).filter(k => k.sex === sx).length; for (let i = have; i < need[sx]; i++) { const c = F.person({ sex: sx, implied: false, term: sx === 'M' ? '아들' : '딸' }); F.addKid(u, c); } }
+    return;
+  }
+  const u = parentsUnion(F, x);
+  if (it.posW) { if (/남$/.test(it.posW) && x.sex === 'U') x.sex = 'M'; if (/녀$/.test(it.posW) && x.sex === 'U') x.sex = 'F'; }
+  if (it.total) {
+    const have = u.kids.length; for (let i = have; i < it.total; i++) { const s = F.person({ sex: it.kind === '자매' ? 'F' : 'U', implied: false, desc: true }); F.addKid(u, s); }
+  } else {
+    const want = { M: it.nB, F: it.nS };
+    // "2녀 중 첫째"처럼 한쪽 성별만 있으면 대상자도 그 성별
+    if (x.sex === 'U' && want.M == null && want.F) x.sex = 'F';
+    if (x.sex === 'U' && want.F == null && want.M) x.sex = 'M';
+    if (x.sex === 'U' && want.M != null && want.F != null) {
+      // 대상자 성별을 모르면 확실한 수만 그리고 한 명은 성별 미상으로 둠 (성별을 알면 다시 맞춰짐)
+      const kids = () => u.kids.map(k => F.P.get(k)).filter(k => k !== x);
+      for (const sx of ['M', 'F']) { const need = Math.max(0, want[sx] - 1); const have = kids().filter(k => k.sex === sx).length; for (let i = have; i < need; i++) F.addKid(u, F.person({ sex: sx, implied: false, desc: true })); }
+      const total = want.M + want.F - 1; for (let i = kids().length; i < total; i++) F.addKid(u, F.person({ sex: 'U', implied: false, desc: true }));
+    } else
+    for (const sx of ['M', 'F']) { if (want[sx] == null) continue; const have = u.kids.map(k => F.P.get(k)).filter(k => k.sex === sx).length; for (let i = have; i < want[sx]; i++) { const s = F.person({ sex: sx, implied: false, desc: true }); F.addKid(u, s); } }
+  }
+  if (it.pos) x.birthPos = it.pos;
+  x.hasDesc = true;
+}
+function isBlood(F, a, b) {
+  if (a === b) return true;
+  const par = x => x.pu ? [F.getU(x.pu).a, F.getU(x.pu).b] : [];
+  const pa = par(a), pb = par(b);
+  if (pa.includes(b.id) || pb.includes(a.id)) return true;
+  if (pa.some(x => pb.includes(x))) return true;
+  return false;
+}
+function applyEvent(F, it, T, C, year, clauseP) {
+  const kind = it.kind; const pt = F.pt;
+  // 혈연끼리는 결혼·이혼 짝이 될 수 없음 (동거는 가구로 처리하므로 거르지 않음)
+  if (kind !== 'cohab?') C = C.filter(c => !T.some(t => isBlood(F, t, c)));
+  if (kind !== 'single' && kind !== 'cohab?' && C.length > 1) { const pref = C.filter(c => T.some(t => F.between(t, c)) || /동거인|남편|아내|배우자|전남편|전처|계부|계모/.test(c.term || '')); if (pref.length) C = pref; }
+  if (kind !== 'single' && kind !== 'cohab?') C = C.filter(c => !(c.pu && T.some(t => F.unionsOf(t).some(u => { const o = F.other(u, t); const cu = F.getU(c.pu); return cu.a === o.id || cu.b === o.id; }))));
+  if (kind === 'single') { T.forEach(p => { p.single = true; if (!p.isPt && !p.memo.includes('미혼')) p.memo.push('미혼'); }); return; }
+  if (kind === 'married' && !C.length && T.length === 1 && !T[0].isPt && !F.unionsOf(T[0]).length) { if (!T[0].memo.includes('기혼')) T[0].memo.push('기혼'); return; }
+  // "아버지 (위암) 사별": 대상자가 아닌 가족 한 명에 붙은 사별은 그 사람이 돌아가신 것으로 봄
+  // 사인·연도가 없으면 "그 사람이 배우자를 잃었다"는 뜻일 수도 있어 되물음
+  if (kind === 'widowed' && it.tmNone && !C.length && T.length === 1 && !T[0].isPt && !F.between(T[0], pt)) {
+    const x = T[0]; const dp = it.dp; x.dead = true;
+    const y = (dp && dp.year) || year; if (y && !x.deathYear) x.deathYear = y;
+    const c = it.cause || (dp && dp.causes.length ? dp.causes.join(', ') : null); if (c && !x.cause) x.cause = c; if (dp && dp.age != null) x.deathAge = dp.age;
+    if (!it.cause && !(dp && (dp.year || dp.causes.length)) && !year) F.sabyeolAsk.push({ x, snip: it.snip || null });
+    return;
+  }
+  if (kind === 'cohab?') {
+    const partnerish = C.length && C.every(c => T.some(t => F.between(t, c)) || /동거인|남편|아내|배우자/.test(c.term || ''));
+    if (partnerish) { applyEvent(F, { kind: 'cohabit' }, T, C, year); return; }
+    applyHouse(F, { strong: true }, T, C); return;
+  }
+  let pairs = [];
+  if (T.length === 2 && !C.length && F.between(T[0], T[1])) pairs = [[T[0], T[1]]];
+  else if (C.length) T.forEach(t => C.forEach(c => pairs.push([t, c])));
+  else T.forEach(t => {
+    if (kind === 'remarried') {
+      // 같은 절에 계부·계모·새 배우자가 적혀 있으면 그 사람과 재혼
+      let cand = (clauseP || []).find(p => p !== t && !T.includes(p) && F.between(t, p) && F.between(t, p).status !== 'divorced' && (!pt.pu || F.between(t, p).id !== pt.pu) && !isBlood(F, t, p));
+      // 대상자의 부모가 이미 다른 결합(계부·계모)을 갖고 있으면 그 사람이 재혼 상대
+      if (!cand && pt.pu && F.unionsOf(t).some(v => v.id === pt.pu)) { const v = F.unionsOf(t).filter(v => v.id !== pt.pu && v.status !== 'divorced').sort((a, b) => b.order - a.order)[0]; if (v) cand = F.other(v, t); }
+      if (cand) { pairs.push([t, cand]); return; }
+      const s = F.person({ sex: opposite(t.sex), remarryPartner: true }); pairs.push([t, s]);
+    }
+    else { const sp = getSpouse(F, t, 'U'); pairs.push([t, sp]); }
+  });
+  for (let [a, b] of pairs) {
+    if (kind === 'widowed' && b.isPt && !a.isPt) [a, b] = [b, a];   // 대상자가 사별했다면 세상을 떠난 쪽은 배우자
+    let u = F.between(a, b) || F.union(a, b, {}); u.implied = false;
+    if (kind === 'married') { if (!['divorced', 'separated', 'widowed'].includes(u.status)) u.status = 'married'; if (year) u.start = year; }
+    else if (kind === 'divorced') { u.status = 'divorced'; if (year) u.end = year; }
+    else if (kind === 'separated') { u.status = 'separated'; if (year) u.sep = year; }
+    else if (kind === 'widowed') { u.status = 'widowed'; b.dead = true; const dp = it.dp; const y = (dp && dp.year) || year; if (y && !b.deathYear) b.deathYear = y; if (dp && dp.causes.length && !b.cause) b.cause = dp.causes.join(', '); if (it.cause && !b.cause) b.cause = it.cause; if (dp && dp.age != null) b.deathAge = dp.age; }
+    else if (kind === 'cohabit') { u.status = 'cohabit'; if (year) u.start = year; if (a.isPt || b.isPt) { F.house.add(a.id); F.house.add(b.id); } }
+    else if (kind === 'remarried') {
+      u.status = 'married'; if (year) u.start = year; u.order = Math.max(...F.unionsOf(a).map(v => v.order)) + 1;
+      F.unionsOf(a).forEach(v => { if (v !== u && v.status === 'married') { const o = F.other(v, a); if (o.dead) v.status = 'widowed'; else v.status = 'divorced'; } });
+    }
+  }
+}
+function applyHouse(F, it, T, C) {
+  const pt = F.pt;
+  if (it.alone) { if (T.includes(pt)) { F.house = new Set([pt.id]); F.alone = true; } else T.forEach(p => { if (!p.dead && !p.memo.includes('독거')) p.memo.push('독거'); }); return; }
+  if (it.apart) { const w = (it.w || '').replace(/\s/g, ''); T.forEach(p => { if (!p.isPt) { F.house.delete(p.id); if (/^(?:출가|분가)$/.test(w) && !p.memo.includes(w)) p.memo.push(w); } }); if (T.includes(pt)) C.forEach(c => F.house.delete(c.id)); return; }
+  if (!it.strong && !C.length) return;
+  const mem = T.concat(C);
+  if (!C.length && !mem.includes(pt)) mem.push(pt);
+  if (!mem.includes(pt)) return;
+  mem.forEach(p => F.house.add(p.id));
+}
+
+/* ---------------- 이름표 ---------------- */
+function sibLabel(pt, p, prefix, ordDir) {
+  let dir = null;
+  if (p.rel && p.rel.anchor === pt.id) dir = p.rel.dir;
+  else if (ordDir && ordDir.has(p.id) && p.age == null) dir = ordDir.get(p.id);
+  else if (p.age != null && pt.age != null && p.age !== pt.age) dir = p.age > pt.age ? -1 : 1;
+  else if (p.twin && p.twin === pt.twin) dir = 0;
+  let l;
+  if (dir === 0) l = '쌍둥이 ' + (p.sex === 'M' ? '형제' : p.sex === 'F' ? '자매' : '형제');
+  else if (dir === -1) l = p.sex === 'M' ? (pt.sex === 'F' ? '오빠' : pt.sex === 'M' ? '형' : '오빠·형') : p.sex === 'F' ? (pt.sex === 'F' ? '언니' : pt.sex === 'M' ? '누나' : '언니·누나') : '손위 형제';
+  else if (dir === 1) l = p.sex === 'M' ? '남동생' : p.sex === 'F' ? '여동생' : '동생';
+  else l = p.sex === 'M' ? '남자형제' : p.sex === 'F' ? '여자형제' : '형제';
+  return prefix + l;
+}
+function computeLabels(F) {
+  const pt = F.pt; const pu = pt.pu ? F.getU(pt.pu) : null;
+  const fa = pu ? F.P.get(pu.a) : null, mo = pu ? F.P.get(pu.b) : null;
+  const gp = par => { if (!par || !par.pu) return [null, null]; const u = F.getU(par.pu); return [F.P.get(u.a), F.P.get(u.b)]; };
+  const [ff, fm] = gp(fa), [mf, mm] = gp(mo);
+  const isKidOf = (k, par) => k.pu && (F.getU(k.pu).a === par.id || F.getU(k.pu).b === par.id);
+  const ptSpouses = F.unionsOf(pt).map(u => F.other(u, pt));
+  const ordDir = new Map();
+  if (pu && pt.birthPos != null) { const sib = sortSibs(F, pu.kids.map(k => F.P.get(k))); const ip = sib.indexOf(pt); sib.forEach((q, i) => { if (q !== pt) ordDir.set(q.id, i < ip ? -1 : 1); }); }
+  const L = new Map();
+  const label = (p, depth) => {
+    if (L.has(p.id)) return L.get(p.id);
+    if (p.isPt) return '대상자';
+    if (p.termLabel) return p.termLabel;
+    if (p === fa) return '부'; if (p === mo) return '모';
+    if (p === ff) return '친조부'; if (p === fm) return '친조모'; if (p === mf) return '외조부'; if (p === mm) return '외조모';
+    for (const u of F.unionsOf(pt)) if (F.other(u, pt) === p) {
+      if (u.status === 'divorced') return p.sex === 'M' ? '전남편' : p.sex === 'F' ? '전처' : '전배우자';
+      if (u.status === 'cohabit') return '동거인';
+      return p.sex === 'M' ? '남편' : p.sex === 'F' ? '아내' : '배우자';
+    }
+    if (p.pu) {
+      const u = F.getU(p.pu);
+      if (pu && u.id === pu.id) return sibLabel(pt, p, '', ordDir);
+      if (fa && (u.a === fa.id || u.b === fa.id)) return sibLabel(pt, p, '이복 ');
+      if (mo && (u.a === mo.id || u.b === mo.id)) return sibLabel(pt, p, '이부 ');
+      if (u.a === pt.id || u.b === pt.id) return p.sex === 'M' ? '아들' : p.sex === 'F' ? '딸' : '자녀';
+      if (fa && fa.pu === p.pu) return p.sex === 'M' ? (p.rel && p.rel.anchor === fa.id ? (p.rel.dir < 0 ? '큰아버지' : '작은아버지') : '삼촌') : p.sex === 'F' ? '고모' : '부의 형제';
+      if (mo && mo.pu === p.pu) return p.sex === 'M' ? '외삼촌' : p.sex === 'F' ? '이모' : '모의 형제';
+      if (fa && fa.pu && (F.getU(fa.pu).a === u.a || F.getU(fa.pu).b === u.b) && p !== fa) return p.sex === 'M' ? '삼촌' : '고모';
+      const pars = [F.P.get(u.a), F.P.get(u.b)];
+      if (pars.some(x => isKidOf(x, pt))) return p.sex === 'M' ? '손자' : p.sex === 'F' ? '손녀' : '손주';
+      if (pars.some(x => pu && x.pu === pu.id && x !== pt)) return '조카';
+      if (pars.some(x => fa && x.pu && x.pu === fa.pu && x !== fa)) return pars.some(x => x.sex === 'F' && x.pu === fa.pu) ? '고종사촌' : '사촌';
+      if (pars.some(x => mo && x.pu && x.pu === mo.pu && x !== mo)) return pars.some(x => x.sex === 'F' && x.pu === mo.pu) ? '이종사촌' : '외사촌';
+      const spPar = pars.find(x => ptSpouses.includes(x));
+      if (spPar) return `${label(spPar, (depth || 0) + 1).replace(/\(\d+\)$/, '')}의 ${p.sex === 'M' ? '아들' : p.sex === 'F' ? '딸' : '자녀'}`;
+      if (pars.some(x => fa && F.between(x, fa) && x !== mo) || pars.some(x => mo && F.between(x, mo) && x !== fa)) return '의붓형제';
+      if (pars.some(x => ptSpouses.includes(x) === false && ptSpouses.some(sp => sp.pu === x.pu))) { /* fallthrough */ }
+      for (const sp of ptSpouses) if (sp.pu === p.pu) {
+        const dir = p.rel && p.rel.anchor === sp.id ? p.rel.dir : (p.age != null && sp.age != null && p.age !== sp.age ? (p.age > sp.age ? -1 : 1) : 0);
+        if (sp.sex === 'M') return p.sex === 'F' ? '시누이' : p.sex === 'M' ? (dir < 0 ? '시숙' : dir > 0 ? '시동생' : '시형제') : '배우자의 형제';
+        if (sp.sex === 'F') return p.sex === 'M' ? '처남' : p.sex === 'F' ? (dir < 0 ? '처형' : dir > 0 ? '처제' : '처자매') : '배우자의 형제';
+        return '배우자의 형제';
+      }
+    }
+    // 부모의 이전 배우자(부모 결혼보다 앞서 헤어진 사람)는 계부·계모가 아니라 '전 배우자'
+    const before = (u, par) => pu && u.status === 'divorced' && u.order < pu.order;
+    if (fa) for (const u of F.unionsOf(fa)) if (F.other(u, fa) === p && p !== mo) return before(u) ? '부의 전 배우자' : '계모';
+    if (mo) for (const u of F.unionsOf(mo)) if (F.other(u, mo) === p && p !== fa) return before(u) ? '모의 전 배우자' : '계부';
+    for (const sp of ptSpouses) if (sp.pu) { const u = F.getU(sp.pu); if (u.a === p.id) return sp.sex === 'M' ? '시부' : sp.sex === 'F' ? '장인' : '배우자의 부'; if (u.b === p.id) return sp.sex === 'M' ? '시모' : sp.sex === 'F' ? '장모' : '배우자의 모'; }
+    if ((depth || 0) < 2) for (const u of F.unionsOf(p)) {
+      const o = F.other(u, p); if (o.isPt) continue;
+      const ol = label(o, (depth || 0) + 1);
+      const map = { 아들: '며느리', 딸: '사위', 삼촌: '숙모', 큰아버지: '큰어머니', 작은아버지: '작은어머니', 고모: '고모부', 이모: '이모부', 외삼촌: '외숙모' };
+      if (map[ol] && u.status !== 'divorced') return map[ol];
+      if (ol && ol !== '가족') return ol.replace(/\(\d+\)$/, '') + (u.status === 'divorced' ? (p.sex === 'M' ? '의 전남편' : p.sex === 'F' ? '의 전처' : '의 전배우자') : '의 배우자');
+    }
+    return p.term || '가족';
+  };
+  F.P.forEach(p => L.set(p.id, label(p, 0)));
+  // 같은 이름표 번호 붙이기
+  const groups = new Map(); F.P.forEach(p => { const l = L.get(p.id); if (!groups.has(l)) groups.set(l, []); groups.get(l).push(p); });
+  groups.forEach((arr, l) => { if (arr.length < 2 || l === '대상자') return; arr.sort((a, b) => ((b.age ?? -1) - (a.age ?? -1)) || (a.created - b.created)); arr.forEach((p, i) => L.set(p.id, `${l}(${i + 1})`)); });
+  F.P.forEach(p => p.label = L.get(p.id));
+}
+
+/* ---------------- 세대 ---------------- */
+function computeGen(F) {
+  const g = new Map(); const q = [F.pt]; g.set(F.pt.id, 0);
+  while (q.length) {
+    const p = q.shift(); const gp = g.get(p.id);
+    if (p.pu) { const u = F.getU(p.pu); [u.a, u.b].forEach(id => { if (!g.has(id)) { g.set(id, gp - 1); q.push(F.P.get(id)); } }); }
+    F.unionsOf(p).forEach(u => { const o = F.other(u, p); if (!g.has(o.id)) { g.set(o.id, gp); q.push(o); } u.kids.forEach(k => { if (!g.has(k)) { g.set(k, gp + 1); q.push(F.P.get(k)); } }); });
+  }
+  F.P.forEach(p => { if (!g.has(p.id)) g.set(p.id, 0); });
+  return g;
+}
+
+/* ---------------- 점검 질문 ---------------- */
+function buildChecks(F, gen, unrec) {
+  const pt = F.pt; const Q = [];
+  if (!pt.sexExplicit) {
+    if (F.ptSexInfer) { const s = F.ptSexInfer.sex; Q.push({ id: 'sex-infer', kind: 'ask', text: `‘${F.ptSexInfer.term}’ 호칭을 보고 대상자를 ${sexK(s)}으로 표시했어요.`, btns: [['맞아요', { append: `대상자: ${s === 'F' ? '여' : '남'}` }], [`${sexK(opposite(s))}이에요`, { append: `대상자: ${s === 'F' ? '남' : '여'}` }]] }); }
+    else Q.push({ id: 'sex', kind: 'ask', text: '대상자의 성별을 알려 주세요.', btns: [['남성', { append: '대상자: 남' }], ['여성', { append: '대상자: 여' }]] });
+  }
+  F.ambig.forEach(t => { const b = [['친가', { replace: [t, '친' + t] }], ['외가', { replace: [t, '외' + t] }]]; if (t === '조부모') b.push(['양쪽 모두', { replace: [t, '양가 조부모'] }]); Q.push({ id: 'side-' + t, kind: 'ask', text: `‘${t}’은(는) 친가 쪽인가요, 외가 쪽인가요? 우선 친가로 그렸어요.`, btns: b }); });
+  F.ambigSex.forEach(t => { const r = x => t.replace(/동생$/, x + '동생'); Q.push({ id: 'sibsex-' + t, kind: 'ask', text: `‘${t}’의 성별을 알려 주세요.`, btns: [[r('남'), { replace: [t, r('남')] }], [r('여'), { replace: [t, r('여')] }]] }); });
+  const pu = pt.pu ? F.getU(pt.pu) : null;
+  const fa = pu ? F.P.get(pu.a) : null, mo = pu ? F.P.get(pu.b) : null;
+  const miss = [];
+  if (!fa || fa.implied) miss.push('부'); if (!mo || mo.implied) miss.push('모');
+  const chk = (par, names) => { const u = par && par.pu ? F.getU(par.pu) : null; if (!u || F.P.get(u.a).implied) miss.push(names[0]); if (!u || F.P.get(u.b).implied) miss.push(names[1]); };
+  chk(fa, ['친조부', '친조모']); chk(mo, ['외조부', '외조모']);
+  const mentioned = [...F.P.values()].filter(p => !p.implied);
+  const gs = mentioned.map(p => gen.get(p.id)); const span = gs.length ? Math.max(...gs) - Math.min(...gs) + 1 : 0;
+  if (miss.length) {
+    const rows = miss.map(n => ({ label: n, btns: [['생존', { append: `${n}: 생존` }], ['사망', { append: `${n}: 사망` }], ['모름', { append: `${n}: 모름` }]] }));
+    const onlyGP = miss.every(n => /조/.test(n));
+    Q.push({ id: 'gp-' + miss.join(','), kind: span < 3 ? 'warn' : 'ask', title: onlyGP ? '조부모 확인' : '부모·조부모 확인',
+      text: (span < 3 ? `지금 적힌 내용으로는 ${span}대예요. ` : '') + '적혀 있지 않은 분은 그림에 점선과 ‘미확인’으로 표시했어요. 확인한 내용을 누르면 입력문에 한 줄씩 들어가요.',
+      tip: '면담 질문 예: “친할아버지·친할머니, 외할아버지·외할머니는 살아 계세요? 돌아가셨다면 언제, 어떤 일로 돌아가셨나요? 집안에 술 문제나 정신건강 문제, 자살로 돌아가신 분이 있나요?”',
+      rows, btns: rows.length > 1 ? [['모두 사망', { append: miss.map(n => `${n}: 사망`).join('\n') }], ['모두 모름', { append: miss.map(n => `${n}: 모름`).join('\n') }]] : [] });
+  } else if (span < 3) Q.push({ id: 'gen3', kind: 'warn', text: `지금은 ${span}대만 입력됐어요. 가계도는 최소 3대가 필요해요. 조부모나 자녀 세대를 더 적어 주세요.`, btns: [] });
+  F.warn.forEach((w, i) => Q.push({ id: 'warn-' + w, kind: 'warn', text: w, btns: [] }));
+  // 나이 모순
+  F.U.forEach(u => { const pa = [F.P.get(u.a), F.P.get(u.b)]; u.kids.forEach(k => { const c = F.P.get(k); pa.forEach(p => { if (p.age != null && c.age != null && !p.dead && !c.dead && p.age - c.age < 12) Q.push({ id: `age-${p.id}-${c.id}`, kind: 'warn', text: `${c.label}(${c.age}세)와 ${p.label}(${p.age}세)의 나이 차이가 너무 작아요. 관계나 나이를 확인해 주세요.`, btns: [] }); }); }); });
+  F.P.forEach(p => { if (p.rel && p.age != null) { const a = F.P.get(p.rel.anchor); if (a && a.age != null && ((p.rel.dir < 0 && p.age < a.age) || (p.rel.dir > 0 && p.age > a.age))) Q.push({ id: 'sibage-' + p.id, kind: 'warn', text: `${p.label}(${p.age}세)의 나이가 호칭과 맞지 않아요(${a.label} ${a.age}세).`, btns: [] }); } });
+  F.P.forEach(p => { if (p.remarryPartner && p.implied) Q.push({ id: 'remarry-' + p.id, kind: 'info', text: `재혼 상대 정보가 없어 ‘?’로 그렸어요. 예: “계부 60세”처럼 적으면 채워져요.`, btns: [] }); });
+  if ([...F.P.values()].some(p => p.desc && p.rel == null && p.age == null)) Q.push({ id: 'desc-order', kind: 'info', text: '형제 순서는 ‘2남 1녀 중 둘째’ 같은 표현으로 추정했어요. 나이나 ‘언니·남동생’ 같은 호칭을 적으면 정확해져요.', btns: [] });
+  const cut = (t, n) => t.length > n ? t.slice(0, n) + '…' : t;
+  F.deathUnassigned.forEach(t => Q.push({ id: 'death-' + t, kind: 'warn', text: `“${cut(t, 20)}”는 누구의 사망인지 알 수 없어 그리지 않았어요. ‘남편 사망’처럼 호칭을 붙여 적어 주세요.`, btns: [] }));
+  F.sabyeolAsk.forEach(({ x, snip }) => {
+    const w = x.label.replace(/\(\d+\)$/, ''); const j = (t, a, b) => { const c = t.charCodeAt(t.length - 1); return t + (c >= 0xAC00 && c <= 0xD7A3 && (c - 0xAC00) % 28 ? a : b); };
+    const sp = F.unionsOf(x).map(u => F.other(u, x)).find(o => !o.isPt); const btns = [];
+    if (snip) { btns.push(['돌아가신 게 맞아요', { replace: [snip, snip.replace(/사별$/, '사망')] }]); if (sp) btns.push([`${sp.label.replace(/\(\d+\)$/, '')}${'가 돌아가셨어요'}`, { replace: [snip, `${sp.label.replace(/\(\d+\)$/, '')} 사망`] }]); }
+    Q.push({ id: 'sabyeol-' + x.id, kind: 'ask', text: `‘${snip || w + ' 사별'}’은 ${j(w, '이', '가')} 돌아가셨다는 뜻으로 그렸어요. 혹시 ${j(w, '이', '가')} 배우자를 잃었다는 뜻인가요?`, btns });
+  });
+  if (pt.dead) Q.push({ id: 'pt-dead', kind: 'warn', text: '대상자가 사망한 것으로 그려졌어요. 다른 가족의 사망이라면 호칭을 확인해 주세요.', btns: [] });
+  // 주어 없는 문장
+  const cut0 = (t, n) => t.length > n ? t.slice(0, n) + '…' : t;
+  const jong = w => { const c = w.charCodeAt(w.length - 1); return c >= 0xAC00 && c <= 0xD7A3 && (c - 0xAC00) % 28 !== 0; };
+  const eul = w => w + (jong(w) ? '을' : '를'), ro = w => { const c = w.charCodeAt(w.length - 1); const j = c >= 0xAC00 && c <= 0xD7A3 ? (c - 0xAC00) % 28 : 0; return w + (j && j !== 8 ? '으로' : '로'); }, ira = w => w + (jong(w) ? '이라면' : '라면');
+  F.subjectless.forEach(x => { const w = x.prev.w || x.prev.p[0].label; Q.push({ id: 'subj-' + x.text, kind: 'ask', text: `“${cut(x.text, 24)}”는 누구 이야기인가요? 주어가 없어 대상자로 보았어요.`, btns: [[w, { replace: [x.text, `${w}${jong(w) ? '은' : '는'} ${x.text}`] }], ['대상자', { replace: [x.text, `대상자는 ${x.text}`] }]] }); });
+  // 대명사·형제 기준·인원수 해석 알림
+  F.pronNotes.forEach(x => Q.push({ id: 'pron-' + x.w + (x.to ? x.to.map(p => p.id).join() : ''), kind: x.to ? 'info' : 'warn', text: x.to ? `‘${x.w}’${jong(x.w) ? '을' : '를'} ${ro(x.to.map(p => p.label).join('·'))} 보았어요. 다르면 ‘${x.w}’ 대신 호칭을 적어 주세요.` : `‘${x.w}’${jong(x.w) ? '이' : '가'} 누구인지 알 수 없어 대상자로 보았어요. 호칭으로 바꿔 적어 주세요.`, btns: [] }));
+  F.anchorNotes.forEach(x => Q.push({ id: 'anchor-' + x.w + x.to.id, kind: 'info', text: `‘${x.w}’${jong(x.w) ? '을' : '를'} ${x.to.label}의 ${ro(x.w)} 보았어요. ${ira('대상자의 ' + x.w)} 아래를 눌러 주세요.`, btns: [[`대상자의 ${x.w}`, { replace: [x.w, `대상자의 ${x.w}`] }]] }));
+  if (F.countNotes.length) Q.push({ id: 'count-' + F.countNotes.join(','), kind: 'info', text: `${F.countNotes.map(c => `‘${c}’`).join(', ')}은(는) 사람 수로 보았어요. 나이라면 ‘딸 2세’처럼 ‘세’를 붙여 주세요.`, btns: [] });
+  [...new Set(F.descAsk)].forEach(d => Q.push({ id: 'desc-' + d, kind: 'ask', text: `‘${d}’는 대상자의 형제인가요, 자녀인가요? 지금은 형제로 그렸어요.`, btns: [['형제', { replace: [d, `형제 ${d}`] }], ['자녀', { replace: [d, `자녀 ${d}`] }]] }));
+  // 부모가 동시에 두 번 결혼한 것으로 보일 때 (계부·계모만 적은 경우)
+  if (pu) [F.P.get(pu.a), F.P.get(pu.b)].forEach(par => {
+    const act = F.unionsOf(par).filter(u => u.status === 'married' || u.status === 'separated');
+    if (act.length > 1 && act.some(u => u.id === pu.id) && !F.P.get(pu.a).dead && !F.P.get(pu.b).dead) {
+      const w = par.sex === 'M' ? '부' : '모', o = par.sex === 'M' ? '모' : '부';
+      Q.push({ id: 'twoMar-' + par.id, kind: 'ask', text: `${w}에게 새 배우자가 있어요. 부모는 이혼했나요, ${o}가 사망했나요?`, btns: [['이혼', { append: '부모 이혼' }], [`${o} 사망`, { append: `${o}: 사망` }]] });
+    }
+  });
+  if (F.adoptive && /(?<![가-힣])(?:생부|생모|친부|친모|친아버지|친어머니|생부모|친부모)(?![가-힣])/.test(F.text || '')) Q.push({ id: 'adopt-bio', kind: 'warn', text: '양부모와 생부모를 한 그림에 함께 그리는 기능은 아직 없어요. 생부모는 [대괄호] 메모로 적어 주세요.', btns: [] });
+  if (unrec.length) Q.push({ id: 'unrec-' + unrec.join('|'), kind: 'info', text: '인식하지 못한 문장: ' + unrec.map(u => `“${u.length > 28 ? u.slice(0, 28) + '…' : u}”`).join(' '), btns: [] });
+  return { Q, span };
+}
+
+/* ---------------- 관계선 정리 ---------------- */
+// 같은 두 사람 사이 관계선: 지금 관계가 있으면 지난 관계는 빼고, 겹치는 선은 하나로
+function resolveRels(F) {
+  const groups = new Map();
+  F.R.forEach(r => { const k = [r.a, r.b].sort().join('|'); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); });
+  const out = [];
+  groups.forEach(rs => {
+    let keep = rs.filter(r => !r.past); if (!keep.length) keep = rs.slice();
+    const has = t => keep.some(r => r.type === t); const drop = ts => { keep = keep.filter(r => !ts.includes(r.type)); };
+    if (has('closeConflict')) drop(['close', 'conflict', 'distant']);
+    if (has('violence')) drop(['conflict']);                      // 폭력선에 갈등(지그재그)이 이미 들어 있음
+    if (has('cutoff')) drop(['distant', 'close', 'fused', 'conflict']); // 단절이 지금 상태
+    if (has('conflict')) drop(['distant']);
+    if (has('fused')) drop(['close']);
+    if (has('close')) drop(['distant']);
+    const cf = keep.find(r => r.type === 'conflict'), cl = keep.find(r => r.type === 'close' || r.type === 'fused');
+    if (cf && cl) { keep = keep.filter(r => r !== cf && r !== cl); keep.push({ a: cl.a, b: cl.b, type: cl.type === 'fused' ? 'fusedConflict' : 'closeConflict' }); }
+    const seen = new Set(); keep.forEach(r => { if (!seen.has(r.type)) { seen.add(r.type); out.push(r); } });
+  });
+  F.R = out;
+}
+
+/* ---------------- 분석 진입점 ---------------- */
+const FW = { '（': '(', '）': ')', '：': ':', '，': ',', '／': '/', '［': '[', '］': ']', '－': '-', '～': '~', '？': '?', '．': '.', '　': ' ', '‧': '·', '・': '·', '’': "'", '‘': "'", '`': "'", '´': "'" };
+function normalize(t) { return t.replace(/[（）：，／［］－～？．　‧・’‘`´０-９Ａ-Ｚａ-ｚ]/g, c => FW[c] || String.fromCharCode(c.charCodeAt(0) - 0xFEE0)); }
+function analyze(text, base, opts) {
+  opts = opts || {};
+  text = normalize(text);
+  const r1 = parse(text, base, null);
+  const p1 = r1.F.pt;
+  const preset = p1.sexExplicit ? p1.sex : (r1.F.ptSexInfer ? r1.F.ptSexInfer.sex : null);
+  const r2 = parse(text, base, preset);
+  const F = r2.F; F.text = text;
+  if (p1.sexExplicit) F.pt.sexExplicit = true;
+  if (!F.ptSexInfer && r1.F.ptSexInfer && !p1.sexExplicit) F.ptSexInfer = r1.F.ptSexInfer;
+  F.P.forEach(p => { if (p.memo.includes('기혼') && F.unionsOf(p).length) p.memo = p.memo.filter(x => x !== '기혼'); });
+  // 사인으로 쓴 병명은 질환 목록에서 뺌 ("위암 사별" → 사인 위암)
+  F.P.forEach(p => { if (p.dead && p.cause) p.conds = p.conds.filter(c => !p.cause.includes(c.replace(/\(.*\)/, ''))); });
+  resolveRels(F);
+  // 대상자의 배우자가 돌아가셨으면 결혼선은 사별
+  F.unionsOf(F.pt).forEach(u => { if ((u.status === 'married' || u.status === 'separated') && F.other(u, F.pt).dead) u.status = 'widowed'; });
+  const pre = new Set(F.P.keys());
+  if (opts.autoGP !== false && text.trim()) allGrandparents(F, F.pt);
+  F.P.forEach(p => { if (!pre.has(p.id)) p.auto = true; });
+  F.P.forEach(p => fixUnionSides(F, p));
+  computeLabels(F);
+  const gen = computeGen(F);
+  const { Q, span } = buildChecks(F, gen, r2.unrec);
+  const unsup = [...new Set([...text.matchAll(UNSUP_RE)].map(m => m[1]))];
+  for (const m of text.matchAll(UNSUP_RE)) r2.spans.push({ start: m.index, end: m.index + m[1].length, cls: 'unk' });
+  if (unsup.length) Q.unshift({ id: 'unsup-' + unsup.join(','), kind: 'warn', text: `${unsup.map(u => `‘${u}’`).join(', ')}은(는) 아직 알아듣지 못하는 호칭이라 그림에 넣지 않았어요. 가까운 호칭으로 바꾸거나 [대괄호] 메모로 적어 주세요.`, btns: [] });
+  return { F, gen, spans: r2.spans, checks: Q, span, unrec: r2.unrec };
+}
+
+/* ---------------- 배치 ---------------- */
+const NODE = 44, PARTNER = 128, SIB = 120;
+function layout(F, gen) {
+  const pos = new Map(); const placed = new Set();
+  const comp = id => { const seen = new Set([id]); const st = [id]; while (st.length) { const c = st.pop(); F.unionsOf(F.P.get(c)).forEach(u => { const o = u.a === c ? u.b : u.a; if (!seen.has(o)) { seen.add(o); st.push(o); } }); } return [...seen]; };
+  const uOrder = (x, y) => { const u = F.between(F.P.get(x), F.P.get(y)); return u ? u.order : 0; };
+  const orderBlock = ids => {
+    if (ids.length === 1) return ids;
+    const inU = u => ids.includes(u.a) && ids.includes(u.b);
+    const nb = id => F.unionsOf(F.P.get(id)).filter(inU).map(u => u.a === id ? u.b : u.a);
+    let seq;
+    if (ids.every(id => nb(id).length <= 2)) {
+      const start = ids.find(id => nb(id).length === 1) || ids[0]; seq = [start]; const seen = new Set([start]); let cur = start;
+      for (;;) { const n = nb(cur).filter(o => !seen.has(o)).sort((a, b) => uOrder(cur, a) - uOrder(cur, b))[0]; if (!n) break; seq.push(n); seen.add(n); cur = n; }
+      ids.forEach(id => { if (!seen.has(id)) seq.push(id); });
+    } else {
+      const c = ids.slice().sort((a, b) => nb(b).length - nb(a).length)[0]; const ps = nb(c).sort((a, b) => uOrder(c, a) - uOrder(c, b));
+      seq = [ps[0], c, ...ps.slice(1)]; ids.forEach(id => { if (!seq.includes(id)) seq.push(id); });
+    }
+    const us = F.U.filter(inU);
+    const pt = F.pt;
+    let prim = us.find(u => pt.pu === u.id) ? null : null;
+    prim = us.find(u => u.kids.includes(pt.id)) || us.filter(u => u.a === pt.id || u.b === pt.id).sort((a, b) => (a.status === 'divorced') - (b.status === 'divorced') || b.order - a.order)[0] || us.slice().sort((a, b) => (a.status === 'divorced') - (b.status === 'divorced') || a.order - b.order)[0];
+    if (prim && seq.indexOf(prim.a) > seq.indexOf(prim.b)) seq.reverse();
+    return seq;
+  };
+  const newTree = () => ({ nodes: new Map(), L: new Map(), R: new Map() });
+  const addNode = (T, id, x) => { const g = gen.get(id); T.nodes.set(id, { x, g }); T.L.set(g, Math.min(T.L.has(g) ? T.L.get(g) : Infinity, x)); T.R.set(g, Math.max(T.R.has(g) ? T.R.get(g) : -Infinity, x)); };
+  const merge = (A, B, o) => { const T = A || newTree(); B.nodes.forEach((n, id) => addNode(T, id, n.x + o)); return T; };
+  const shift = (T, d) => { const N = newTree(); T.nodes.forEach((n, id) => addNode(N, id, n.x + d)); return N; };
+  const rightOf = (A, B) => { let o = -Infinity; B.L.forEach((l, g) => { if (A.R.has(g)) o = Math.max(o, A.R.get(g) + SIB - l); }); if (o === -Infinity) { o = Math.max(...A.R.values()) + SIB - Math.min(...B.L.values()); } return o; };
+  const leftOf = (A, B) => { let o = Infinity; B.R.forEach((r, g) => { if (A.L.has(g)) o = Math.min(o, A.L.get(g) - SIB - r); }); if (o === Infinity) { o = Math.min(...A.L.values()) - SIB - Math.max(...B.R.values()); } return o; };
+  const sortKids = list => sortSibs(F, list);
+  function buildDesc(seq) {
+    seq.forEach(id => placed.add(id));
+    let T = newTree(); seq.forEach((id, i) => addNode(T, id, i * PARTNER));
+    const us = F.U.filter(u => seq.includes(u.a) && seq.includes(u.b)).map(u => ({ u, mid: (T.nodes.get(u.a).x + T.nodes.get(u.b).x) / 2 })).sort((a, b) => a.mid - b.mid);
+    const groups = [];
+    for (const { u, mid } of us) {
+      const kids = sortKids(u.kids.filter(k => !placed.has(k)).map(k => F.P.get(k)));
+      if (!kids.length) continue;
+      const subs = [];
+      kids.forEach((k, ki) => { if (placed.has(k.id)) return; const c = comp(k.id).filter(id => !placed.has(id)); let seq = orderBlock(c);
+        if (seq.length === 2 && kids.length > 1 && !k.isPt) { const side = ki < (kids.length - 1) / 2 ? 'L' : ki > (kids.length - 1) / 2 ? 'R' : null; if (side === 'L' && seq[1] !== k.id) seq = seq.reverse(); if (side === 'R' && seq[0] !== k.id) seq = seq.reverse(); }
+        else if (seq.length === 2 && kids.length > 1 && k.isPt) { const nL = ki, nR = kids.length - 1 - ki; if (nR < nL && seq[0] !== k.id) seq = seq.reverse(); else if (nL < nR && seq[1] !== k.id) seq = seq.reverse(); }
+        subs.push({ kid: k.id, tree: buildDesc(seq) }); });
+      let row = null; const offs = [];
+      subs.forEach((sb, i) => { const o = i === 0 ? 0 : rightOf(row, sb.tree); offs.push(o); row = merge(row, sb.tree, o); });
+      const xs = subs.map((sb, i) => offs[i] + sb.tree.nodes.get(sb.kid).x);
+      const center = (Math.min(...xs) + Math.max(...xs)) / 2;
+      groups.push({ tree: row, want: mid - center });
+    }
+    if (groups.length) {
+      let acc = null; const sh = [];
+      groups.forEach(gr => { let o = gr.want; if (acc) o = Math.max(o, rightOf(acc, gr.tree)); sh.push(o - gr.want); acc = merge(acc, gr.tree, o); });
+      const d = sh.reduce((a, b) => a + b, 0) / sh.length;
+      acc = shift(acc, -d / 2);
+      T = merge(T, acc, 0);
+    }
+    return T;
+  }
+  const pt = F.pt; const pu = pt.pu ? F.getU(pt.pu) : null;
+  let main = buildDesc(orderBlock(comp(pu ? pu.a : pt.id)));
+  function attach(pid, side) {
+    const p = F.P.get(pid); if (!p.pu || !main.nodes.has(pid)) return; const u = F.getU(p.pu);
+    if (placed.has(u.a) || placed.has(u.b)) return;
+    const gcomp = comp(u.a);
+    const gUnions = F.U.filter(v => gcomp.includes(v.a) && gcomp.includes(v.b));
+    let sibs = []; gUnions.forEach(v => v.kids.forEach(k => { if (k !== pid && !placed.has(k)) sibs.push(F.P.get(k)); }));
+    sibs = sortKids(sibs);
+    const subs = sibs.map(s => ({ id: s.id, tree: placed.has(s.id) ? null : buildDesc(orderBlock(comp(s.id).filter(id => !placed.has(id)))) })).filter(x => x.tree);
+    if (side === 'L') { for (let i = subs.length - 1; i >= 0; i--) main = merge(main, subs[i].tree, leftOf(main, subs[i].tree)); }
+    else { for (const sb of subs) main = merge(main, sb.tree, rightOf(main, sb.tree)); }
+    const gseq = orderBlock(gcomp); gseq.forEach(id => placed.add(id));
+    const xs = [pid, ...subs.map(x => x.id)].map(id => main.nodes.get(id).x);
+    const center = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const mid = (gseq.indexOf(u.a) + gseq.indexOf(u.b)) / 2 * PARTNER;
+    let o = center - mid; const gg = gen.get(u.a);
+    if (main.R.has(gg) || main.L.has(gg)) {
+      if (side === 'L') o = Math.min(o, main.L.get(gg) - SIB - (gseq.length - 1) * PARTNER);
+      else o = Math.max(o, main.R.get(gg) + SIB);
+    }
+    gseq.forEach((id, i) => addNode(main, id, o + i * PARTNER));
+    attach(u.a, 'L'); attach(u.b, 'R');
+  }
+  if (pu) { attach(pu.a, 'L'); attach(pu.b, 'R'); }
+  // 나머지(배우자의 가족 등)
+  const rowNodes = g => [...main.nodes.values()].filter(n => n.g === g).map(n => n.x);
+  const fits = (g, xs) => { const row = rowNodes(g); return xs.every(x => row.every(r => Math.abs(r - x) >= SIB - 0.5)); };
+  const findFree = (g, n, want) => { for (let k = 0; k < 400; k++) { for (const sgn of [1, -1]) { const x0 = want + sgn * k * 16; const xs = Array.from({ length: n }, (_, i) => x0 + i * PARTNER); if (fits(g, xs)) return x0; } } return want; };
+  for (let guard = 0; guard < 60; guard++) {
+    const un = [...F.P.values()].filter(p => !placed.has(p.id)); if (!un.length) break;
+    let progress = false;
+    for (const p of un) {
+      if (placed.has(p.id)) continue;
+      const c = comp(p.id).filter(id => !placed.has(id)); const seq = orderBlock(c); const g = gen.get(p.id);
+      let want = null;
+      const partnerPlaced = F.unionsOf(p).map(u => F.other(u, p)).find(o => placed.has(o.id));
+      if (partnerPlaced) { const px = main.nodes.get(partnerPlaced.id).x; want = px + PARTNER; }
+      else if (p.pu && placed.has(F.getU(p.pu).a) && placed.has(F.getU(p.pu).b)) { const u = F.getU(p.pu); want = (main.nodes.get(u.a).x + main.nodes.get(u.b).x) / 2; }
+      else { const kid = seq.flatMap(id => F.unionsOf(F.P.get(id)).flatMap(u => u.kids)).find(k => placed.has(k)); if (kid) want = main.nodes.get(kid).x - (seq.length - 1) * PARTNER / 2; }
+      if (want == null) continue;
+      const x0 = findFree(g, seq.length, want);
+      seq.forEach((id, i) => { addNode(main, id, x0 + i * PARTNER); placed.add(id); });
+      progress = true;
+    }
+    if (!progress) { const p = un[0]; const g = gen.get(p.id); const row = rowNodes(g); const x = row.length ? Math.max(...row) + SIB : 0; addNode(main, p.id, x); placed.add(p.id); }
+  }
+  // 줄별 겹침 정리
+  const rows = new Map(); main.nodes.forEach((n, id) => { if (!rows.has(n.g)) rows.set(n.g, []); rows.get(n.g).push(id); });
+  rows.forEach(ids => { ids.sort((a, b) => main.nodes.get(a).x - main.nodes.get(b).x); for (let i = 1; i < ids.length; i++) { const A = main.nodes.get(ids[i - 1]), B = main.nodes.get(ids[i]); if (B.x - A.x < SIB) B.x = A.x + SIB; } });
+  main.nodes.forEach((n, id) => pos.set(id, { x: n.x, g: n.g }));
+  return pos;
+}
+function sortSibs(F, list) {
+  const base = F.base;
+  const yr = p => p.birthYear || (p.age != null ? base - p.age : (p.dead && p.deathYear && p.deathAge != null ? p.deathYear - p.deathAge : null));
+  const anchor = list.find(p => p.isPt) || list.find(p => list.some(q => q.rel && q.rel.anchor === p.id)) || list.find(p => p.hasDesc) || null;
+  const known = list.map(yr).filter(v => v != null).sort((a, b) => a - b);
+  const key = new Map();
+  list.forEach(p => { const y = yr(p); if (y != null) key.set(p.id, y); });
+  const aKey = anchor ? (key.get(anchor.id) ?? (known.length ? known[Math.floor(known.length / 2)] : 0)) : (known.length ? known[known.length - 1] + 1 : 0);
+  if (anchor && !key.has(anchor.id)) key.set(anchor.id, aKey);
+  const unk = [];
+  list.forEach(p => {
+    if (key.has(p.id)) return;
+    if (p.twin && anchor && p.twin === anchor.twin) { key.set(p.id, aKey + 0.001); return; }
+    if (p.rel && anchor && p.rel.anchor === anchor.id) { const o = p.rel.dir < 0 ? 0.5 + (100 - (p.ord || 50)) * 0.001 : 0.5 + (p.ord || 50) * 0.001; key.set(p.id, aKey + p.rel.dir * o); return; }
+    if (!anchor && p.ord) { key.set(p.id, aKey + 1000 + (p.ord === 99 ? 90 : p.ord)); return; }
+    unk.push(p);
+  });
+  if (anchor && anchor.birthPos) {
+    const K = anchor.birthPos === 99 ? list.length : anchor.birthPos;
+    const older = list.filter(p => p !== anchor && key.has(p.id) && key.get(p.id) < aKey).length;
+    let need = Math.max(0, K - 1 - older);
+    unk.sort((a, b) => a.created - b.created).forEach((p, i) => { if (need > 0) { key.set(p.id, aKey - 0.45 + i * 0.001); need--; } else key.set(p.id, aKey + 0.45 + i * 0.001); });
+  } else unk.forEach(p => key.set(p.id, aKey + 2000 + p.created * 0.01));
+  return list.slice().sort((a, b) => (key.get(a.id) - key.get(b.id)) || (a.created - b.created));
+}
+
+/* ---------------- 그리기 (SVG 문자열) ---------------- */
+const FONT = "'Malgun Gothic','맑은 고딕','Apple SD Gothic Neo','Noto Sans KR','Nanum Gothic',sans-serif";
+const INK = '#161a19', SOFT = '#5d6664', RISK = '#b3261e';
+const REL_COLOR = { close: '#1f7a55', fused: '#1f7a55', distant: '#6d7775', conflict: '#c0392b', cutoff: '#4a5250', violence: '#8e1b1b', closeConflict: '#1f7a55', fusedConflict: '#1f7a55' };
+function textW(s, size, measure) { if (measure) return measure(s, size); let w = 0; for (const ch of s) w += /[가-힣]/.test(ch) ? size * 1.0 : /[A-Z]/.test(ch) ? size * 0.66 : size * 0.56; return w; }
+function wrapWords(words, size, maxW, measure, sep) {
+  sep = sep == null ? ', ' : sep; const lines = []; let cur = '';
+  for (const w of words) {
+    const t = cur ? cur + sep + w : w;
+    if (textW(t, size, measure) <= maxW) { cur = t; continue; }
+    if (cur) lines.push(cur);
+    if (textW(w, size, measure) <= maxW) { cur = w; continue; }
+    let piece = ''; for (const ch of w) { if (textW(piece + ch, size, measure) > maxW) { lines.push(piece); piece = ch; } else piece += ch; } cur = piece;
+  }
+  if (cur) lines.push(cur); return lines;
+}
+function render(A, opts) {
+  opts = opts || {}; const F = A.F, gen = A.gen; const measure = opts.measure || null;
+  const pos = layout(F, gen);
+  const off = opts.offsets || {};
+  pos.forEach((p, id) => { const k = F.P.get(id).label; if (off[k]) p.x += off[k]; });
+  const LW = 112;
+  // 이름표 줄
+  const lab = new Map();
+  pos.forEach((_, id) => {
+    const p = F.P.get(id); const L = [];
+    L.push({ t: p.label, b: true, c: p.implied ? SOFT : INK });
+    if (p.implied) L.push({ t: '미확인', c: SOFT }); else if (p.unknown) L.push({ t: '정보 없음', c: SOFT });
+    if (p.dead) { const d = [(p.deathYear ? `${p.deathYear} ` : '') + '사망', p.cause].filter(Boolean); wrapWords(d, 11, LW, measure, ' · ').forEach(t => L.push({ t, c: p.cause === '자살' ? RISK : SOFT })); }
+    const tags = [];
+    if (p.adopted) tags.push('입양'); if (p.foster) tags.push('위탁'); if (p.lifeUnknown) tags.push('생사 미상');
+    const words = [...tags, ...p.conds, ...p.memo];
+    if (words.length) {
+      const risky = w => /자살|자해/.test(w);
+      const normal = words.filter(w => !risky(w)), rk = words.filter(risky);
+      wrapWords(rk, 11, LW, measure).forEach(t => L.push({ t, c: RISK }));
+      wrapWords(normal, 11, LW, measure).forEach(t => L.push({ t, c: INK }));
+    }
+    lab.set(id, L);
+  });
+  const gens = [...new Set([...pos.values()].map(p => p.g))].sort((a, b) => a - b);
+  const lineH = 14;
+  const rowY = new Map(); let y = 88 + NODE / 2;
+  gens.forEach((g, i) => { rowY.set(g, y); const maxL = Math.max(1, ...[...pos.entries()].filter(([, p]) => p.g === g).map(([id]) => lab.get(id).length)); y += NODE / 2 + 8 + maxL * lineH + 40 + NODE / 2; });
+  const xs = [...pos.values()].map(p => p.x);
+  const minX = Math.min(...xs) - LW / 2 - 24; const maxX = Math.max(...xs) + LW / 2 + 24;
+  const X = x => x - minX;
+  const used = new Set(); const out = []; const under = []; const lines = []; const rels = []; const nodes = [];
+  const P = id => ({ x: X(pos.get(id).x), y: rowY.get(pos.get(id).g) });
+  // 동거 가족 경계
+  const hm = [...F.house].filter(id => pos.has(id));
+  if (hm.length >= 1 && (hm.length > 1 || F.alone)) {
+    const pts = []; hm.forEach(id => { const c = P(id); for (let k = 0; k < 20; k++) { const a = k / 20 * Math.PI * 2; pts.push([c.x + Math.cos(a) * 40, c.y + Math.sin(a) * 38]); } });
+    const hull = convexHull(pts); under.push(`<path d="M${hull.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('L')}Z" fill="#eef5f2" stroke="#6f8f86" stroke-width="1.4" stroke-dasharray="6 4"/>`); used.add('house');
+  }
+  // 혼인선·자녀선
+  F.U.forEach(u => {
+    if (!pos.has(u.a) || !pos.has(u.b)) return;
+    const A1 = P(u.a), B1 = P(u.b); const l = Math.min(A1.x, B1.x), r = Math.max(A1.x, B1.x); const yy = A1.y;
+    const between = [...pos.entries()].some(([id, q]) => id !== u.a && id !== u.b && rowY.get(q.g) === yy && X(q.x) > l + 1 && X(q.x) < r - 1);
+    const dash = u.status === 'cohabit' ? ' stroke-dasharray="5 4"' : '';
+    let uy, mid = (l + r) / 2;
+    if (!between) { uy = yy; lines.push(`<line x1="${l + NODE / 2}" y1="${uy}" x2="${r - NODE / 2}" y2="${uy}" stroke="${INK}" stroke-width="1.6"${dash}/>`); }
+    else { uy = yy + NODE / 2 + 10; lines.push(`<path d="M${l},${yy + NODE / 2}V${uy}H${r}V${yy + NODE / 2}" fill="none" stroke="${INK}" stroke-width="1.6"${dash}/>`); }
+    used.add(u.status === 'cohabit' ? 'cohabit' : 'married');
+    const sx = between ? l + (r - l) * 0.3 : l + NODE / 2 + 13;
+    const slash = (x) => `<line x1="${x - 5}" y1="${uy + 8}" x2="${x + 5}" y2="${uy - 8}" stroke="${INK}" stroke-width="1.6"/>`;
+    if (u.status === 'separated') { lines.push(slash(sx)); used.add('separated'); }
+    if (u.status === 'divorced') { lines.push(slash(sx - 4) + slash(sx + 4)); used.add('divorced'); }
+    const yrs = [];
+    if (u.start) yrs.push(`${u.start} ${u.status === 'cohabit' ? '동거' : '결혼'}`);
+    if (u.sep) yrs.push(`${u.sep} 별거`);
+    if (u.end) yrs.push(`${u.end} 이혼`);
+    const tx = (u.status === 'divorced' || u.status === 'separated') && !between ? Math.max(mid, sx + 34) : mid;
+    yrs.slice(-2).forEach((t, i, arr) => lines.push(`<text x="${tx}" y="${uy - 5 - (arr.length - 1 - i) * 12}" font-size="10" text-anchor="middle" fill="${SOFT}">${escXML(t)}</text>`));
+    const kids = u.kids.filter(k => pos.has(k));
+    if (!kids.length) return;
+    const kg = pos.get(kids[0]).g; const topY = rowY.get(kg) - NODE / 2; const barY = topY - 16;
+    const kx = kids.map(k => P(k).x);
+    lines.push(`<line x1="${mid}" y1="${uy}" x2="${mid}" y2="${barY}" stroke="${INK}" stroke-width="1.4"/>`);
+    const tw = new Map(); kids.forEach(k => { const t = F.P.get(k).twin; if (t) { if (!tw.has(t)) tw.set(t, []); tw.get(t).push(k); } });
+    const apex = new Map(); tw.forEach(arr => { if (arr.length > 1) { const ax = arr.reduce((s, k) => s + P(k).x, 0) / arr.length; arr.forEach(k => apex.set(k, ax)); used.add('twin'); } });
+    const bxs = kx.map((x, i) => apex.has(kids[i]) ? apex.get(kids[i]) : x);
+    lines.push(`<line x1="${Math.min(mid, ...bxs)}" y1="${barY}" x2="${Math.max(mid, ...bxs)}" y2="${barY}" stroke="${INK}" stroke-width="1.4"/>`);
+    kids.forEach((k, i) => { const c = F.P.get(k); const d = c.adopted || c.foster ? ' stroke-dasharray="4 3"' : ''; if (d) used.add('adopted');
+      lines.push(`<line x1="${bxs[i]}" y1="${barY}" x2="${kx[i]}" y2="${topY}" stroke="${INK}" stroke-width="1.4"${d}/>`); });
+  });
+  // 정서적 관계선
+  const pairN = new Map();
+  F.R.forEach(r => {
+    if (!pos.has(r.a) || !pos.has(r.b)) return; used.add('rel-' + r.type);
+    // 같은 두 사람 사이에 선이 둘 이상이면(예: 폭력과 단절) 휘는 정도를 달리해 겹치지 않게
+    const k = [r.a, r.b].sort().join('|'); const n = pairN.get(k) || 0; pairN.set(k, n + 1);
+    const a = P(r.a), b = P(r.b); rels.push(relPath(a, b, r.type, null, false, 1 + n * 0.9));
+  });
+  // 인물
+  pos.forEach((_, id) => {
+    const p = F.P.get(id); const c = P(id); const h = NODE / 2;
+    const dashed = p.implied || p.unknown; const sw = 1.8;
+    const st = `fill="#fff" stroke="${dashed ? SOFT : INK}" stroke-width="${sw}"${dashed ? ' stroke-dasharray="4 3"' : ''}`;
+    let shape = '', inner = '';
+    if (p.sex === 'M') { shape = `<rect x="${c.x - h}" y="${c.y - h}" width="${NODE}" height="${NODE}" ${st}/>`; inner = `<rect x="${c.x - h + 5}" y="${c.y - h + 5}" width="${NODE - 10}" height="${NODE - 10}" fill="none" stroke="${INK}" stroke-width="1.4"/>`; used.add('male'); }
+    else if (p.sex === 'F') { shape = `<circle cx="${c.x}" cy="${c.y}" r="${h}" ${st}/>`; inner = `<circle cx="${c.x}" cy="${c.y}" r="${h - 5}" fill="none" stroke="${INK}" stroke-width="1.4"/>`; used.add('female'); }
+    else { shape = `<path d="M${c.x},${c.y - h - 2}L${c.x + h + 2},${c.y}L${c.x},${c.y + h + 2}L${c.x - h - 2},${c.y}Z" ${st}/>`; inner = `<path d="M${c.x},${c.y - h + 5}L${c.x + h - 5},${c.y}L${c.x},${c.y + h - 5}L${c.x - h + 5},${c.y}Z" fill="none" stroke="${INK}" stroke-width="1.4"/>`; used.add('unknownSex'); }
+    let g = shape; if (p.isPt) { g += inner; used.add('pt'); }
+    if (p.dead) { g += `<line x1="${c.x - h + 3}" y1="${c.y - h + 3}" x2="${c.x + h - 3}" y2="${c.y + h - 3}" stroke="${INK}" stroke-width="1.6"/><line x1="${c.x + h - 3}" y1="${c.y - h + 3}" x2="${c.x - h + 3}" y2="${c.y + h - 3}" stroke="${INK}" stroke-width="1.6"/>`; used.add('dead'); }
+    if (dashed) used.add('unknown');
+    let inTxt = ''; let fs = 14;
+    if (p.dead && p.deathAge != null) inTxt = String(p.deathAge);
+    else if (p.age != null && !p.ageText) inTxt = String(p.age);
+    else if (p.ageText) { inTxt = p.ageText.replace(/\s*(초반|중반|후반)/, ''); fs = inTxt.length > 3 ? 10 : 12; }
+    else if (dashed) inTxt = '?';
+    if (inTxt) g += `<text x="${c.x}" y="${c.y + fs * 0.36}" font-size="${fs}" font-weight="700" text-anchor="middle" fill="${dashed && inTxt === '?' ? SOFT : INK}"${p.dead ? ' paint-order="stroke" stroke="#fff" stroke-width="3"' : ''}>${escXML(inTxt)}</text>`;
+    const L = lab.get(id); let ly = c.y + h + 8 + 11;
+    L.forEach((ln, i) => { g += `<text x="${c.x}" y="${ly + i * lineH}" font-size="${i === 0 ? 12 : 11}" font-weight="${ln.b ? 700 : 400}" text-anchor="middle" fill="${ln.c}">${escXML(ln.t)}</text>`; });
+    nodes.push(`<g class="node" data-key="${escXML(p.label)}" style="cursor:ew-resize">${g}</g>`);
+  });
+  // 머리글
+  const W = Math.max(maxX - minX, 560);
+  const head = [`<text x="24" y="34" font-size="18" font-weight="700" fill="${INK}">가계도</text>`,
+    `<text x="24" y="56" font-size="11" fill="${SOFT}">${escXML([opts.date ? `작성일 ${opts.date}` : '', opts.caseNo ? `사례번호 ${opts.caseNo}` : '', `대상자 기준 ${A.span}대 확인`, (() => { const n = [...pos.keys()].filter(id => F.P.get(id).implied).length; return n ? `미확인 ${n}명` : ''; })()].filter(Boolean).join('  ·  '))}</text>`];
+  // 범례
+  const leg = legend(used, W);
+  const H = y - 20 + leg.h;
+  const body = `<rect width="${W}" height="${H}" fill="#fff"/>${head.join('')}${under.join('')}${lines.join('')}${rels.join('')}${nodes.join('')}<g transform="translate(0,${y - 20})">${leg.svg}</g>`;
+  return { svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="${FONT}">${body}</svg>`, W, H, minX };
+}
+function convexHull(pts) {
+  pts = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = []; for (const p of pts) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+  const up = []; for (let i = pts.length - 1; i >= 0; i--) { const p = pts[i]; while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); }
+  up.pop(); lo.pop(); return lo.concat(up);
+}
+function relPath(a, b, type, trimR, flat, bendK) {
+  const dx = b.x - a.x, dy = b.y - a.y; const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len, ny = dx / len; const same = Math.abs(dy) < 2; const bend = flat ? 0 : (same ? Math.min(70, len * 0.5) : Math.min(40, len * 0.18)) * (dx >= 0 ? -1 : 1) * (bendK || 1);
+  const cx = (a.x + b.x) / 2 + nx * bend, cy = (a.y + b.y) / 2 + ny * bend;
+  const r = trimR == null ? NODE / 2 + 5 : trimR;
+  const trim = (p, q) => { const d = Math.hypot(q.x - p.x, q.y - p.y) || 1; return { x: p.x + (q.x - p.x) / d * r, y: p.y + (q.y - p.y) / d * r }; };
+  const s = trim(a, { x: cx, y: cy }), e = trim(b, { x: cx, y: cy });
+  const pt = t => ({ x: (1 - t) * (1 - t) * s.x + 2 * (1 - t) * t * cx + t * t * e.x, y: (1 - t) * (1 - t) * s.y + 2 * (1 - t) * t * cy + t * t * e.y });
+  const tan = t => { const x = 2 * (1 - t) * (cx - s.x) + 2 * t * (e.x - cx), y = 2 * (1 - t) * (cy - s.y) + 2 * t * (e.y - cy); const l = Math.hypot(x, y) || 1; return { x: x / l, y: y / l }; };
+  const col = REL_COLOR[type];
+  const curve = (o, extra) => { const N = 24; const p = []; for (let i = 0; i <= N; i++) { const t = i / N, q = pt(t), g = tan(t); p.push(`${(q.x - g.y * o).toFixed(1)},${(q.y + g.x * o).toFixed(1)}`); } return `<polyline points="${p.join(' ')}" fill="none" stroke="${col}" stroke-width="1.6"${extra || ''}/>`; };
+  if (type === 'close') return curve(-2.2) + curve(2.2);
+  // 친밀·갈등(두 줄 + 지그재그), 밀착·갈등(세 줄 + 지그재그)
+  if (type === 'closeConflict' || type === 'fusedConflict') {
+    const N = Math.max(6, Math.round(len / 5)); const p = []; for (let i = 0; i <= N; i++) { const t = i / N, q = pt(t), g = tan(t); const amp = (i === 0 || i === N) ? 0 : (i % 2 ? 4 : -4); p.push(`${(q.x - g.y * amp).toFixed(1)},${(q.y + g.x * amp).toFixed(1)}`); }
+    const zig = `<polyline points="${p.join(' ')}" fill="none" stroke="${REL_COLOR.conflict}" stroke-width="1.4" stroke-linejoin="round"/>`;
+    return (type === 'fusedConflict' ? curve(-4.5) + curve(0) + curve(4.5) : curve(-3) + curve(3)) + zig;
+  }
+  if (type === 'fused') return curve(-3.5) + curve(0) + curve(3.5);
+  if (type === 'distant') return curve(0, ' stroke-dasharray="2 4" stroke-linecap="round"');
+  if (type === 'conflict' || type === 'violence') {
+    const N = Math.max(6, Math.round(len / 5)); const p = []; for (let i = 0; i <= N; i++) { const t = i / N, q = pt(t), g = tan(t); const amp = (i === 0 || i === N) ? 0 : (i % 2 ? 4.5 : -4.5); p.push(`${(q.x - g.y * amp).toFixed(1)},${(q.y + g.x * amp).toFixed(1)}`); }
+    let s2 = `<polyline points="${p.join(' ')}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linejoin="round"/>`;
+    if (type === 'violence') { const q = pt(1), g = tan(1); s2 += `<path d="M${q.x},${q.y}L${q.x - g.x * 10 - g.y * 5},${q.y - g.y * 10 + g.x * 5}L${q.x - g.x * 10 + g.y * 5},${q.y - g.y * 10 - g.x * 5}Z" fill="${col}"/>`; }
+    return s2;
+  }
+  if (type === 'cutoff') { const m = pt(0.5), g = tan(0.5); const bar = d => `<line x1="${m.x + g.x * d - g.y * 7}" y1="${m.y + g.y * d + g.x * 7}" x2="${m.x + g.x * d + g.y * 7}" y2="${m.y + g.y * d - g.x * 7}" stroke="${col}" stroke-width="1.8"/>`; return curve(0) + bar(-4) + bar(4); }
+  return curve(0);
+}
+function legend(used, W) {
+  const items = [];
+  const I = (k, svg, t) => { if (used.has(k)) items.push({ svg, t }); };
+  I('male', `<rect x="4" y="2" width="16" height="16" fill="#fff" stroke="${INK}" stroke-width="1.5"/>`, '남성');
+  I('female', `<circle cx="12" cy="10" r="8" fill="#fff" stroke="${INK}" stroke-width="1.5"/>`, '여성');
+  I('unknownSex', `<path d="M12,1L21,10L12,19L3,10Z" fill="#fff" stroke="${INK}" stroke-width="1.5"/>`, '성별 미상');
+  I('pt', `<rect x="4" y="2" width="16" height="16" fill="#fff" stroke="${INK}" stroke-width="1.5"/><rect x="7" y="5" width="10" height="10" fill="none" stroke="${INK}" stroke-width="1.2"/>`, '대상자');
+  I('dead', `<rect x="4" y="2" width="16" height="16" fill="#fff" stroke="${INK}" stroke-width="1.5"/><path d="M6,4L18,16M18,4L6,16" stroke="${INK}" stroke-width="1.4"/>`, '사망');
+  I('unknown', `<rect x="4" y="2" width="16" height="16" fill="#fff" stroke="${SOFT}" stroke-width="1.5" stroke-dasharray="3 2"/><text x="12" y="14" font-size="10" text-anchor="middle" fill="${SOFT}">?</text>`, '정보 없음·미확인');
+  I('married', `<line x1="0" y1="10" x2="24" y2="10" stroke="${INK}" stroke-width="1.6"/>`, '결혼');
+  I('cohabit', `<line x1="0" y1="10" x2="24" y2="10" stroke="${INK}" stroke-width="1.6" stroke-dasharray="5 3"/>`, '동거(사실혼)');
+  I('separated', `<line x1="0" y1="10" x2="24" y2="10" stroke="${INK}" stroke-width="1.6"/><line x1="8" y1="17" x2="16" y2="3" stroke="${INK}" stroke-width="1.6"/>`, '별거');
+  I('divorced', `<line x1="0" y1="10" x2="24" y2="10" stroke="${INK}" stroke-width="1.6"/><line x1="5" y1="17" x2="13" y2="3" stroke="${INK}" stroke-width="1.6"/><line x1="11" y1="17" x2="19" y2="3" stroke="${INK}" stroke-width="1.6"/>`, '이혼');
+  I('adopted', `<line x1="12" y1="0" x2="12" y2="20" stroke="${INK}" stroke-width="1.5" stroke-dasharray="4 3"/>`, '입양·위탁');
+  I('twin', `<path d="M12,2L5,18M12,2L19,18" stroke="${INK}" stroke-width="1.5" fill="none"/>`, '쌍둥이');
+  I('house', `<rect x="1" y="1" width="22" height="18" rx="8" fill="#eef5f2" stroke="#6f8f86" stroke-dasharray="4 3"/>`, '동거 가족');
+  for (const t of ['close', 'fused', 'distant', 'conflict', 'closeConflict', 'fusedConflict', 'cutoff', 'violence']) if (used.has('rel-' + t)) items.push({ svg: relPath({ x: 1, y: 10 }, { x: 27, y: 10 }, t, 0, true), t: REL_K[t], rel: true });
+  if (!items.length) return { svg: '', h: 0 };
+  const cw = Math.max(104, Math.ceil(Math.max(...items.map(it => textW(it.t, 11))) + 52)); const per = Math.max(1, Math.floor((W - 48) / cw)); let s = `<text x="24" y="14" font-size="11" font-weight="700" fill="${SOFT}">범례</text>`;
+  items.forEach((it, i) => { const col = i % per, row = Math.floor(i / per); const x = 24 + col * cw, y = 24 + row * 28;
+    s += `<g transform="translate(${x},${y})"><svg x="0" y="0" width="30" height="22" viewBox="${it.rel ? '-1 -1 30 22' : '0 0 24 20'}" overflow="hidden">${it.svg}</svg><text x="34" y="14" font-size="11" fill="${INK}">${escXML(it.t)}</text></g>`; });
+  const rows = Math.ceil(items.length / per);
+  return { svg: s, h: 24 + rows * 28 + 16 };
+}
+
+return { analyze, render, KIN, REL_K, sexK };
+})();
+if (typeof module !== 'undefined') module.exports = GenoEngine;
+
+(() => {
+'use strict';
+const E = GenoEngine;
+const $ = id => document.getElementById(id);
+const src = $('src'), hl = $('hl'), geno = $('geno'), paper = $('paper');
+const FONT = "'Malgun Gothic','맑은 고딕','Apple SD Gothic Neo','Noto Sans KR','Nanum Gothic',sans-serif";
+const SAMPLE1 = '대상자는 34세 여성으로 2남 1녀 중 둘째이다. 남편(36)과 작년부터 별거 중이고 8살 아들, 5살 딸과 함께 산다. 아버지(62)는 알코올 문제가 있고 어머니와 2010년에 이혼했다. 어머니(58)는 2013년 재혼하여 계부(60)와 살고 있으며 대상자와 사이가 가깝다. 대상자는 아버지와 갈등이 심하다. 오빠는 37세이고 남동생은 30세이다. 친할아버지는 2015년 뇌졸중으로 돌아가셨고 친할머니는 85세이다. 외할아버지는 정보 없음, 외할머니는 80세로 치매가 있다. 대상자는 2025년 자살시도 이력이 있고 우울증으로 치료 중이다.';
+const SAMPLE2 = '대상자: 남 47 알코올, 자살사고\n아내: 45 별거(2024)\n아들: 17 동거\n딸: 14\n부: 사망(2019) 간암\n모: 74 동거\n부모: 결혼(1975)\n누나: 50\n여동생: 44\n친조부: 모름\n친조모: 사망\n외조부: 사망(2001)\n외조모: 사망\n관계: 대상자-아내 갈등\n관계: 대상자-모 밀착\n관계: 대상자-아들 소원';
+
+let offsets = {}; let zoom = null; let last = null; let lastR = null; let isSample = true;
+const dismissed = new Set();
+
+/* 글자 폭 재기 (그림 이름표 줄바꿈용) */
+const cv = document.createElement('canvas').getContext('2d');
+const measure = (s, size) => { cv.font = `${size}px ${FONT}`; return cv.measureText(s).width; };
+const pad2 = n => String(n).padStart(2, '0');
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+const escHTML = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const baseYear = () => { const v = $('baseDate').value; return v ? +v.slice(0, 4) : new Date().getFullYear(); };
+
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2600); }
+function autosize() { src.style.height = 'auto'; src.style.height = Math.max(260, src.scrollHeight) + 'px'; }
+
+/* 입력 강조 */
+function renderHL(text, spans) {
+  const sp = spans.slice().sort((a, b) => a.start - b.start || b.end - a.end); const ok = []; let end = -1;
+  for (const s of sp) { if (s.start >= end && s.end > s.start) { ok.push(s); end = s.end; } }
+  let html = ''; let i = 0;
+  for (const s of ok) { html += escHTML(text.slice(i, s.start)) + `<mark class="${s.cls}">${escHTML(text.slice(s.start, s.end))}</mark>`; i = s.end; }
+  html += escHTML(text.slice(i)) + '\n ';
+  hl.innerHTML = html;
+}
+
+/* 확인할 것 */
+const TAG = { ask: '확인', warn: '주의', info: '안내' };
+function renderChecks(A) {
+  const list = $('qlist'); list.textContent = '';
+  const qs = A.checks.filter(q => !dismissed.has(q.id));
+  $('qCount').textContent = qs.length;
+  if (!src.value.trim()) { list.innerHTML = '<p class="allgood">가족관계를 적으면 빠진 정보와 애매한 표현을 여기서 알려 드려요.</p>'; return; }
+  if (!qs.length) { list.innerHTML = '<p class="allgood">확인할 것이 없어요. 오른쪽 그림을 한 번 더 살펴보세요.</p>'; return; }
+  qs.forEach(q => {
+    const box = document.createElement('div'); box.className = 'q ' + q.kind;
+    const top = document.createElement('div'); top.className = 'qt';
+    const p = document.createElement('p'); const tag = document.createElement('span'); tag.className = 'tag'; tag.textContent = q.title || TAG[q.kind] || '확인';
+    p.append(tag, document.createTextNode(q.text));
+    const x = document.createElement('button'); x.type = 'button'; x.className = 'x'; x.setAttribute('aria-label', '이 항목 닫기'); x.textContent = '×';
+    x.onclick = () => { dismissed.add(q.id); update(); };
+    top.append(p, x); box.append(top);
+    if (q.rows && q.rows.length) {
+      const rows = document.createElement('div'); rows.className = 'rows';
+      q.rows.forEach(r => { const row = document.createElement('div'); row.className = 'row'; const b = document.createElement('b'); b.textContent = r.label; row.append(b);
+        r.btns.forEach(([label, act]) => { const bt = document.createElement('button'); bt.type = 'button'; bt.className = 'btn sm'; bt.textContent = label; bt.onclick = () => applyAction(act); row.append(bt); });
+        rows.append(row); });
+      box.append(rows);
+    }
+    if (q.tip) { const tp = document.createElement('p'); tp.className = 'tip'; tp.textContent = q.tip; box.append(tp); }
+    if (q.btns && q.btns.length) {
+      const acts = document.createElement('div'); acts.className = 'acts';
+      q.btns.forEach(([label, act]) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.textContent = label; b.onclick = () => applyAction(act); acts.append(b); });
+      box.append(acts);
+    }
+    list.append(box);
+  });
+}
+function applyAction(act) {
+  let t = src.value;
+  if (act.append) t = t.replace(/\s+$/, '') + (t.trim() ? '\n' : '') + act.append;
+  if (act.replace) { const [from, to] = act.replace; t = t.replace(new RegExp(`(?<![가-힣])${escRe(from)}`, 'g'), to); }
+  src.value = t; markEdited(); update(); toast('입력문에 반영했어요');
+}
+
+/* 인식한 가족 */
+function renderTable(A) {
+  const F = A.F; const tb = $('ptable'); tb.textContent = '';
+  const people = [...F.P.values()].sort((a, b) => (A.gen.get(a.id) - A.gen.get(b.id)) || (a.created - b.created));
+  let n = 0;
+  people.forEach(p => {
+    if (!src.value.trim()) return;
+    const tr = document.createElement('tr');
+    const age = p.dead && p.deathAge != null ? `${p.deathAge}(사망 시)` : p.ageText || (p.age != null ? String(p.age) : '');
+    const bits = [];
+    if (p.dead) bits.push([(p.deathYear ? p.deathYear + ' ' : '') + '사망' + (p.cause ? ` · ${p.cause}` : ''), p.cause === '자살']);
+    if (p.unknown) bits.push(['정보 없음', false]);
+    if (p.adopted) bits.push(['입양', false]); if (p.foster) bits.push(['위탁', false]);
+    p.conds.forEach(c => bits.push([c, /자살|자해/.test(c)])); p.memo.forEach(m => bits.push([m, false]));
+    if (p.implied) bits.push(['미확인(자동 표시)', false]);
+    const cells = [p.label, E.sexK(p.sex), age];
+    cells.forEach(c => { const td = document.createElement('td'); td.textContent = c; if (p.implied) td.className = 'auto'; tr.append(td); });
+    const td = document.createElement('td'); if (p.implied) td.className = 'auto';
+    bits.forEach(([t, risk], i) => { if (i) td.append(document.createTextNode(', ')); if (risk) { const s = document.createElement('span'); s.className = 'risk'; s.textContent = t; td.append(s); } else td.append(document.createTextNode(t)); });
+    tr.append(td); tb.append(tr); if (!p.implied) n++;
+  });
+  $('pCount').textContent = n;
+}
+
+/* 그림 */
+function renderSVG() {
+  if (!last) return;
+  if (!src.value.trim()) { geno.innerHTML = '<div class="empty">왼쪽에 가족관계를 적으면 여기에 가계도가 그려져요.</div>'; lastR = null; return; }
+  const R = E.render(last, { measure, offsets, date: $('baseDate').value, caseNo: $('caseNo').value.trim() });
+  lastR = R; geno.innerHTML = R.svg;
+  const svg = geno.querySelector('svg');
+  if (zoom == null) {
+    const availW = paper.clientWidth - 2, availH = Math.max(320, window.innerHeight * 0.78 - 4);
+    let sc = Math.min(availW / R.W, 1.25); if (R.H * sc > availH) sc = Math.max(availH / R.H, Math.min(0.75, sc));
+    svg.style.width = R.W * sc + 'px'; svg.style.height = R.H * sc + 'px';
+  }
+  else { svg.style.width = R.W * zoom + 'px'; svg.style.height = R.H * zoom + 'px'; }
+  svg.removeAttribute('width'); svg.removeAttribute('height');
+}
+function setZoom(z) { zoom = z; $('zFit').setAttribute('aria-pressed', z == null ? 'true' : 'false'); renderSVG(); }
+$('zFit').onclick = () => setZoom(null);
+$('zIn').onclick = () => { const cur = zoom ?? (geno.querySelector('svg') ? geno.querySelector('svg').getBoundingClientRect().width / lastR.W : 1); setZoom(Math.min(3, +(cur * 1.2).toFixed(2))); };
+$('zOut').onclick = () => { const cur = zoom ?? (geno.querySelector('svg') ? geno.querySelector('svg').getBoundingClientRect().width / lastR.W : 1); setZoom(Math.max(0.3, +(cur / 1.2).toFixed(2))); };
+
+/* 끌어서 위치 조정 */
+let drag = null, raf = 0;
+paper.addEventListener('pointerdown', e => {
+  const g = e.target.closest && e.target.closest('g.node'); if (!g || !lastR) return;
+  const svg = geno.querySelector('svg'); const scale = svg.getBoundingClientRect().width / lastR.W;
+  const key = g.getAttribute('data-key');
+  drag = { key, x0: e.clientX, o0: offsets[key] || 0, scale, moved: false };
+  paper.setPointerCapture(e.pointerId); paper.classList.add('dragging'); e.preventDefault();
+});
+paper.addEventListener('pointermove', e => {
+  if (!drag) return; const dx = (e.clientX - drag.x0) / drag.scale; if (Math.abs(dx) > 2) drag.moved = true;
+  offsets[drag.key] = drag.o0 + dx; if (!raf) raf = requestAnimationFrame(() => { raf = 0; renderSVG(); });
+});
+const endDrag = e => { if (!drag) return; try { paper.releasePointerCapture(e.pointerId); } catch (_) {} paper.classList.remove('dragging'); drag = null; };
+paper.addEventListener('pointerup', endDrag); paper.addEventListener('pointercancel', endDrag);
+$('resetPos').onclick = () => { offsets = {}; renderSVG(); toast('자동 배치로 되돌렸어요'); };
+
+/* 파일 저장: claude.ai 화면에서는 저장 확인창, 직접 올린 홈페이지에서는 일반 내려받기 */
+async function saveFile(name, blob) {
+  const c = window.claude;
+  if (c && typeof c.use === 'function') {
+    let dl = null; try { dl = await c.use('downloads'); } catch (_) { dl = null; }
+    if (dl) {
+      try { await dl.save({ filename: name, data: blob }); toast('저장했어요'); }
+      catch (err) { const code = err && err.code; toast(code === 'declined' ? '저장을 취소했어요' : '이 화면에서는 파일 저장이 막혀 있어요'); }
+      return;
+    }
+    toast('이 화면에서는 파일 저장이 막혀 있어요'); return;
+  }
+  const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000); toast('내려받기를 시작했어요');
+}
+const fileBase = () => { const d = ($('baseDate').value || today()).replace(/-/g, ''); const c = $('caseNo').value.trim().replace(/[^A-Za-z0-9-]+/g, ''); return `genogram_${c ? c + '_' : ''}${d}`; };
+$('savePng').onclick = async () => {
+  if (!last || !src.value.trim()) { toast('먼저 가족관계를 적어 주세요'); return; }
+  const R = E.render(last, { measure, offsets, date: $('baseDate').value, caseNo: $('caseNo').value.trim() });
+  const img = new Image();
+  try {
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(R.svg); });
+    const sc = 2; const c = document.createElement('canvas'); c.width = Math.round(R.W * sc); c.height = Math.round(R.H * sc);
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+    const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    await saveFile(fileBase() + '.png', blob);
+  } catch (err) { toast('그림을 이미지로 바꾸지 못했어요'); }
+};
+$('saveTxt').onclick = () => { if (!src.value.trim()) { toast('저장할 입력문이 없어요'); return; } saveFile(fileBase() + '_input.txt', new Blob([src.value], { type: 'text/plain;charset=utf-8' })); };
+$('loadTxt').onclick = () => $('fileIn').click();
+$('fileIn').onchange = e => {
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  const r = new FileReader(); r.onload = () => { src.value = String(r.result || ''); offsets = {}; dismissed.clear(); markEdited(); update(); toast('입력문을 불러왔어요'); }; r.readAsText(f, 'utf-8'); e.target.value = '';
+};
+
+/* 입력 */
+function markEdited() { if (isSample) { isSample = false; $('sampleNote').hidden = true; } }
+function update() {
+  const text = src.value; autosize();
+  last = E.analyze(text, baseYear(), { autoGP: $('autoGP').checked });
+  renderHL(text, last.spans); renderChecks(last); renderTable(last); renderSVG();
+}
+let tmr = 0;
+src.addEventListener('input', () => { markEdited(); clearTimeout(tmr); tmr = setTimeout(update, 140); });
+src.addEventListener('scroll', () => { hl.scrollTop = src.scrollTop; });
+$('ex1').onclick = () => { src.value = SAMPLE1; offsets = {}; dismissed.clear(); update(); };
+$('ex2').onclick = () => { src.value = SAMPLE2; offsets = {}; dismissed.clear(); update(); };
+$('clear').onclick = () => { src.value = ''; offsets = {}; dismissed.clear(); markEdited(); update(); src.focus(); };
+$('baseDate').addEventListener('change', update);
+$('autoGP').addEventListener('change', update);
+$('caseNo').addEventListener('input', () => { clearTimeout(tmr); tmr = setTimeout(renderSVG, 200); });
+let rz = 0; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { autosize(); if (zoom == null) renderSVG(); }, 150); });
+
+$('baseDate').value = today();
+src.value = SAMPLE1;
+update();
+window.__geno = { E, analyze: t => E.analyze(t, baseYear(), { autoGP: $('autoGP').checked }) };
+})();
+</script>
+</body>
+</html>
