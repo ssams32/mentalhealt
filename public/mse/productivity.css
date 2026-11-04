@@ -1,0 +1,45 @@
+.mse-tools-bar{display:flex;align-items:center;gap:6px;padding:7px 18px;border-bottom:1px solid var(--line);background:var(--tint);flex:0 0 auto;flex-wrap:wrap}
+.mse-tools-bar .tbtn{padding:4px 10px;font-size:.87rem}
+.mse-tools-help{margin-left:auto}
+dialog.mse-tools-dialog{width:min(820px,calc(100vw - 32px));max-width:820px;max-height:calc(100vh - 48px);padding:0;border:1px solid var(--line);border-radius:12px;color:var(--ink);background:var(--bg);box-shadow:0 12px 48px #0003}
+.mse-tools-dialog::backdrop{background:#13263c66}
+.mse-tools-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:16px 20px 12px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:2}
+.mse-tools-heading h2{margin:0;font-size:1.15rem}
+.mse-tools-tabs{display:flex;gap:4px;padding:12px 20px 0;flex-wrap:wrap}
+.mse-tools-tabs button{border-color:transparent;border-radius:5px 5px 0 0}
+.mse-tools-tabs [aria-selected=true]{color:var(--accent);background:var(--tint);border-bottom:3px solid var(--accent);font-weight:700}
+.mse-tools-pane{padding:16px 20px 10px}
+.mse-tools-hint{font-size:.86rem;line-height:1.6;color:var(--dim);margin:8px 0 14px}
+.mse-tools-field-label{display:block;font-weight:600;font-size:.94rem;margin-bottom:6px}
+.mse-tools-query{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+.mse-tools-count{font-size:.87rem;color:var(--dim);margin:12px 0 8px}
+.mse-tools-results{display:flex;flex-direction:column;gap:7px}
+.mse-tools-result{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:7px;background:var(--bg);overflow:hidden}
+.mse-tools-go{flex:1;min-width:0;display:flex;align-items:flex-start;flex-direction:column;gap:2px;text-align:left;border:0;background:transparent;padding:10px 12px;cursor:pointer;line-height:1.5}
+.mse-tools-go:hover{background:var(--tint)}
+.mse-tools-go strong{font-size:.97rem;overflow-wrap:anywhere}
+.mse-tools-path{font-size:.79rem;color:var(--dim);margin:0;line-height:1.5}
+.mse-tools-detail{font-size:.85rem;color:var(--dim);white-space:pre-line;overflow-wrap:anywhere}
+.mse-tools-pin{background:transparent;border:0;border-left:1px solid var(--line);min-width:50px;color:var(--dim);font-size:1.3rem;cursor:pointer}
+.mse-tools-pin[aria-pressed=true]{color:var(--accent);background:var(--tint)}
+.mse-tools-empty{margin:16px 0;padding:18px 12px;text-align:center;border:1px dashed var(--line);border-radius:7px;color:var(--dim);font-size:.93rem}
+.mse-tools-library-bar,.mse-tools-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.mse-tools-library-bar select{margin-right:auto;min-width:150px}
+.mse-tools-editor{padding:16px;border:1px solid var(--accent);border-radius:7px;margin:12px 0 18px;background:var(--tint)}
+.mse-tools-editor h3{margin:0 0 12px;font-size:1rem}
+.mse-tools-field{display:block;font-weight:600;font-size:.9rem;margin:10px 0}
+.mse-tools-field input,.mse-tools-field textarea,.mse-tools-field select{display:block;width:100%;margin-top:4px;font-weight:400}
+.mse-tools-field textarea{min-height:110px;line-height:1.65}
+.mse-tools-phrase{margin:10px 0;padding:14px;border:1px solid var(--line);border-radius:7px}
+.mse-tools-phrase:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.mse-tools-phrase h3{font-size:1rem;margin:0 0 3px;overflow-wrap:anywhere}
+.mse-tools-phrase-text{font-size:.94rem;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0 14px;max-height:220px;overflow:auto}
+.mse-tools-actions .tbtn{font-size:.83rem;padding:4px 9px}
+.mse-tools-actions button:disabled{opacity:.4;cursor:default}
+.mse-tools-key-list{display:grid;grid-template-columns:minmax(155px,.8fr) 1.2fr;gap:0;margin:0}
+.mse-tools-key-list dt,.mse-tools-key-list dd{margin:0;padding:10px 4px;border-bottom:1px solid var(--line);font-size:.9rem}
+.mse-tools-key-list dt{font-weight:600;color:var(--accent)}
+.mse-tools-status{position:sticky;bottom:0;background:var(--bg);font-size:.86rem;line-height:1.5;padding:10px 20px;color:var(--accent);border-top:1px solid var(--line);min-height:20px}
+.mse-tools-status:empty{padding:5px;border-top:0}
+.mse-tools-restore{margin:6px 0;color:var(--accent)}
+@media(max-width:720px){.mse-tools-bar{padding:7px 10px}.mse-tools-heading,.mse-tools-pane{padding:12px}.mse-tools-tabs{padding:10px 12px 0}.mse-tools-key-list{grid-template-columns:1fr}.mse-tools-key-list dt{border:0;padding-bottom:0}.mse-tools-help{margin-left:0}.mse-tools-library-bar select{width:100%;margin-right:0}}

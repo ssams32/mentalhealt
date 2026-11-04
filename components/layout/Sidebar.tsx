@@ -22,7 +22,8 @@ import {
     Home, // [New] Icon for Home
     PhoneCall, // [New] Icon for Voice Calls
     ClipboardList, // [Track B] Icon for Survey Management
-    GitBranch // Genogram icon
+    GitBranch, // Genogram icon
+    PenLine // MSE 보조도구 icon
 } from 'lucide-react';
 
 import { NotificationBell } from '../notifications/NotificationBell';
@@ -66,6 +67,7 @@ const PAGE_ICONS: Record<Page, React.ElementType> = {
     voiceCalls: PhoneCall,
     surveyManagement: ClipboardList,
     genogram: GitBranch,
+    mseAssistant: PenLine,
     //  officialDocuments: FileText,
 };
 
@@ -109,7 +111,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
 
                     {/* Navigation */}
                     <nav className="flex-1 px-3 space-y-1 overflow-y-auto custom-scrollbar">
-                        {(['home', 'referrals', 'suicideAttempters', 'caseAnalysis', 'voiceCalls', 'surveyManagement', 'genogram', 'data', 'reports', 'budget', 'assets', 'accounts'] as Page[]).filter(p => {
+                        {(['home', 'referrals', 'suicideAttempters', 'caseAnalysis', 'voiceCalls', 'surveyManagement', 'data', 'reports', 'budget', 'assets', 'accounts'] as Page[]).filter(p => {
                             if (p === 'accounts') return true;
                             if (p === 'caseAnalysis') return true; // 모든 실무 직원이 사례분석시스템 메뉴 접근 가능
                             if (p === 'voiceCalls') {
@@ -174,6 +176,28 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                                 </button>
                             )
                         })}
+
+                        {/* 엠히스 보조도구: MSE 보조도구 + 가계도 보조도구 */}
+                        <div className="pt-4 mt-3 border-t border-slate-100">
+                            <p className="px-4 pb-2 text-lg font-black text-slate-900">엠히스 보조도구</p>
+                            {(['mseAssistant', 'genogram'] as Page[]).map((page) => {
+                                const config = PAGES_CONFIG[page];
+                                const pageTitle = config?.title || '';
+                                const isActive = activePage === page;
+                                const IconComponent = PAGE_ICONS[page];
+                                return (
+                                    <button key={page} onClick={() => setActivePage(page)}
+                                        className={`w-full flex items-center justify-start px-4 py-3 ml-2 rounded-xl transition-all duration-200 group relative
+                                        ${isActive
+                                                ? 'bg-[var(--brand-light)] text-[var(--brand-primary)] font-bold shadow-sm'
+                                                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
+                                    >
+                                        <IconComponent size={20} className={`shrink-0 ${isActive ? 'text-[var(--brand-primary)]' : 'text-slate-400 group-hover:text-slate-600'}`} />
+                                        <span className="ml-3 text-sm truncate">{pageTitle}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
                     </nav>
 
                     {/* Footer / User Profile */}

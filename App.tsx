@@ -1084,7 +1084,16 @@ function App() {
                 return (
                     <iframe
                         src="/TalkFile.html"
-                        title="가계도 도구"
+                        title="가계도 보조도구"
+                        className="w-full h-full border-0"
+                        sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"
+                    />
+                );
+            case 'mseAssistant':
+                return (
+                    <iframe
+                        src="/mse/index.html"
+                        title="MSE 보조도구"
                         className="w-full h-full border-0"
                         sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"
                     />

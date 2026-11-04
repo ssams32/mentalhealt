@@ -99,12 +99,20 @@ export const PAGES_CONFIG: Record<string, PageConfig> = {
         activeText: 'text-white'
     },
     genogram: {
-        title: '가계도',
+        title: '가계도 보조도구',
         icon: 'fa-solid fa-diagram-project',
         color: 'text-cyan-600',
         bg: 'bg-cyan-50',
         activeBg: 'bg-cyan-100',
         activeText: 'text-cyan-700'
+    },
+    mseAssistant: {
+        title: 'MSE 보조도구',
+        icon: 'fa-solid fa-pen-line',
+        color: 'text-teal-600',
+        bg: 'bg-teal-50',
+        activeBg: 'bg-teal-100',
+        activeText: 'text-teal-700'
     }
     /*
         officialDocuments: {
