@@ -9,6 +9,7 @@ import ReferralFormModal from './ReferralFormModal';
 import DocumentAttachmentModal from '../common/document-modal/DocumentAttachmentModal';
 import FilePreviewModal from '../common/FilePreviewModal';
 import ReferralEditor from './ReferralEditor';
+import { compareReferralsByRequestDate } from './referralSort';
 
 // --- UI Helpers ---
 const getTeamColor = (team: string) => {
@@ -214,40 +215,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
 
                 return teamMatch && searchMatch && assigneeMatch && criMatch && statusMatch && dateMatch && pathMatch;
             })
-            .sort((a, b) => {
-                // 1. 종결 및 등록관리 완료 여부 최우선 판정 (완료된 건은 무조건 뒤로)
-                const aCompleted = Boolean(
-                    (a.closureStatus && a.closureStatus !== '미종결') ||
-                    (a.actionResult && (a.actionResult.includes('등록관리') || a.actionResult.includes('종결')))
-                );
-                const bCompleted = Boolean(
-                    (b.closureStatus && b.closureStatus !== '미종결') ||
-                    (b.actionResult && (b.actionResult.includes('등록관리') || b.actionResult.includes('종결')))
-                );
-
-                if (aCompleted !== bCompleted) {
-                    return aCompleted ? 1 : -1;
-                }
-
-                // 2. 미완료(진행중) 건들 중에서만: 미등록 의뢰 최우선 정렬
-                if (!aCompleted) {
-                    const isUnregA = Boolean(a.registrationStatus === '미등록' || a.isUnregistered === true);
-                    const isUnregB = Boolean(b.registrationStatus === '미등록' || b.isUnregistered === true);
-                    if (isUnregA !== isUnregB) {
-                        return isUnregA ? -1 : 1;
-                    }
-                }
-
-                // 3. 동일 그룹 내에서는 최신 의뢰 접수일자 순 (내림차순)
-                const dateA = a.requestDate ? new Date(a.requestDate).getTime() : 0;
-                const dateB = b.requestDate ? new Date(b.requestDate).getTime() : 0;
-                if (dateA !== dateB) return dateB - dateA;
-                
-                // 4. 날짜가 같으면 의뢰번호 내림차순
-                const refA = a.refNo || '';
-                const refB = b.refNo || '';
-                return refB.localeCompare(refA);
-            });
+            .sort(compareReferralsByRequestDate);
     }, [activeDataset, selectedTeam, searchTerm, assigneeSearch, criFilter, statusFilter, startDate, endDate, referralPathFilter, showNambu]);
 
     const activeReferral = useMemo(() =>
