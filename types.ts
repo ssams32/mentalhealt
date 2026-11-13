@@ -287,7 +287,7 @@ export interface CalendarEvent {
 }
 
 export type Page = 'home' | 'referrals' | 'suicideAttempters' | 'caseAnalysis' | 'data' | 'reports' | 'accounts' | 'calendar' | 'budget'
-    | 'aiNotepad' | 'assets' | 'antiGravity' | 'voiceCalls' | 'surveyManagement' | 'genogram' | 'mseAssistant';
+    | 'aiNotepad' | 'assets' | 'antiGravity' | 'voiceCalls' | 'surveyManagement' | 'genogram' | 'mseAssistant' | 'externalApi';
 
 export interface SurveyImportItem {
     internalImportId: string;
@@ -1177,3 +1177,80 @@ export type JoyCallCanonicalClassificationMethod =
 export type JoyCallLinkStatus =
     | 'unlinked'
     | 'linked';
+
+// ============================================================
+// External API Admin Types
+// ============================================================
+
+export interface ExternalApiConfig {
+    baseUrl?: string;
+    orgId?: string;
+    pollEnabled: boolean;
+    pollIntervalSeconds: number;
+    enabled: boolean;
+    disabledReason?: string | null;
+    mode: 'mock' | 'staging' | 'production';
+    pollInitialDelaySeconds?: number;
+    requestTimeoutMs?: number;
+    maxBatchSize?: number;
+    keyPresent: boolean;
+    keyFingerprint?: string | null;
+    apiKeyHeader?: string;
+    authScheme?: 'api-key' | 'bearer';
+    orgIdPlacement?: 'header' | 'query' | 'body';
+}
+
+export interface ExternalApiStatus {
+    lastSuccessfulSyncAt: string | null;
+    lastAttemptedSyncAt: string | null;
+    lastSyncStatus: 'success' | 'failed' | 'idle' | null;
+    lastSyncError: string | null;
+    syncInProgress: boolean;
+    receivedReferrals: number;
+    receivedAssessments: number;
+    skippedDuplicates: number;
+    failedCount: number;
+    nextScheduledAt: string | null;
+}
+
+export interface ExternalApiHistoryItem {
+    cycleId: string;
+    trigger: 'scheduled' | 'manual' | 'retry';
+    actorId: string;
+    startedAt: string;
+    finishedAt: string;
+    status: 'success' | 'failed';
+    received: number;
+    stored: number;
+    duplicates: number;
+    quarantined: number;
+    failed: number;
+    acked: number;
+    ackSkipped: number;
+    stopReason: string | null;
+    errors: Record<string, number>;
+    quarantinedDetails: Array<{
+        externalId: string;
+        kind: 'referral' | 'assessment';
+        reason: string;
+    }>;
+    failedExternalIds: string[];
+    lastErrorCode?: string | null;
+    lastSyncError?: string | null;
+}
+
+export interface ExternalApiTestResult {
+    success: boolean;
+    httpStatus: number;
+    latencyMs: number;
+    authPassed: boolean;
+    error: string | null;
+    testedAt: string;
+}
+
+export interface ExternalApiSyncJob {
+    jobId: string;
+    status: 'running' | 'completed' | 'failed';
+    summary: any | null;
+    error: string | null;
+}

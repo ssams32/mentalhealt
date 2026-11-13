@@ -23,7 +23,8 @@ import {
     PhoneCall, // [New] Icon for Voice Calls
     ClipboardList, // [Track B] Icon for Survey Management
     GitBranch, // Genogram icon
-    PenLine // MSE 보조도구 icon
+    PenLine, // MSE 보조도구 icon
+    Webhook // [New] Icon for External API Engine
 } from 'lucide-react';
 
 import { NotificationBell } from '../notifications/NotificationBell';
@@ -57,6 +58,7 @@ const PAGE_ICONS: Record<Page, React.ElementType> = {
     suicideAttempters: HeartPulse,
     caseAnalysis: FileSearch,
     data: Database,
+    externalApi: Webhook,
     reports: PieChart,
     accounts: UserCog,
     aiNotepad: FileText,
@@ -111,7 +113,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
 
                     {/* Navigation */}
                     <nav className="flex-1 px-3 space-y-1 overflow-y-auto custom-scrollbar">
-                        {(['home', 'referrals', 'suicideAttempters', 'caseAnalysis', 'voiceCalls', 'surveyManagement', 'data', 'reports', 'budget', 'assets', 'accounts'] as Page[]).filter(p => {
+                        {(['home', 'referrals', 'suicideAttempters', 'caseAnalysis', 'voiceCalls', 'surveyManagement', 'data', 'externalApi', 'reports', 'budget', 'assets', 'accounts'] as Page[]).filter(p => {
                             if (p === 'accounts') return true;
                             if (p === 'caseAnalysis') return true; // 모든 실무 직원이 사례분석시스템 메뉴 접근 가능
                             if (p === 'voiceCalls') {
@@ -131,7 +133,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                                     ? currentUser.permissions.includes('ONLINE_SURVEY_ACCESS')
                                     : isPermissionFlagGranted((currentUser.permissions as any)?.ONLINE_SURVEY_ACCESS);
                             }
-                            if (p === 'data') return currentUser.role === 'admin';
+                            if (p === 'data' || p === 'externalApi') return currentUser.role === 'admin';
                             return true;
                         }).map((page) => {
                             const config = PAGES_CONFIG[page];

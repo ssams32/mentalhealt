@@ -60,6 +60,7 @@ export const PAGES_CONFIG: Record<string, PageConfig> = {
     suicideAttempters: { title: '자살시도자', icon: 'fa-solid fa-heart-pulse', color: 'text-rose-500', bg: 'bg-rose-50', activeBg: 'bg-rose-100', activeText: 'text-rose-700' },
     caseAnalysis: { title: '사례 분석 시스템', icon: 'fa-solid fa-magnifying-glass-chart', color: 'text-purple-600', bg: 'bg-purple-50', activeBg: 'bg-purple-100', activeText: 'text-purple-700' },
     data: { title: '데이터 관리', icon: 'fa-solid fa-database', color: 'text-emerald-600', bg: 'bg-emerald-50', activeBg: 'bg-emerald-100', activeText: 'text-emerald-700' },
+    externalApi: { title: '홈페이지 API 연동', icon: 'fa-solid fa-plug', color: 'text-sky-600', bg: 'bg-sky-50', activeBg: 'bg-sky-100', activeText: 'text-sky-700' },
     reports: { title: '통계/보고서', icon: 'fa-solid fa-chart-pie', color: 'text-amber-500', bg: 'bg-amber-50', activeBg: 'bg-amber-100', activeText: 'text-amber-700' },
     voiceCalls: { title: '음성 전화 관리', icon: 'fa-solid fa-phone-volume', color: 'text-violet-600', bg: 'bg-violet-50', activeBg: 'bg-violet-100', activeText: 'text-violet-700' },
     surveyManagement: { title: '온라인 설문관리', icon: 'fa-solid fa-clipboard-list', color: 'text-teal-600', bg: 'bg-teal-50', activeBg: 'bg-teal-100', activeText: 'text-teal-700' },

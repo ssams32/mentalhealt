@@ -25,6 +25,7 @@ import AntiGravityDashboard from './components/antigravity/AntiGravityDashboard'
 import HomePage from './components/home/HomePage';
 import { CallAutomationPage } from './components/calls/CallAutomationPage';
 import { SurveyManagementPage } from './components/survey/SurveyManagementPage';
+import ExternalApiAdminPage from './components/externalApi/ExternalApiAdminPage';
 import AssetListPage from './components/assets/AssetListPage';
 // import OfficialDocumentPage from './components/officialDocuments/OfficialDocumentPage';
 
@@ -1065,6 +1066,36 @@ function App() {
                     }}
                     showToast={showToast}
                     refreshSidebarBadge={fetchSurveyStats}
+                />;
+            }
+            case 'externalApi': {
+                const isExternalApiPermitted = currentUser && currentUser.status === 'active' && currentUser.role === 'admin';
+
+                if (!isExternalApiPermitted) {
+                    setTimeout(() => {
+                        showToast('홈페이지 API 연동 기능에 접근할 권한이 없습니다.');
+                        setActivePage('home');
+                    }, 0);
+                    return (
+                        <div className="flex flex-col items-center justify-center h-full p-12 text-center bg-slate-50">
+                            <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mb-4 text-2xl font-bold">
+                                403
+                            </div>
+                            <h2 className="text-xl font-bold text-slate-800 mb-2">접근 권한 제한</h2>
+                            <p className="text-slate-500 text-sm mb-6">홈페이지 API 연동 관리자 화면은 관리자만 접근할 수 있습니다.</p>
+                            <button
+                                onClick={() => setActivePage('home')}
+                                className="px-5 py-2.5 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-700"
+                            >
+                                홈으로 돌아가기
+                            </button>
+                        </div>
+                    );
+                }
+
+                return <ExternalApiAdminPage
+                    currentUser={currentUser}
+                    showToast={showToast}
                 />;
             }
             case 'assets':

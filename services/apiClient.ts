@@ -1,4 +1,6 @@
-import { User, Log, Referral, SuicideAttempterReferral, ToDo, CalendarEvent, Note, ActivityLog, WebsiteReferralSummary } from '../types';
+import { User, Log, Referral, SuicideAttempterReferral, ToDo, CalendarEvent, Note, ActivityLog, WebsiteReferralSummary,
+    ExternalApiConfig, ExternalApiStatus, ExternalApiHistoryItem, ExternalApiTestResult, ExternalApiSyncJob
+} from '../types';
 
 import {
     IspAchievementYearlyResponse,
@@ -1012,6 +1014,43 @@ class ApiClient {
 
     // 호환성 유지용 빈 함수
     isAvailable(): boolean { return true; }
+
+    // External API Admin
+    async getExternalApiConfig(): Promise<ExternalApiConfig> {
+        return this.request<ExternalApiConfig>('/external-api/config');
+    }
+
+    async saveExternalApiConfig(patch: Partial<ExternalApiConfig>): Promise<{ success: boolean; config: ExternalApiConfig }> {
+        return this.request<{ success: boolean; config: ExternalApiConfig }>('/external-api/config', {
+            method: 'PUT',
+            body: JSON.stringify(patch)
+        });
+    }
+
+    async testExternalApiConnection(): Promise<ExternalApiTestResult> {
+        return this.request<ExternalApiTestResult>('/external-api/test-connection', { method: 'POST' });
+    }
+
+    async getExternalApiStatus(): Promise<ExternalApiStatus> {
+        return this.request<ExternalApiStatus>('/external-api/status');
+    }
+
+    async getExternalApiHistory(limit?: number): Promise<{ items: ExternalApiHistoryItem[]; total: number }> {
+        const query = limit ? `?limit=${limit}` : '';
+        return this.request<{ items: ExternalApiHistoryItem[]; total: number }>(`/external-api/history${query}`);
+    }
+
+    async triggerExternalApiSync(): Promise<{ success: boolean; jobId: string }> {
+        return this.request<{ success: boolean; jobId: string }>('/external-api/sync', { method: 'POST' });
+    }
+
+    async getExternalApiSyncJob(jobId: string): Promise<ExternalApiSyncJob> {
+        return this.request<ExternalApiSyncJob>(`/external-api/sync/${encodeURIComponent(jobId)}`);
+    }
+
+    async retryExternalApiHistoryItem(id: string): Promise<{ success: boolean }> {
+        return this.request<{ success: boolean }>(`/external-api/retry/${encodeURIComponent(id)}`, { method: 'POST' });
+    }
 }
 
 /**
