@@ -59,12 +59,13 @@ describe("Unit Tests: Key Validation & AES-256-GCM Encryption", () => {
 
     // Valid key
     assert.strictEqual(validateApiKeyFormat(VALID_SAMPLE_KEY), true);
+    assert.strictEqual(validateApiKeyFormat("a".repeat(8)), true);
     assert.strictEqual(validateApiKeyFormat("a".repeat(16)), true);
     assert.strictEqual(validateApiKeyFormat("a".repeat(512)), true);
 
     // Empty / short / too long
     assert.strictEqual(validateApiKeyFormat(""), false);
-    assert.strictEqual(validateApiKeyFormat("short-key-123"), false); // 13 chars (< 16)
+    assert.strictEqual(validateApiKeyFormat("a".repeat(7)), false); // 7 chars (< 8)
     assert.strictEqual(validateApiKeyFormat("a".repeat(513)), false); // > 512 chars
 
     // Whitespace / newlines
@@ -173,6 +174,42 @@ describe("Unit Tests: Key Validation & AES-256-GCM Encryption", () => {
       masterKey: TEST_DIFFERENT_MASTER_KEY_HEX,
     });
     assert.strictEqual(badLoad, null);
+
+    // File mode must be 0600
+    const stat = fs.statSync(filePath);
+    assert.strictEqual(stat.mode & 0o777, 0o600, "Encrypted file mode must be 0600");
+  });
+
+  test("4b. Encrypted file permission is restricted to 0600 on save and load", async () => {
+    const { saveEncryptedApiKey, loadEncryptedApiKey } = engineConfig;
+
+    await saveEncryptedApiKey(VALID_SAMPLE_KEY, {
+      dataDir: tempTestDir,
+      masterKey: TEST_MASTER_KEY_HEX,
+    });
+
+    const filePath = path.join(tempTestDir, "ExternalApiKey.enc.json");
+    assert.strictEqual(fs.statSync(filePath).mode & 0o777, 0o600, "Initial mode should be 0600");
+
+    // Simulate wider permissions (0660)
+    fs.chmodSync(filePath, 0o660);
+    assert.strictEqual(fs.statSync(filePath).mode & 0o777, 0o660);
+
+    // loadEncryptedApiKey should tighten mode back to 0600
+    const loaded = loadEncryptedApiKey({
+      dataDir: tempTestDir,
+      masterKey: TEST_MASTER_KEY_HEX,
+    });
+    assert.ok(loaded);
+    assert.strictEqual(fs.statSync(filePath).mode & 0o777, 0o600, "Load should tighten mode to 0600");
+
+    // Saving to an existing file with wider mode should also tighten to 0600
+    fs.chmodSync(filePath, 0o664);
+    await saveEncryptedApiKey("another-valid-key-8ch", {
+      dataDir: tempTestDir,
+      masterKey: TEST_MASTER_KEY_HEX,
+    });
+    assert.strictEqual(fs.statSync(filePath).mode & 0o777, 0o600, "Save should enforce 0600 on existing file");
   });
 
   test("5. deleteEncryptedApiKey deletes file and getEncryptedKeyMetadata reports existence", async () => {
@@ -261,6 +298,11 @@ describe("Integration & Route Tests: POST /key, DELETE /key, GET /config", () =>
     // Fake auth middleware for tests
     let reqCount = 0;
     const requireAuth = (req, res, next) => {
+      if (req.headers["x-unauthenticated"]) {
+        return res
+          .status(401)
+          .json({ error: { code: "UNAUTHORIZED", message: "인증이 필요합니다" } });
+      }
       const adminId = req.headers["x-test-admin-id"] || `admin_${Date.now()}_${++reqCount}`;
       req.auth = { userId: adminId, role: "admin" };
       next();
@@ -356,6 +398,30 @@ describe("Integration & Route Tests: POST /key, DELETE /key, GET /config", () =>
       body: JSON.stringify({ key: "a".repeat(513) }),
     });
     assert.strictEqual(res.status, 400);
+  });
+
+  test("8b. 8-char key is accepted (200), 7-char key is rejected with 400", async () => {
+    // 7-char key rejected
+    let res = await fetch(`${baseUrl}/key`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "1234567" }),
+    });
+    assert.strictEqual(res.status, 400);
+    let body = await res.json();
+    assert.strictEqual(body.error?.code, "INVALID_KEY_FORMAT");
+    assert.ok(body.error?.message.includes("8~512자"));
+
+    // 8-char key accepted
+    res = await fetch(`${baseUrl}/key`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "12345678" }),
+    });
+    assert.strictEqual(res.status, 200);
+    body = await res.json();
+    assert.strictEqual(body.success, true);
+    assert.strictEqual(body.keyPresent, true);
   });
 
   test("9. Full Lifecycle: Register key -> GET config (present + fp) -> Delete key -> GET config (absent)", async () => {
@@ -479,5 +545,54 @@ describe("Integration & Route Tests: POST /key, DELETE /key, GET /config", () =>
     assert.ok(res6.headers.get("retry-after"), "Should have Retry-After header");
     const body6 = await res6.json();
     assert.strictEqual(body6.error?.code, "RATE_LIMITED");
+  });
+
+  test("12. Master key rotation: keyDecryptFailed is true with mismatched master key and false when matching", async () => {
+    // 1. Register key with Master Key A
+    let res = await fetch(`${baseUrl}/key`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: VALID_SAMPLE_KEY }),
+    });
+    assert.strictEqual(res.status, 200);
+
+    // 2. Query GET /config with Master Key A -> keyDecryptFailed: false, keyPresent: true
+    res = await fetch(`${baseUrl}/config`);
+    assert.strictEqual(res.status, 200);
+    let config = await res.json();
+    assert.strictEqual(config.keyDecryptFailed, false);
+    assert.strictEqual(config.keyPresent, true);
+    assert.ok(config.keyFingerprint);
+
+    // 3. Switch to Master Key B (mismatched master key)
+    process.env.HOMEPAGE_KEY_ENCRYPTION_KEY = TEST_DIFFERENT_MASTER_KEY_HEX;
+
+    // 4. Query GET /config with Master Key B -> keyDecryptFailed: true, keyPresent: false, keyFingerprint: null
+    res = await fetch(`${baseUrl}/config`);
+    assert.strictEqual(res.status, 200);
+    config = await res.json();
+    assert.strictEqual(config.keyDecryptFailed, true);
+    assert.strictEqual(config.keyPresent, false);
+    assert.strictEqual(config.keyFingerprint, null);
+
+    // 5. Restore Master Key A -> keyDecryptFailed: false, keyPresent: true
+    process.env.HOMEPAGE_KEY_ENCRYPTION_KEY = TEST_MASTER_KEY_HEX;
+    res = await fetch(`${baseUrl}/config`);
+    assert.strictEqual(res.status, 200);
+    config = await res.json();
+    assert.strictEqual(config.keyDecryptFailed, false);
+    assert.strictEqual(config.keyPresent, true);
+  });
+
+  test("13. Unauthenticated request to /key returns 401", async () => {
+    const res = await fetch(`${baseUrl}/key`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-unauthenticated": "true",
+      },
+      body: JSON.stringify({ key: VALID_SAMPLE_KEY }),
+    });
+    assert.strictEqual(res.status, 401);
   });
 });

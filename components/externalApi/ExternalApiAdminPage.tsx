@@ -818,6 +818,19 @@ export const ExternalApiAdminPage: React.FC<ExternalApiAdminPageProps> = ({ curr
                                         </div>
                                     )}
 
+                                    {/* 저장된 키 복호화 실패 경고 안내 */}
+                                    {config?.keyDecryptFailed && (
+                                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 leading-relaxed flex items-start gap-2">
+                                            <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                                            <div>
+                                                <p className="font-bold text-amber-950">저장된 키를 열 수 없음</p>
+                                                <p className="mt-0.5 text-amber-800">
+                                                    저장된 키를 열 수 없습니다. 암호화 마스터 키가 바뀌었으면 키를 다시 입력해 주세요.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* 키 액션 결과 메시지 */}
                                     {keyMessage && (
                                         <div
@@ -851,7 +864,7 @@ export const ExternalApiAdminPage: React.FC<ExternalApiAdminPageProps> = ({ curr
                                                 placeholder={
                                                     config?.masterKeyConfigured === false
                                                         ? 'NAS에 암호화 마스터 키를 먼저 설정해야 합니다'
-                                                        : 'API 키 입력 (16~512자, 공백 불가)'
+                                                        : 'API 키 입력 (8~512자, 공백 불가)'
                                                 }
                                                 className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono disabled:bg-slate-100 disabled:text-slate-400"
                                             />

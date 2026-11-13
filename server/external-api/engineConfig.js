@@ -221,6 +221,8 @@ export function getEngineConfigSummary(
   keyFingerprint = null,
   extra = {},
 ) {
+  const keyDecryptFailed = Boolean(extra.keyDecryptFailed);
+  const effectiveFingerprint = keyDecryptFailed ? null : keyFingerprint;
   return {
     enabled: config.enabled !== false,
     baseUrl: config.baseUrl,
@@ -228,13 +230,14 @@ export function getEngineConfigSummary(
     mode: config.mode,
     pollEnabled: config.pollEnabled,
     pollIntervalSeconds: config.pollIntervalSeconds,
-    keyPresent: !!keyFingerprint,
-    keyFingerprint,
-    keyRegisteredAt: extra.keyRegisteredAt || null,
+    keyPresent: !keyDecryptFailed && !!effectiveFingerprint,
+    keyFingerprint: effectiveFingerprint,
+    keyRegisteredAt: keyDecryptFailed ? null : (extra.keyRegisteredAt || null),
     masterKeyConfigured:
       extra.masterKeyConfigured !== undefined
         ? extra.masterKeyConfigured
         : isMasterKeyConfigured(),
+    keyDecryptFailed,
     apiKeyHeader: config.apiKeyHeader,
     authScheme: config.authScheme,
     orgIdPlacement: config.orgIdPlacement,
@@ -496,7 +499,7 @@ export function decryptApiKeyString(payload, masterKeyBuffer) {
 export async function saveEncryptedApiKey(key, { dataDir, masterKey } = {}) {
   if (!validateApiKeyFormat(key)) {
     throw new HomepageIntegrationError({
-      message: "API 키 형식이 올바르지 않습니다 (16~512자, 공백 불가)",
+      message: "API 키 형식이 올바르지 않습니다 (8~512자, 공백 불가)",
       code: "INVALID_KEY_FORMAT",
       statusCode: 400,
     });
@@ -541,7 +544,15 @@ export async function saveEncryptedApiKey(key, { dataDir, masterKey } = {}) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // ignore
+  }
   return { success: true, updatedAt: now };
 }
 
@@ -555,6 +566,15 @@ export async function saveEncryptedApiKey(key, { dataDir, masterKey } = {}) {
 export function loadEncryptedApiKey({ dataDir, masterKey } = {}) {
   const filePath = getEncryptedKeyPath(dataDir);
   if (!fs.existsSync(filePath)) return null;
+
+  try {
+    const stat = fs.statSync(filePath);
+    if ((stat.mode & 0o077) !== 0 || (stat.mode & 0o111) !== 0) {
+      fs.chmodSync(filePath, 0o600);
+    }
+  } catch {
+    // ignore
+  }
 
   const keyBuffer =
     Buffer.isBuffer(masterKey) && masterKey.length === 32
@@ -679,14 +699,14 @@ export async function resolveApiKey(options = {}) {
 export const MOCK_API_KEY = "mock-homepage-key";
 
 /**
- * 키 검증 (형식만 — 16~512자, 공백/따옴표/URL/Bearer 금지)
+ * 키 검증 (형식만 — 8~512자, 공백/따옴표/URL/Bearer 금지)
  * @param {string} key
  * @returns {boolean}
  */
 export function validateApiKeyFormat(key) {
   return (
     typeof key === "string" &&
-    key.length >= 16 &&
+    key.length >= 8 &&
     key.length <= 512 &&
     !/[\s\n\r"']/.test(key) &&
     !/^https?:\/\//i.test(key) &&

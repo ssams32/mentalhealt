@@ -1197,6 +1197,7 @@ export interface ExternalApiConfig {
     keyFingerprint?: string | null;
     keyRegisteredAt?: string | null;
     masterKeyConfigured?: boolean;
+    keyDecryptFailed?: boolean;
     apiKeyHeader?: string;
     authScheme?: 'api-key' | 'bearer';
     orgIdPlacement?: 'header' | 'query' | 'body';

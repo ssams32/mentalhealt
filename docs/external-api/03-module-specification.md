@@ -290,7 +290,8 @@ startExternalApiEngine(externalApiEngine);
 
 - **키 저장 방식**: DATA_DIR 내 `ExternalApiKey.enc.json` 1개 파일에 AES-256-GCM 암호문으로 저장 (`{ version: 1, iv, tag, data }`). 평문 저장 절대 금지.
 - **마스터 키**: 환경변수 `HOMEPAGE_KEY_ENCRYPTION_KEY` (32바이트 hex/base64). 미설정 시 `POST /key`는 503 `KEY_ENCRYPTION_UNAVAILABLE` fail-closed 반환.
-- **우선순위**: env `HOMEPAGE_API_KEY` > 암호화 파일 (`ExternalApiKey.enc.json`) > `null`.
+- **우선순위**: Docker Secrets 파일(`/run/secrets/homepage_api_key` 또는 `HOMEPAGE_API_KEY_FILE`) > env `HOMEPAGE_API_KEY` > 암호화 파일(`ExternalApiKey.enc.json`) > `null`.
+- **키 형식 검증**: 8~512자, 공백/따옴표/URL/Bearer 접두사 금지. 위반 시 400 INVALID_KEY_FORMAT 반환.
 - **속도 제한**: 관리자당 분당 5회 (`POST /test-connection`과 동일).
 - **보안**: 키 평문은 어떤 GET 응답, 로그, 에러 메시지에도 절대 포함하지 않는다. 지문(SHA-256 앞 8자리)만 반환/표시.
 

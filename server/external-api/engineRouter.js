@@ -203,6 +203,7 @@ export function createExternalApiRouter(deps) {
         }
       }
 
+      let encryptedKeyExists = false;
       if (typeof engineConfig.getEncryptedKeyMetadata === "function") {
         const keyMeta = engineConfig.getEncryptedKeyMetadata({
           dataDir: deps.dataDir,
@@ -210,6 +211,13 @@ export function createExternalApiRouter(deps) {
         if (keyMeta?.updatedAt) {
           keyRegisteredAt = keyMeta.updatedAt;
         }
+        encryptedKeyExists = !!keyMeta?.exists;
+      }
+
+      const keyDecryptFailed = Boolean(encryptedKeyExists && !keyInfo);
+      if (keyDecryptFailed) {
+        keyFingerprint = null;
+        keyRegisteredAt = null;
       }
 
       const masterKeyConfigured =
@@ -220,7 +228,7 @@ export function createExternalApiRouter(deps) {
       const summary = engineConfig.getEngineConfigSummary(
         config,
         keyFingerprint,
-        { keyRegisteredAt, masterKeyConfigured },
+        { keyRegisteredAt, masterKeyConfigured, keyDecryptFailed },
       );
       res.json(summary);
     } catch (err) {
@@ -395,7 +403,7 @@ export function createExternalApiRouter(deps) {
         return res.status(400).json({
           error: {
             code: "INVALID_KEY_FORMAT",
-            message: "API 키 형식이 올바르지 않습니다 (16~512자, 공백 불가)",
+            message: "API 키 형식이 올바르지 않습니다 (8~512자, 공백 불가)",
           },
         });
       }
