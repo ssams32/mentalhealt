@@ -11,6 +11,11 @@ import {
   MOCK_API_KEY,
   getEngineConfigSummary,
   saveEngineSettings,
+  saveEncryptedApiKey,
+  deleteEncryptedApiKey,
+  getEncryptedKeyMetadata,
+  isMasterKeyConfigured,
+  validateApiKeyFormat,
 } from "./engineConfig.js";
 import {
   HomepageClient,
@@ -80,12 +85,13 @@ export async function createExternalApiEngine(deps) {
   let keyFingerprint = null;
 
   if (config.enabled !== false) {
-    const keyInfo = await resolveApiKey();
+    const keyInfo = await resolveApiKey({ dataDir });
 
     if (config.mode === "mock") {
       // Mock 모드에서는 환경변수 키로 진짜 HomepageClient 사용 (HTTP Mock 서버 호출)
       // 테스트에서 잘못된 키를 주면 401이 발생하도록 함
-      const mockApiKey = process.env.HOMEPAGE_API_KEY || MOCK_API_KEY;
+      const mockApiKey =
+        process.env.HOMEPAGE_API_KEY || (keyInfo ? keyInfo.key : MOCK_API_KEY);
       const baseClient = new HomepageClient({
         baseUrl: config.baseUrl || "http://localhost:9999",
         apiKey: mockApiKey,
@@ -112,7 +118,11 @@ export async function createExternalApiEngine(deps) {
         });
       };
       client = baseClient;
-      keyFingerprint = computeAuthFingerprint(mockApiKey);
+      keyFingerprint = keyInfo
+        ? computeAuthFingerprint(keyInfo.key)
+        : process.env.HOMEPAGE_API_KEY
+          ? computeAuthFingerprint(process.env.HOMEPAGE_API_KEY)
+          : null;
     } else if (keyInfo) {
       // Production/Staging: 실제 키 사용
       client = new HomepageClient({
@@ -179,6 +189,92 @@ export async function createExternalApiEngine(deps) {
   engineService.pollScheduler = pollScheduler;
   pollScheduler.setSyncHistory(syncHistory);
 
+  // 4. API 키 재로드 함수
+  const reloadApiKey = async () => {
+    const keyInfo = await resolveApiKey({ dataDir });
+
+    let currentConfig = config;
+    try {
+      currentConfig = loadEngineConfig({ getData, persistData, dataDir });
+    } catch {
+      // ignore
+    }
+
+    if (currentConfig.mode === "mock") {
+      const activeKey =
+        process.env.HOMEPAGE_API_KEY || (keyInfo ? keyInfo.key : MOCK_API_KEY);
+      if (client) {
+        client.apiKey = activeKey;
+      } else {
+        const baseClient = new HomepageClient({
+          baseUrl: currentConfig.baseUrl || "http://localhost:9999",
+          apiKey: activeKey,
+          apiKeyHeader: currentConfig.apiKeyHeader,
+          authScheme: currentConfig.authScheme,
+          orgId: currentConfig.orgId || "mock-org",
+          orgIdPlacement: currentConfig.orgIdPlacement,
+          timeoutMs: currentConfig.requestTimeoutMs,
+          maxBatchSize: currentConfig.maxBatchSize,
+        });
+        const originalAcknowledgeItem = baseClient.acknowledgeItem.bind(baseClient);
+        baseClient.acknowledgeItem = async function (externalId, { requestId }) {
+          const kind = externalId.includes("REF") ? "referral" : "assessment";
+          const safeId = baseClient._sanitizeId(externalId);
+          const ackPath =
+            kind === "referral"
+              ? ENDPOINT_PATHS.ACK_REFERRAL(safeId)
+              : ENDPOINT_PATHS.ACK_ASSESSMENT(safeId);
+          return baseClient._request(ackPath, {
+            method: "POST",
+            body: { requestId },
+            externalId,
+          });
+        };
+        client = baseClient;
+        engineService.updateClient(client);
+      }
+      keyFingerprint = keyInfo
+        ? computeAuthFingerprint(keyInfo.key)
+        : process.env.HOMEPAGE_API_KEY
+          ? computeAuthFingerprint(process.env.HOMEPAGE_API_KEY)
+          : null;
+    } else {
+      if (keyInfo) {
+        client = new HomepageClient({
+          baseUrl: currentConfig.baseUrl,
+          apiKey: keyInfo.key,
+          apiKeyHeader: currentConfig.apiKeyHeader,
+          authScheme: currentConfig.authScheme,
+          orgId: currentConfig.orgId,
+          orgIdPlacement: currentConfig.orgIdPlacement,
+          timeoutMs: currentConfig.requestTimeoutMs,
+          maxBatchSize: currentConfig.maxBatchSize,
+        });
+        keyFingerprint = computeAuthFingerprint(keyInfo.key);
+        currentConfig.enabled = true;
+        currentConfig.disabledReason = null;
+        engineService.updateClient(client);
+        engineService.config.enabled = true;
+        if (pollScheduler && currentConfig.pollEnabled) {
+          pollScheduler.stop();
+          pollScheduler.start();
+        }
+      } else {
+        client = null;
+        keyFingerprint = null;
+        currentConfig.enabled = false;
+        currentConfig.disabledReason = "API 키가 설정되지 않음";
+        engineService.updateClient(null);
+        engineService.config.enabled = false;
+        if (pollScheduler) {
+          pollScheduler.stop();
+        }
+      }
+    }
+
+    return { client, keyFingerprint };
+  };
+
   const engineRouter = createExternalApiRouter({
     requireAuth,
     requireAdmin,
@@ -189,8 +285,17 @@ export async function createExternalApiEngine(deps) {
       saveEngineSettings,
       getEngineConfigSummary,
       resolveApiKey,
+      saveEncryptedApiKey,
+      deleteEncryptedApiKey,
+      getEncryptedKeyMetadata,
+      isMasterKeyConfigured,
+      validateApiKeyFormat,
+      MOCK_API_KEY,
     },
     homepageClient: client,
+    getHomepageClient: () => client,
+    reloadApiKey,
+    dataDir: dataDir || process.env.DATA_DIR,
     auditLogger,
     getData,
     persistData,
@@ -202,6 +307,7 @@ export async function createExternalApiEngine(deps) {
     engineService,
     pollScheduler,
     engineRouter,
+    reloadApiKey,
     getData,
     persistData,
   };
@@ -236,6 +342,11 @@ export {
   saveEngineSettings,
   getEngineConfigSummary,
   resolveApiKey,
+  saveEncryptedApiKey,
+  deleteEncryptedApiKey,
+  getEncryptedKeyMetadata,
+  isMasterKeyConfigured,
+  validateApiKeyFormat,
   MOCK_API_KEY,
   validateHomepageBaseUrl,
   isValidHomepageBaseUrl,

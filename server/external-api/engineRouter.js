@@ -14,6 +14,7 @@ import {
 // 인메모리 속도 제한 카운터 (관리자 ID → 마지막 호출 시각 Map)
 const testConnectionRateLimit = new Map(); // 분당 5회
 const syncRateLimit = new Map(); // 관리자당 분당 2회 + 전역 10초
+const keyManagementRateLimit = new Map(); // 관리자당 분당 5회
 
 /**
  * 속도 제한 체크
@@ -178,23 +179,48 @@ export function createExternalApiRouter(deps) {
         }
       }
 
-      // API 키 지문 계산
+      // API 키 지문 및 등록 메타데이터 계산
       let keyFingerprint = null;
-      if (homepageClient?.apiKey) {
+      let keyRegisteredAt = null;
+
+      const keyInfo = await engineConfig.resolveApiKey({
+        dataDir: deps.dataDir,
+      });
+      if (keyInfo) {
         const { computeAuthFingerprint } = await import("./engineErrors.js");
-        keyFingerprint = computeAuthFingerprint(homepageClient.apiKey);
+        keyFingerprint = computeAuthFingerprint(keyInfo.key);
       } else {
-        // 키가 없으면 resolveApiKey로 확인
-        const keyInfo = await engineConfig.resolveApiKey();
-        if (keyInfo) {
+        const currentClient =
+          (typeof deps.getHomepageClient === "function"
+            ? deps.getHomepageClient()
+            : engineService?.client) || homepageClient;
+        if (
+          currentClient?.apiKey &&
+          currentClient.apiKey !== engineConfig.MOCK_API_KEY
+        ) {
           const { computeAuthFingerprint } = await import("./engineErrors.js");
-          keyFingerprint = computeAuthFingerprint(keyInfo.key);
+          keyFingerprint = computeAuthFingerprint(currentClient.apiKey);
         }
       }
+
+      if (typeof engineConfig.getEncryptedKeyMetadata === "function") {
+        const keyMeta = engineConfig.getEncryptedKeyMetadata({
+          dataDir: deps.dataDir,
+        });
+        if (keyMeta?.updatedAt) {
+          keyRegisteredAt = keyMeta.updatedAt;
+        }
+      }
+
+      const masterKeyConfigured =
+        typeof engineConfig.isMasterKeyConfigured === "function"
+          ? engineConfig.isMasterKeyConfigured()
+          : false;
 
       const summary = engineConfig.getEngineConfigSummary(
         config,
         keyFingerprint,
+        { keyRegisteredAt, masterKeyConfigured },
       );
       res.json(summary);
     } catch (err) {
@@ -279,7 +305,12 @@ export function createExternalApiRouter(deps) {
             });
         }
 
-        if (!homepageClient) {
+        const activeClient =
+          (typeof deps.getHomepageClient === "function"
+            ? deps.getHomepageClient()
+            : engineService?.client) || homepageClient;
+
+        if (!activeClient) {
           return res.status(409).json({
             error: {
               code: "ENGINE_DISABLED",
@@ -290,8 +321,8 @@ export function createExternalApiRouter(deps) {
 
         const startTime = Date.now();
         const [pingResult, capResult] = await Promise.all([
-          homepageClient.ping().catch(() => false),
-          homepageClient
+          activeClient.ping().catch(() => false),
+          activeClient
             .checkCapabilities()
             .catch(() => ({ valid: false, data: {} })),
         ]);
@@ -317,6 +348,156 @@ export function createExternalApiRouter(deps) {
       }
     },
   );
+
+  // ==========================================
+  // 4-1. POST /key — API 키 등록·변경 (관리자당 분당 5회)
+  // ==========================================
+  router.post("/key", verifyStateChangingOrigin, async (req, res) => {
+    try {
+      const adminId = req.auth?.userId || "unknown";
+      const rateLimit = checkRateLimit(
+        keyManagementRateLimit,
+        `key:${adminId}`,
+        5,
+        60000,
+      );
+      if (!rateLimit.allowed) {
+        return res
+          .set("Retry-After", rateLimit.retryAfter)
+          .status(429)
+          .json({
+            error: {
+              code: "RATE_LIMITED",
+              message: "API 키 관리는 분당 5회까지 가능합니다",
+            },
+          });
+      }
+
+      if (
+        typeof engineConfig.isMasterKeyConfigured === "function" &&
+        !engineConfig.isMasterKeyConfigured()
+      ) {
+        return res.status(503).json({
+          error: {
+            code: "KEY_ENCRYPTION_UNAVAILABLE",
+            message:
+              "암호화 마스터 키가 설정되지 않음 (HOMEPAGE_KEY_ENCRYPTION_KEY 필요)",
+          },
+        });
+      }
+
+      const { key } = req.body || {};
+      if (
+        !key ||
+        (typeof engineConfig.validateApiKeyFormat === "function" &&
+          !engineConfig.validateApiKeyFormat(key))
+      ) {
+        return res.status(400).json({
+          error: {
+            code: "INVALID_KEY_FORMAT",
+            message: "API 키 형식이 올바르지 않습니다 (16~512자, 공백 불가)",
+          },
+        });
+      }
+
+      // 암호화 파일에 저장
+      await engineConfig.saveEncryptedApiKey(key, { dataDir: deps.dataDir });
+
+      const { computeAuthFingerprint } = await import("./engineErrors.js");
+      const keyFingerprint = computeAuthFingerprint(key);
+
+      // 감사 이벤트 기록 (키 평문 절대 금지, 지문만 기록)
+      if (typeof auditLogger === "function") {
+        await auditLogger({
+          action: "EXTERNAL_API_KEY_REGISTERED",
+          actorUserId: adminId,
+          targetId: keyFingerprint.slice(0, 8),
+          result: "SUCCESS",
+        });
+      }
+
+      // 엔진 클라이언트 재로드
+      if (typeof deps.reloadApiKey === "function") {
+        await deps.reloadApiKey();
+      }
+
+      res.json({
+        success: true,
+        keyPresent: true,
+        keyFingerprint,
+      });
+    } catch (err) {
+      console.error("[EXTERNAL_API] POST /key error:", err);
+      if (err instanceof HomepageIntegrationError) {
+        return res
+          .status(err.statusCode)
+          .json({ error: { code: err.code, message: err.message } });
+      }
+      res
+        .status(500)
+        .json({ error: { code: "INTERNAL_ERROR", message: err.message } });
+    }
+  });
+
+  // ==========================================
+  // 4-2. DELETE /key — API 키 폐기 (관리자당 분당 5회)
+  // ==========================================
+  router.delete("/key", verifyStateChangingOrigin, async (req, res) => {
+    try {
+      const adminId = req.auth?.userId || "unknown";
+      const rateLimit = checkRateLimit(
+        keyManagementRateLimit,
+        `key:${adminId}`,
+        5,
+        60000,
+      );
+      if (!rateLimit.allowed) {
+        return res
+          .set("Retry-After", rateLimit.retryAfter)
+          .status(429)
+          .json({
+            error: {
+              code: "RATE_LIMITED",
+              message: "API 키 관리는 분당 5회까지 가능합니다",
+            },
+          });
+      }
+
+      if (typeof engineConfig.deleteEncryptedApiKey === "function") {
+        await engineConfig.deleteEncryptedApiKey({ dataDir: deps.dataDir });
+      }
+
+      // 감사 이벤트 기록
+      if (typeof auditLogger === "function") {
+        await auditLogger({
+          action: "EXTERNAL_API_KEY_DELETED",
+          actorUserId: adminId,
+          targetId: "ExternalApiKey",
+          result: "SUCCESS",
+        });
+      }
+
+      // 엔진 클라이언트 재로드
+      if (typeof deps.reloadApiKey === "function") {
+        await deps.reloadApiKey();
+      }
+
+      res.json({
+        success: true,
+        keyPresent: false,
+      });
+    } catch (err) {
+      console.error("[EXTERNAL_API] DELETE /key error:", err);
+      if (err instanceof HomepageIntegrationError) {
+        return res
+          .status(err.statusCode)
+          .json({ error: { code: err.code, message: err.message } });
+      }
+      res
+        .status(500)
+        .json({ error: { code: "INTERNAL_ERROR", message: err.message } });
+    }
+  });
 
   // ==========================================
   // 5. POST /sync — 수동 동기화 1회 실행 (202 + jobId 반환)

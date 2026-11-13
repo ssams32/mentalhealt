@@ -188,6 +188,16 @@ export const ENGINE_ERROR_CODES = {
     retryable: false,
     message: "재시도 3회 소진 → 수동 재처리 대기",
   },
+  KEY_ENCRYPTION_UNAVAILABLE: {
+    http: 503,
+    retryable: false,
+    message: "암호화 마스터 키가 설정되지 않음",
+  },
+  INVALID_KEY_FORMAT: {
+    http: 400,
+    retryable: false,
+    message: "API 키 형식이 올바르지 않음 (16~512자, 공백 불가)",
+  },
 };
 
 /**

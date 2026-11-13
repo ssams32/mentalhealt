@@ -1195,6 +1195,8 @@ export interface ExternalApiConfig {
     maxBatchSize?: number;
     keyPresent: boolean;
     keyFingerprint?: string | null;
+    keyRegisteredAt?: string | null;
+    masterKeyConfigured?: boolean;
     apiKeyHeader?: string;
     authScheme?: 'api-key' | 'bearer';
     orgIdPlacement?: 'header' | 'query' | 'body';

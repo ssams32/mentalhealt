@@ -23,7 +23,8 @@ import {
     Clock,
     RotateCcw,
     Loader2,
-    WifiOff
+    WifiOff,
+    Trash2
 } from 'lucide-react';
 
 interface ExternalApiAdminPageProps {
@@ -70,6 +71,12 @@ export const ExternalApiAdminPage: React.FC<ExternalApiAdminPageProps> = ({ curr
     const [activeJobId, setActiveJobId] = useState<string | null>(null);
     const [syncJobResult, setSyncJobResult] = useState<ExternalApiSyncJob | null>(null);
     const [syncError, setSyncError] = useState<string | null>(null);
+
+    // S3 인증키 입력/관리 상태
+    const [apiKeyInput, setApiKeyInput] = useState('');
+    const [isRegisteringKey, setIsRegisteringKey] = useState(false);
+    const [isDeletingKey, setIsDeletingKey] = useState(false);
+    const [keyMessage, setKeyMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
     // S7 재시도 상태
     const [retryingExternalId, setRetryingExternalId] = useState<string | null>(null);
@@ -228,6 +235,62 @@ export const ExternalApiAdminPage: React.FC<ExternalApiAdminPageProps> = ({ curr
             showToast?.(errMsg, 'error');
         } finally {
             setIsSavingConfig(false);
+        }
+    };
+
+    // ----------------------------------------------------
+    // S3 인증키 등록/변경 핸들러
+    // ----------------------------------------------------
+    const handleRegisterKey = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const keyToSubmit = apiKeyInput.trim();
+        // 제출 즉시 입력 state 클리어 (보안: 평문 키 즉시 폐기)
+        setApiKeyInput('');
+
+        if (isOffline || isRegisteringKey || !keyToSubmit) return;
+
+        setIsRegisteringKey(true);
+        setKeyMessage(null);
+
+        try {
+            await apiClient.registerExternalApiKey(keyToSubmit);
+            setKeyMessage({ text: 'API 키가 성공적으로 등록되었습니다.', type: 'success' });
+            showToast?.('API 키가 등록되었습니다.', 'success');
+            await fetchAllInitialData();
+        } catch (err: any) {
+            const errMsg = err?.message || 'API 키 등록 중 오류가 발생했습니다.';
+            setKeyMessage({ text: errMsg, type: 'error' });
+            showToast?.(errMsg, 'error');
+        } finally {
+            setIsRegisteringKey(false);
+        }
+    };
+
+    // ----------------------------------------------------
+    // S3 인증키 폐기 핸들러
+    // ----------------------------------------------------
+    const handleDeleteKey = async () => {
+        if (isOffline || isDeletingKey || !config?.keyPresent) return;
+
+        if (!window.confirm('등록된 API 키를 폐기하시겠습니까? 폐기 후 홈페이지 자동 수신이 중단됩니다.')) {
+            return;
+        }
+
+        setIsDeletingKey(true);
+        setKeyMessage(null);
+
+        try {
+            await apiClient.deleteExternalApiKey();
+            setApiKeyInput('');
+            setKeyMessage({ text: 'API 키가 성공적으로 폐기되었습니다.', type: 'success' });
+            showToast?.('API 키가 폐기되었습니다.', 'info');
+            await fetchAllInitialData();
+        } catch (err: any) {
+            const errMsg = err?.message || 'API 키 폐기 중 오류가 발생했습니다.';
+            setKeyMessage({ text: errMsg, type: 'error' });
+            showToast?.(errMsg, 'error');
+        } finally {
+            setIsDeletingKey(false);
         }
     };
 
@@ -698,13 +761,13 @@ export const ExternalApiAdminPage: React.FC<ExternalApiAdminPageProps> = ({ curr
                             </div>
                         </section>
 
-                        {/* S3. 인증키 정보 (읽기 전용 — 화면 입력 없음) */}
+                        {/* S3. 인증키 관리 (직접 입력·변경·폐기) */}
                         <section className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col justify-between">
                             <div>
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-2">
                                         <Key size={18} className="text-sky-600" />
-                                        <h3 className="text-base font-bold text-slate-800">인증키 상태</h3>
+                                        <h3 className="text-base font-bold text-slate-800">인증키 관리</h3>
                                     </div>
                                     <span
                                         className={`text-xs font-black px-2.5 py-0.5 rounded-full ${config?.keyPresent
@@ -717,39 +780,133 @@ export const ExternalApiAdminPage: React.FC<ExternalApiAdminPageProps> = ({ curr
                                 </div>
 
                                 <div className="space-y-3">
-                                    <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg">
+                                    {/* 키 상태 표시 (지문 8자, 등록 시각) */}
+                                    <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
                                         <div className="flex items-center justify-between text-xs">
                                             <span className="text-slate-500 font-medium">인증키 지문 (Fingerprint):</span>
                                             <span className="font-mono font-bold text-slate-800 bg-white px-2 py-0.5 border border-slate-200 rounded">
                                                 {config?.keyPresent && config.keyFingerprint
                                                     ? `${config.keyFingerprint.slice(0, 8)}...`
-                                                    : config?.keyPresent
-                                                        ? '설정됨'
-                                                        : '미등록'}
+                                                    : '미등록'}
                                             </span>
                                         </div>
-                                        <div className="mt-2 text-[11px] text-slate-400">
+                                        <div className="flex items-center justify-between text-xs">
+                                            <span className="text-slate-500 font-medium">등록 시각:</span>
+                                            <span className="text-slate-700 font-medium">
+                                                {config?.keyPresent && config.keyRegisteredAt
+                                                    ? new Date(config.keyRegisteredAt).toLocaleString('ko-KR')
+                                                    : config?.keyPresent
+                                                        ? '환경변수/파일 로드됨'
+                                                        : '-'}
+                                            </span>
+                                        </div>
+                                        <div className="text-[11px] text-slate-400">
                                             보안을 위해 인증키의 원문이나 길이는 화면에 표시되지 않으며, SHA-256 해시 지문의 앞 8자리만 표시됩니다.
                                         </div>
                                     </div>
 
-                                    <div className="p-3 bg-sky-50/70 border border-sky-100 rounded-lg text-xs text-sky-900 leading-relaxed">
-                                        <div className="flex items-start gap-2">
-                                            <ShieldCheck size={16} className="text-sky-600 shrink-0 mt-0.5" />
+                                    {/* 마스터 키 미설정 경고 안내 */}
+                                    {config?.masterKeyConfigured === false && (
+                                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 leading-relaxed flex items-start gap-2">
+                                            <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
                                             <div>
-                                                <p className="font-bold text-sky-950">인증키 등록 및 관리 안내</p>
-                                                <p className="mt-1 text-sky-800">
-                                                    인증키는 안전한 보안 관리를 위해 서버 환경(Docker Secrets 또는 환경변수 `HOMEPAGE_API_KEY`)을 통해서만 등록·교체됩니다. 키 변경이 완료되면 아래 <strong>[연결 테스트]</strong>를 실행하여 정상 인증 여부를 검증하세요.
+                                                <p className="font-bold text-amber-950">암호화 마스터 키 미설정</p>
+                                                <p className="mt-0.5 text-amber-800">
+                                                    NAS에 암호화 마스터 키를 먼저 설정해야 합니다. (환경변수 <code>HOMEPAGE_KEY_ENCRYPTION_KEY</code> 설정 필요)
                                                 </p>
                                             </div>
                                         </div>
-                                    </div>
+                                    )}
+
+                                    {/* 키 액션 결과 메시지 */}
+                                    {keyMessage && (
+                                        <div
+                                            className={`p-3 rounded-lg text-xs flex items-center gap-2 ${keyMessage.type === 'success'
+                                                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                                    : 'bg-rose-50 text-rose-800 border border-rose-200'
+                                                }`}
+                                        >
+                                            {keyMessage.type === 'success' ? (
+                                                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                                            ) : (
+                                                <XCircle size={16} className="text-rose-600 shrink-0" />
+                                            )}
+                                            <span>{keyMessage.text}</span>
+                                        </div>
+                                    )}
+
+                                    {/* 인증키 입력 폼 */}
+                                    <form onSubmit={handleRegisterKey} className="space-y-3 pt-1">
+                                        <div>
+                                            <label htmlFor="apiKeyInput" className="block text-xs font-bold text-slate-700 mb-1">
+                                                {config?.keyPresent ? '새 인증키 입력 (변경 시)' : '인증키 입력'}
+                                            </label>
+                                            <input
+                                                id="apiKeyInput"
+                                                type="password"
+                                                autoComplete="new-password"
+                                                value={apiKeyInput}
+                                                onChange={(e) => setApiKeyInput(e.target.value)}
+                                                disabled={config?.masterKeyConfigured === false || isRegisteringKey || isDeletingKey || isOffline}
+                                                placeholder={
+                                                    config?.masterKeyConfigured === false
+                                                        ? 'NAS에 암호화 마스터 키를 먼저 설정해야 합니다'
+                                                        : 'API 키 입력 (16~512자, 공백 불가)'
+                                                }
+                                                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono disabled:bg-slate-100 disabled:text-slate-400"
+                                            />
+                                        </div>
+
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="submit"
+                                                disabled={
+                                                    config?.masterKeyConfigured === false ||
+                                                    !apiKeyInput.trim() ||
+                                                    isRegisteringKey ||
+                                                    isDeletingKey ||
+                                                    isOffline
+                                                }
+                                                className="flex-1 px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                                            >
+                                                {isRegisteringKey ? (
+                                                    <>
+                                                        <Loader2 size={14} className="animate-spin" />
+                                                        {config?.keyPresent ? '변경 중...' : '등록 중...'}
+                                                    </>
+                                                ) : (
+                                                    config?.keyPresent ? '인증키 변경' : '인증키 등록'
+                                                )}
+                                            </button>
+
+                                            {config?.keyPresent && (
+                                                <button
+                                                    type="button"
+                                                    onClick={handleDeleteKey}
+                                                    disabled={isRegisteringKey || isDeletingKey || isOffline}
+                                                    className="px-3 py-2 border border-rose-300 text-rose-700 hover:bg-rose-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
+                                                >
+                                                    {isDeletingKey ? (
+                                                        <>
+                                                            <Loader2 size={14} className="animate-spin" />
+                                                            폐기 중...
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Trash2 size={13} />
+                                                            폐기
+                                                        </>
+                                                    )}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </form>
                                 </div>
                             </div>
 
                             <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
                                 <span>인증 방식: {config?.authScheme || 'api-key'} ({config?.apiKeyHeader || 'X-Api-Key'})</span>
-                                <span>화면 입력 불가 (서버 보안 정책)</span>
+                                <span>AES-256-GCM 암호화 보관</span>
                             </div>
                         </section>
                     </div>

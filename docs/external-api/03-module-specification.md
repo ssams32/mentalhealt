@@ -281,20 +281,18 @@ startExternalApiEngine(externalApiEngine);
 기존 `POST /api/pending-referrals/sync`·`POST /api/website-referrals/sync`는 스크레이퍼용 별칭이라
 엔진의 수동 동기화와 분리한다. `GET /api/surveys/sync-status`와도 겹치지 않는다.
 
-### 3-3. 키 관련 엔드포인트 — **결정 대기**
+### 3-3. 키 관련 엔드포인트 — **구현 완료 (2026-11-14 jun 확정)**
 
 | # | 메서드 | 경로 | 설명 |
 |---|---|---|---|
-| — | POST | `/api/external-api/key` | 인증키 등록·변경 (2번 트랙 설계) |
-| — | DELETE | `/api/external-api/key` | 인증키 폐기 (2번 트랙 설계, 선택) |
+| 13 | POST | `/api/external-api/key` | 인증키 등록·변경 (AES-256-GCM 암호화 파일 저장, 클라이언트 핫 리로드) |
+| 14 | DELETE | `/api/external-api/key` | 인증키 폐기 (암호화 파일 삭제, 클라이언트 재로드) |
 
-1·3번 트랙은 키를 env/Docker Secrets로만 관리하고 페이지에 키 입력 칸을 두지 않는 설계를 제안했다
-(상세는 `04-security-design.md` §2). 2번 트랙은 의뢰서 6절 "API 인증키 등록 및 변경"에 따라
-페이지에 비밀번호형 입력 칸을 설계했다. **권장안은 1·3번 트랙(화면 입력 없음, 지문 표시 + 연결 테스트만)**이다.
-이유: 웹 페이지에서 컨테이너 환경변수를 바꿀 수 없고(재시작 필요), 키를 웹 경로·설정 JSON 경유로 저장하면
-R1과 같은 평문 저장 함정이 생기며, 키가 HTTP 요청 본문·브라우저 기록에 남는다.
-키 교체는 NAS 운영 절차(새 키 발급 → Secrets 파일 원자적 교체 → 컨테이너 재시작 → 지문 변경 확인 + 연결 테스트)로 한다.
-jun이 "화면에서 입력하게 해줘"를 고르면 위 2개 엔드포인트를 추가한다.
+- **키 저장 방식**: DATA_DIR 내 `ExternalApiKey.enc.json` 1개 파일에 AES-256-GCM 암호문으로 저장 (`{ version: 1, iv, tag, data }`). 평문 저장 절대 금지.
+- **마스터 키**: 환경변수 `HOMEPAGE_KEY_ENCRYPTION_KEY` (32바이트 hex/base64). 미설정 시 `POST /key`는 503 `KEY_ENCRYPTION_UNAVAILABLE` fail-closed 반환.
+- **우선순위**: env `HOMEPAGE_API_KEY` > 암호화 파일 (`ExternalApiKey.enc.json`) > `null`.
+- **속도 제한**: 관리자당 분당 5회 (`POST /test-connection`과 동일).
+- **보안**: 키 평문은 어떤 GET 응답, 로그, 에러 메시지에도 절대 포함하지 않는다. 지문(SHA-256 앞 8자리)만 반환/표시.
 
 ---
 
@@ -377,8 +375,8 @@ jun이 "화면에서 입력하게 해줘"를 고르면 위 2개 엔드포인트�
 |---|---|---|
 | `getExternalApiConfig()` | `GET /api/external-api/config` | 설정 조회 |
 | `saveExternalApiConfig(patch)` | `PUT /api/external-api/config` | 설정 저장 (바뀐 필드만 보낸다) |
-| `registerExternalApiKey(key)` | `POST /api/external-api/key` | 키 등록·변경 (§3-3 결정 대기) |
-| `deleteExternalApiKey()` | `DELETE /api/external-api/key` | 키 폐기 (선택, §3-3 결정 대기) |
+| `registerExternalApiKey(key)` | `POST /api/external-api/key` | 키 등록·변경 (AES-256-GCM 암호화 파일) |
+| `deleteExternalApiKey()` | `DELETE /api/external-api/key` | 키 폐기 |
 | `testExternalApiConnection()` | `POST /api/external-api/test-connection` | 연결 테스트 |
 | `getExternalApiStatus()` | `GET /api/external-api/status` | 수신 상태 조회 |
 | `getExternalApiHistory(limit?)` | `GET /api/external-api/history?limit=` | 이력 조회 (기본 50) |

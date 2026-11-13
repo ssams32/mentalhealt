@@ -1027,6 +1027,19 @@ class ApiClient {
         });
     }
 
+    async registerExternalApiKey(key: string): Promise<{ success: boolean; keyPresent: boolean; keyFingerprint: string }> {
+        return this.request<{ success: boolean; keyPresent: boolean; keyFingerprint: string }>('/external-api/key', {
+            method: 'POST',
+            body: JSON.stringify({ key })
+        });
+    }
+
+    async deleteExternalApiKey(): Promise<{ success: boolean; keyPresent: boolean }> {
+        return this.request<{ success: boolean; keyPresent: boolean }>('/external-api/key', {
+            method: 'DELETE'
+        });
+    }
+
     async testExternalApiConnection(): Promise<ExternalApiTestResult> {
         return this.request<ExternalApiTestResult>('/external-api/test-connection', { method: 'POST' });
     }

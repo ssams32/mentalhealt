@@ -58,6 +58,14 @@ export class HomepageEngineService {
   }
 
   /**
+   * 클라이언트 인스턴스 갱신 (키 변경/재로드 시)
+   * @param {HomepageClient|null} newClient
+   */
+  updateClient(newClient) {
+    this.client = newClient;
+  }
+
+  /**
    * 엔진 상태 조회
    * @returns {object}
    */
