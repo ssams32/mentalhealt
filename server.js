@@ -54,6 +54,9 @@ import {
     SurveyAutoImportScheduler
 } from './server/survey/index.js';
 
+// --- Track C: External Homepage API Engine ---
+import { createExternalApiEngine, startExternalApiEngine } from './server/external-api/index.js';
+
 // --- In-App Internal Notifications ---
 import {
     InternalNotificationRepository,
@@ -874,12 +877,23 @@ const surveyImportRouter = createSurveyImportRouter({
     auditLogger: surveyAuditLogger
 });
 
+// Track C: External Homepage API Engine — 엔진 생성
+const externalApiEngine = await createExternalApiEngine({
+    getData,
+    persistData,
+    requireAuth,
+    requireAdmin,
+    auditLogger: referralAuditLogger,
+    dataDir: DATA_DIR,
+});
+
 const notificationRouter = createNotificationRouter({
     requireAuth,
     notificationRepository: internalNotificationRepository
 });
 
 app.use('/api/surveys', surveyImportRouter);
+app.use('/api/external-api', externalApiEngine.engineRouter);
 app.use('/api/notifications', notificationRouter);
 
 // 백업 대상 지정/실행 (대상은 BACKUP_TARGET_N_* 환경변수로만 등록됨)
@@ -893,6 +907,9 @@ backupService.startAutoBackupTimer();
 
 // Start autonomous background survey synchronization (60s initial delay, 5m cycle)
 surveyAutoImportScheduler.start();
+
+// Track C: External Homepage API Engine — 스케줄러 기동
+startExternalApiEngine(externalApiEngine);
 
 // Startup workflow recovery for pending deletions or lease reacquisition
 surveyImportService.recoverPendingWorkflows('startup_recovery').catch(err => {
