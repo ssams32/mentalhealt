@@ -200,7 +200,7 @@ export class SurveyImportRepository {
      * Sequence: lock -> latest read -> duplicate check -> append -> atomic persist -> unlock.
      * Guaranteed: Read is 100% inside the lock.
      */
-    async createCampaign({ code, companyName, purpose, startsAt = null, endsAt = null, actorId = 'system' }) {
+    async createCampaign({ code, companyName, purpose, startsAt = null, endsAt = null, selectedAssessments = ['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r'], actorId = 'system' }) {
         if (!code || typeof code !== 'string') {
             const err = new Error('캠페인 코드가 필요합니다.');
             err.code = SURVEY_ERROR_CODES.INVALID_CAMPAIGN_CODE;
@@ -244,6 +244,23 @@ export class SurveyImportRepository {
             throw err;
         }
 
+        // Validate selectedAssessments
+        if (!Array.isArray(selectedAssessments) || selectedAssessments.length === 0) {
+            const err = new Error('최소 1개 이상의 척도를 선택해 주세요.');
+            err.code = 'INVALID_REQUEST';
+            err.status = 400;
+            throw err;
+        }
+        const validAssessments = ['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r', 'cape-15', 'ces-d'];
+        for (const a of selectedAssessments) {
+            if (!validAssessments.includes(a)) {
+                const err = new Error(`알 수 없는 척도: ${a}`);
+                err.code = 'INVALID_REQUEST';
+                err.status = 400;
+                throw err;
+            }
+        }
+
         return await this._withCampaignLock(async () => {
             // 1. Read latest registry strictly inside mutex
             const list = this.getCampaigns();
@@ -266,6 +283,7 @@ export class SurveyImportRepository {
                 startsAt: startsAt || null,
                 endsAt: endsAt || null,
                 isActive: true,
+                selectedAssessments: selectedAssessments,
                 version: 1,
                 createdAt: now,
                 updatedAt: now
@@ -283,7 +301,8 @@ export class SurveyImportRepository {
                 details: {
                     code: canonicalCode,
                     companyName: newCampaign.companyName,
-                    purpose: newCampaign.purpose
+                    purpose: newCampaign.purpose,
+                    selectedAssessments: newCampaign.selectedAssessments
                 }
             });
 
@@ -365,6 +384,7 @@ export class SurveyImportRepository {
                 startsAt: updates.startsAt !== undefined ? updates.startsAt : existing.startsAt,
                 endsAt: updates.endsAt !== undefined ? updates.endsAt : existing.endsAt,
                 isActive: updates.isActive !== undefined ? Boolean(updates.isActive) : existing.isActive,
+                selectedAssessments: updates.selectedAssessments !== undefined ? updates.selectedAssessments : existing.selectedAssessments,
                 version: (Number(existing.version) || 1) + 1,
                 updatedAt: now
             };

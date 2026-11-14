@@ -160,6 +160,7 @@ export interface SurveyCampaignItem {
         registeredReferralCount: number;
         completedCount: number;
     };
+    selectedAssessments?: string[];
 }
 
 interface SurveyManagementPageProps {
@@ -352,7 +353,10 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         purpose: '',
         startsAt: '',
         endsAt: '',
-        isActive: true
+        isActive: true,
+        selectedAssessments: [
+            'phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r'
+        ]
     });
     const [campaignFormError, setCampaignFormError] = useState<string>('');
     const [isSavingCampaign, setIsSavingCampaign] = useState<boolean>(false);
@@ -1353,6 +1357,12 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             return;
         }
 
+        // Validate at least one assessment is selected
+        if (!campaignFormData.selectedAssessments || campaignFormData.selectedAssessments.length === 0) {
+            setCampaignFormError('최소 1개 이상의 척도를 선택해 주세요.');
+            return;
+        }
+
         try {
             setIsSavingCampaign(true);
             if (campaignFormMode === 'create') {
@@ -1362,7 +1372,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     purpose: campaignFormData.purpose.trim(),
                     startsAt: campaignFormData.startsAt || null,
                     endsAt: campaignFormData.endsAt || null,
-                    isActive: campaignFormData.isActive
+                    isActive: campaignFormData.isActive,
+                    selectedAssessments: campaignFormData.selectedAssessments
                 });
                 if (showToast) showToast('신규 캠페인이 등록되었습니다.', 'success');
             } else {
@@ -1371,7 +1382,8 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                     purpose: campaignFormData.purpose.trim(),
                     startsAt: campaignFormData.startsAt || null,
                     endsAt: campaignFormData.endsAt || null,
-                    isActive: campaignFormData.isActive
+                    isActive: campaignFormData.isActive,
+                    selectedAssessments: campaignFormData.selectedAssessments
                 });
                 if (showToast) showToast('캠페인 정보가 수정되었습니다.', 'success');
             }
@@ -1422,7 +1434,7 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             return;
         }
 
-        const url = buildCampaignDistributionUrl(campaign.code);
+        const url = buildCampaignDistributionUrl(campaign.code, undefined, campaign.selectedAssessments);
         if (!url) {
             if (showToast) showToast('캠페인 링크를 만들 수 없습니다. 설문 배포 주소(Track A)가 설정되지 않았습니다.', 'error');
             return;
@@ -5892,6 +5904,48 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                                 />
                                                 <span>캠페인 활성화</span>
                                             </label>
+                                        </div>
+                                    </div>
+
+                                    {/* Assessment Scales Selection */}
+                                    <div className="pt-2">
+                                        <label className="block text-xs font-bold text-slate-700 mb-2">
+                                            적용 척도 <span className="text-rose-500">*</span>
+                                        </label>
+                                        <p className="text-[11px] text-slate-500 mb-2">
+                                            최소 1개 이상 선택 필수. 기존 5개 척도(phq-9, gad-7, isi-k, bepsi-k, sbq-r)는 기본 선택됩니다.
+                                        </p>
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                            {[
+                                                { id: 'phq-9', label: 'PHQ-9 (우울)', items: 9 },
+                                                { id: 'gad-7', label: 'GAD-7 (불안)', items: 7 },
+                                                { id: 'isi-k', label: 'ISI-K (불면)', items: 7 },
+                                                { id: 'bepsi-k', label: 'BEPSI-K (스트레스)', items: 5 },
+                                                { id: 'sbq-r', label: 'SBQ-R (자살위험)', items: 4 },
+                                                { id: 'cape-15', label: 'CAPE-15 (정신병리)', items: 15 },
+                                                { id: 'ces-d', label: 'CES-D (우울역학)', items: 20 }
+                                            ].map(scale => (
+                                                <label
+                                                    key={scale.id}
+                                                    className="flex items-center gap-2 px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-indigo-300 hover:bg-indigo-50 transition"
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={campaignFormData.selectedAssessments?.includes(scale.id)}
+                                                        onChange={e => setCampaignFormData(f => ({
+                                                            ...f,
+                                                            selectedAssessments: e.target.checked
+                                                                ? [...(f.selectedAssessments || []), scale.id]
+                                                                : (f.selectedAssessments || []).filter(id => id !== scale.id)
+                                                        }))}
+                                                        className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                                    />
+                                                    <div className="flex flex-col">
+                                                        <span className="font-bold text-slate-800">{scale.label}</span>
+                                                        <span className="text-[10px] text-slate-400">{scale.items}문항</span>
+                                                    </div>
+                                                </label>
+                                            ))}
                                         </div>
                                     </div>
 

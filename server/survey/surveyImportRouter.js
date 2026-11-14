@@ -182,7 +182,7 @@ export function deriveAgeBand(contact, identity, referenceDateStr) {
 }
 
 /**
- * icheon-screening-23의 scaleScores에서 5개 척도별 severity 추출
+ * icheon-screening-23의 scaleScores에서 7개 척도별 severity 추출 (CAPE-15, CES-D 포함)
  * @param {object} assessment - assessment 객체
  * @returns {Record<string, string>}
  */
@@ -196,7 +196,7 @@ export function deriveScaleSeverities(assessment) {
     ].filter(Boolean);
 
     const result = {};
-    const targetScales = ['phq-9', 'gad-7', 'bepsi-k', 'sbq-r', 'isi-k'];
+    const targetScales = ['phq-9', 'gad-7', 'bepsi-k', 'sbq-r', 'isi-k', 'cape-15', 'ces-d'];
 
     for (const source of sources) {
         if (typeof source !== 'object') continue;
@@ -210,6 +210,8 @@ export function deriveScaleSeverities(assessment) {
                 else if (scale === 'isi-k') scaleData = source.isik || (source.isiLevel ? { severity: source.isiLevel } : null);
                 else if (scale === 'bepsi-k') scaleData = source.bepsik || source.bepsi;
                 else if (scale === 'sbq-r') scaleData = source.sbqr || source['sbq-r'];
+                else if (scale === 'cape-15') scaleData = source.cape15 || source['cape-15'];
+                else if (scale === 'ces-d') scaleData = source.cesd || source['ces-d'];
             }
             if (!scaleData) continue;
 
@@ -224,13 +226,30 @@ export function deriveScaleSeverities(assessment) {
                         label = score >= 7 ? '고위험군' : '저위험군';
                     }
                 }
+                if (!label && scale === 'cape-15' && (scaleData.riskFlag !== undefined || scaleData.frequencyMean !== undefined || scaleData.distressMean !== undefined)) {
+                    const freqMean = Number(scaleData.frequencyMean) || (scaleData.frequencySum ? scaleData.frequencySum / 15 : 0);
+                    const distressMean = Number(scaleData.distressMean) || (scaleData.distressSum ? scaleData.distressSum / 15 : 0);
+                    if (freqMean >= 1.47 || distressMean >= 1.47 || scaleData.riskFlag === true) {
+                        label = '추가 확인 권장';
+                    } else {
+                        label = '선별 기준점 미만';
+                    }
+                }
+                if (!label && scale === 'ces-d' && (scaleData.totalScore !== undefined || scaleData.score !== undefined || scaleData.riskFlag !== undefined)) {
+                    const score = Number(scaleData.totalScore ?? scaleData.score);
+                    if (!isNaN(score) && score >= 16 || scaleData.riskFlag === true) {
+                        label = '추가 확인 권장';
+                    } else {
+                        label = '선별 기준점 미만';
+                    }
+                }
             }
 
             if (label && typeof label === 'string' && label.trim()) {
                 result[scale] = label.trim();
             }
         }
-        if (Object.keys(result).length >= 5) break;
+        if (Object.keys(result).length >= 7) break;
     }
 
     return result;
@@ -1143,7 +1162,7 @@ export function createSurveyImportRouter(deps = {}) {
     // POST /api/surveys/campaigns - Create a new campaign with strict validation & mutex protection
     router.post('/campaigns', requireAuth, requireSurveyImportPermission, async (req, res) => {
         try {
-            const { code, companyName, purpose, startsAt, endsAt } = req.body || {};
+            const { code, companyName, purpose, startsAt, endsAt, selectedAssessments } = req.body || {};
             const actorId = req.auth?.id || req.auth?.userId || req.auth?.username || 'admin';
 
             if (!code || typeof code !== 'string') {
@@ -1186,12 +1205,31 @@ export function createSurveyImportRouter(deps = {}) {
                 });
             }
 
+            // Validate selectedAssessments if provided
+            if (selectedAssessments !== undefined) {
+                if (!Array.isArray(selectedAssessments) || selectedAssessments.length === 0) {
+                    return res.status(400).json({
+                        error: { code: 'INVALID_REQUEST', message: '최소 1개 이상의 척도를 선택해 주세요.' }
+                    });
+                }
+                // Validate all assessments are known
+                const validAssessments = ['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r', 'cape-15', 'ces-d'];
+                for (const a of selectedAssessments) {
+                    if (!validAssessments.includes(a)) {
+                        return res.status(400).json({
+                            error: { code: 'INVALID_REQUEST', message: `알 수 없는 척도: ${a}` }
+                        });
+                    }
+                }
+            }
+
             const created = await surveyRepository.createCampaign({
                 code: canonicalCode,
                 companyName: companyName.trim(),
                 purpose: purpose.trim(),
                 startsAt: startsAt || null,
                 endsAt: endsAt || null,
+                selectedAssessments: selectedAssessments || ['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r'],
                 actorId
             });
 
@@ -1238,6 +1276,24 @@ export function createSurveyImportRouter(deps = {}) {
                             message: '캠페인 코드는 수정할 수 없습니다 (코드 불변).'
                         }
                     });
+                }
+            }
+
+            // Validate selectedAssessments if provided
+            if (updates.selectedAssessments !== undefined) {
+                if (!Array.isArray(updates.selectedAssessments) || updates.selectedAssessments.length === 0) {
+                    return res.status(400).json({
+                        error: { code: 'INVALID_REQUEST', message: '최소 1개 이상의 척도를 선택해 주세요.' }
+                    });
+                }
+                // Validate all assessments are known
+                const validAssessments = ['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r', 'cape-15', 'ces-d'];
+                for (const a of updates.selectedAssessments) {
+                    if (!validAssessments.includes(a)) {
+                        return res.status(400).json({
+                            error: { code: 'INVALID_REQUEST', message: `알 수 없는 척도: ${a}` }
+                        });
+                    }
                 }
             }
 

@@ -38,13 +38,17 @@ export const SURVEY_ASSESSMENT_IDS = Object.freeze({
     ISI_K: 'isi-k',
     BEPSI_K: 'bepsi-k',
     SBQ_R: 'sbq-r',
+    CAPE_15: 'cape-15',
+    CES_D: 'ces-d',
     ICHEON_SCREENING_23: 'icheon-screening-23',
     CONTACT_ONLY: 'contact-only'
 });
 
 export const SURVEY_SCORING_POLICIES = Object.freeze({
     BEPSI_K_REVISED_QUARTILE_1_6_2_2: 'BEPSI_K_REVISED_QUARTILE_1_6_2_2',
-    SBQR_GENERAL_POPULATION_CUTOFF_7: 'SBQR_GENERAL_POPULATION_CUTOFF_7'
+    SBQR_GENERAL_POPULATION_CUTOFF_7: 'SBQR_GENERAL_POPULATION_CUTOFF_7',
+    CAPE_15_FREQUENCY_DISTRESS_MEAN: 'CAPE_15_FREQUENCY_DISTRESS_MEAN',
+    CES_D_REVERSE_4_8_12_16: 'CES_D_REVERSE_4_8_12_16'
 });
 
 export const TRACK_A_ASSESSMENT_QUESTION_COUNTS = Object.freeze({
@@ -52,9 +56,14 @@ export const TRACK_A_ASSESSMENT_QUESTION_COUNTS = Object.freeze({
     'gad-7': 7,
     'isi-k': 7,
     'bepsi-k': 5,
-    'sbq-r': 4
+    'sbq-r': 4,
+    'cape-15': 15,
+    'ces-d': 20
 });
-export const TRACK_A_TOTAL_QUESTION_COUNT = 32;
+// Use dynamic calculation instead of hardcoded total
+export function getTrackATotalQuestionCount() {
+    return Object.values(TRACK_A_ASSESSMENT_QUESTION_COUNTS).reduce((sum, count) => sum + count, 0);
+}
 
 // Official SBQ-R optionId score matrices (Q1: 6 opts, Q2: 5 opts, Q3: 5 opts, Q4: 7 opts)
 export const SBQR_OFFICIAL_OPTION_SCORES = Object.freeze({

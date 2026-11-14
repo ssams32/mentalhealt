@@ -534,7 +534,7 @@ export class SurveyImportService {
                 // [E2E_STEP 05/14] 동의 검증 (Schema, Consent, and Allowlist Validation)
                 let validationResult;
                 try {
-                    validationResult = this.validator.validate(payload);
+                    validationResult = await this.validator.validate(payload);
                     console.log(`✅ [E2E_STEP 05/14] 동의 검증: 성공 (필수 동의 2종 확인, allowlist 검증 완료, assessmentId=${payload.assessmentId})`);
                     await this.repository.recordWorkflowStep({
                         submissionId: subId,
