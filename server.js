@@ -750,7 +750,8 @@ const surveyDecryptionService = new SurveyDecryptionService({
 });
 
 const surveyPayloadValidator = new SurveyPayloadValidator({
-    sbqrApproved: process.env.SBQR_GATE_APPROVED === 'true'
+    sbqrApproved: process.env.SBQR_GATE_APPROVED === 'true',
+    getCampaign: (code) => surveyRepository.findCampaignByCode(code)
 });
 
 const surveyAssignmentRepository = new SurveyAssignmentRepository({

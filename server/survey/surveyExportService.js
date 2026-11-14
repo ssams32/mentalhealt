@@ -54,8 +54,15 @@ export function extractScaleScore(assessment, targetId) {
         'gad-7': ['gad-7', 'gad7', 'gad'],
         'isi-k': ['isi-k', 'isik', 'isi'],
         'bepsi-k': ['bepsi-k', 'bepsik', 'bepsi'],
-        'sbq-r': ['sbq-r', 'sbqr']
+        'sbq-r': ['sbq-r', 'sbqr'],
+        'cape-15': ['cape-15', 'cape15', 'cape'],
+        'ces-d': ['ces-d', 'cesd', 'ces']
     };
+
+    // CAPE-15 uses frequencyMean/distressMean as primary indicators
+    // CES-D uses totalScore as primary indicator
+    const cape15Keys = ['frequencyMean', 'distressMean', 'totalScore', 'total', 'meanScore', 'score'];
+    const cesdKeys = ['totalScore', 'total', 'meanScore', 'score'];
     const keys = keyMap[targetId] || [targetId];
 
     for (const source of sources) {
@@ -68,10 +75,25 @@ export function extractScaleScore(assessment, targetId) {
                 return keys.includes(id);
             });
             if (found) {
-                const v = found.totalScore ?? found.total ?? found.meanScore ?? found.score;
-                if (v !== undefined && v !== null) {
-                    if (typeof v === 'number' && !Number.isNaN(v)) return v;
-                    if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v);
+                // Special handling for CAPE-15 and CES-D
+                if (targetId === 'cape-15') {
+                    const v = found.frequencyMean ?? found.distressMean ?? found.totalScore ?? found.total ?? found.meanScore ?? found.score;
+                    if (v !== undefined && v !== null) {
+                        if (typeof v === 'number' && !Number.isNaN(v)) return v;
+                        if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v);
+                    }
+                } else if (targetId === 'ces-d') {
+                    const v = found.totalScore ?? found.total ?? found.meanScore ?? found.score;
+                    if (v !== undefined && v !== null) {
+                        if (typeof v === 'number' && !Number.isNaN(v)) return v;
+                        if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v);
+                    }
+                } else {
+                    const v = found.totalScore ?? found.total ?? found.meanScore ?? found.score;
+                    if (v !== undefined && v !== null) {
+                        if (typeof v === 'number' && !Number.isNaN(v)) return v;
+                        if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v);
+                    }
                 }
             }
             continue;
@@ -84,7 +106,14 @@ export function extractScaleScore(assessment, targetId) {
                     return entry;
                 }
                 if (typeof entry === 'object') {
-                    const v = entry.totalScore ?? entry.total ?? entry.meanScore ?? entry.score;
+                    let v;
+                    if (targetId === 'cape-15') {
+                        v = entry.frequencyMean ?? entry.distressMean ?? entry.totalScore ?? entry.total ?? entry.meanScore ?? entry.score;
+                    } else if (targetId === 'ces-d') {
+                        v = entry.totalScore ?? entry.total ?? entry.meanScore ?? entry.score;
+                    } else {
+                        v = entry.totalScore ?? entry.total ?? entry.meanScore ?? entry.score;
+                    }
                     if (v !== undefined && v !== null) {
                         if (typeof v === 'number' && !Number.isNaN(v)) return v;
                         if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v);
@@ -116,7 +145,9 @@ export class SurveyExportService {
             '불안(GAD-7)',
             '수면(ISI-K)',
             '스트레스(BEPSI-K)',
-            '자살위험(SBQ-R)'
+            '자살위험(SBQ-R)',
+            '정신병리(CAPE-15)',
+            '우울역학(CES-D)'
         ];
 
         const rows = [];
@@ -124,7 +155,7 @@ export class SurveyExportService {
             // 1인 1행 집계: 동일인(personKey)별로 묶고,
             // 5개 점수 컬럼은 각 검사의 최신 submission의 assessment.totalScore로 채운다.
             // 응시하지 않은 검사는 '-' 유지.
-            const ASSESSMENT_COLUMNS = ['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r'];
+            const ASSESSMENT_COLUMNS = ['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r', 'cape-15', 'ces-d'];
 
             const digitsOf = (v) => String(v || '').replace(/\D/g, '');
             const personKeyOf = (item, index) => {
@@ -159,7 +190,9 @@ export class SurveyExportService {
                         'gad-7': ['gad7', 'gad'],
                         'isi-k': ['isik', 'isi'],
                         'bepsi-k': ['bepsik', 'bepsi'],
-                        'sbq-r': ['sbqr']
+                        'sbq-r': ['sbqr'],
+                        'cape-15': ['cape15', 'cape'],
+                        'ces-d': ['cesd', 'ces']
                     };
                     const keys = keyMap[targetId] || [];
                     for (const k of keys) {
@@ -181,7 +214,9 @@ export class SurveyExportService {
                     'gad-7': ['gad7', 'gad'],
                     'isi-k': ['isik', 'isi'],
                     'bepsi-k': ['bepsik', 'bepsi'],
-                    'sbq-r': ['sbqr']
+                    'sbq-r': ['sbqr'],
+                    'cape-15': ['cape15', 'cape'],
+                    'ces-d': ['cesd', 'ces']
                 };
                 const dKeys = directMap[targetId] || [];
                 for (const k of dKeys) {
@@ -257,7 +292,9 @@ export class SurveyExportService {
             { wch: 8 },  // 불안(GAD-7)
             { wch: 8 },  // 수면(ISI-K)
             { wch: 8 },  // 스트레스(BEPSI-K)
-            { wch: 8 }   // 자살위험(SBQ-R)
+            { wch: 8 },  // 자살위험(SBQ-R)
+            { wch: 8 },  // 정신병리(CAPE-15)
+            { wch: 8 }   // 우울역학(CES-D)
         ];
         ws['!cols'] = colWidths;
 

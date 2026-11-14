@@ -265,11 +265,13 @@ export class SurveyPayloadValidator {
     /**
      * @param {Object} [options]
      * @param {boolean} [options.sbqrApproved]
+     * @param {Function} [options.getCampaign] - Async function(code) -> campaign object with selectedAssessments
      */
     constructor(options = {}) {
         this.sbqrApproved = options.sbqrApproved !== undefined
             ? options.sbqrApproved
             : (process.env.SBQR_GATE_APPROVED === 'true');
+        this.getCampaign = options.getCampaign || null;
     }
 
     /**
@@ -696,11 +698,11 @@ export class SurveyPayloadValidator {
 
     /**
      * Validate decrypted payload and check consent and fieldset conformance.
-     * 
+     *
      * @param {Object} payload
      * @returns {{ valid: boolean, isSbqrQuarantined: boolean, quarantineReason?: string }}
      */
-    validate(payload) {
+    async validate(payload) {
         if (!payload || typeof payload !== 'object') {
             throw new SurveyOperationError(
                 SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
@@ -876,7 +878,10 @@ export class SurveyPayloadValidator {
                 }
             }
 
-            // 8. Scale-Specific Validation for the 5 Contract Assessments
+            // 8. Campaign Scale Validation - Verify submitted scales are within campaign's selectedAssessments
+            await this._validateCampaignScales(payload);
+
+            // 9. Scale-Specific Validation for the 5 Contract Assessments
             this._validateScaleSpecificPayload(assessmentId, payload);
         }
 
@@ -891,6 +896,89 @@ export class SurveyPayloadValidator {
             quarantineReason: null,
             campaignCodeMetadata: campaignMeta
         };
+    }
+
+    /**
+     * Validate that submitted scales are within the campaign's selectedAssessments.
+     * Uses quarantine pattern similar to SBQ-R gate.
+     * @private
+     */
+    async _validateCampaignScales(payload) {
+        const campaignMeta = payloadCampaignMetadataMap.get(payload);
+        if (!campaignMeta || !campaignMeta.code || campaignMeta.status !== 'VALID') {
+            // No valid campaign code - no scale validation needed
+            return;
+        }
+
+        if (!this.getCampaign) {
+            // No campaign fetch function available - skip validation (legacy behavior)
+            return;
+        }
+
+        try {
+            const campaign = await this.getCampaign(campaignMeta.code);
+            if (!campaign || !Array.isArray(campaign.selectedAssessments) || campaign.selectedAssessments.length === 0) {
+                // Legacy campaign with no selectedAssessments - use default 5 scales
+                const defaultScales = ['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r'];
+                this._checkScalesAgainstAllowed(payload, defaultScales, `campaign ${campaignMeta.code} (legacy, no selectedAssessments)`);
+                return;
+            }
+
+            // Validate against campaign's selectedAssessments
+            this._checkScalesAgainstAllowed(payload, campaign.selectedAssessments, `campaign ${campaignMeta.code}`);
+        } catch (err) {
+            // Only fall back on network/fetch errors, NOT validation errors
+            if (err instanceof SurveyOperationError && err.code === SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA) {
+                throw err; // Re-throw validation errors
+            }
+            // If campaign fetch fails, fall back to default 5 scales for backward compatibility
+            const defaultScales = ['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r'];
+            this._checkScalesAgainstAllowed(payload, defaultScales, `campaign ${campaignMeta.code} (fetch failed, fallback)`);
+        }
+    }
+
+    /**
+     * Check submitted scales against allowed scale list.
+     * Extracts scales from assessmentId (if it's a scale code) and scaleScores keys.
+     * Throws if any scale is not in allowedScales.
+     * @private
+     */
+    _checkScalesAgainstAllowed(payload, allowedScales, context) {
+        const submittedScales = new Set();
+
+        // Add assessmentId if present AND it's a scale code (not a special assessment type)
+        // Special assessment types like 'icheon-screening-23', 'contact-only' are not individual scales
+        const specialAssessmentTypes = ['icheon-screening-23', 'contact-only'];
+        if (payload.assessmentId && !specialAssessmentTypes.includes(payload.assessmentId.toLowerCase())) {
+            submittedScales.add(payload.assessmentId.toLowerCase());
+        }
+
+        // Extract scales from assessment.scaleScores / assessment.scales
+        const assessment = payload.assessment || {};
+        const scaleScores = assessment.scaleScores || assessment.scales;
+        if (scaleScores && typeof scaleScores === 'object') {
+            for (const key of Object.keys(scaleScores)) {
+                submittedScales.add(key.toLowerCase());
+            }
+        }
+
+        // Also check payload.scaleScores (normalized form)
+        if (payload.scaleScores && typeof payload.scaleScores === 'object') {
+            for (const key of Object.keys(payload.scaleScores)) {
+                submittedScales.add(key.toLowerCase());
+            }
+        }
+
+        // Validate each submitted scale against allowed list
+        const allowedSet = new Set(allowedScales.map(s => s.toLowerCase()));
+        for (const scale of submittedScales) {
+            if (!allowedSet.has(scale)) {
+                throw new SurveyOperationError(
+                    SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                    `Scale "${scale}" submitted but not allowed by ${context}. Allowed scales: ${allowedScales.join(', ')}`
+                );
+            }
+        }
     }
 
     /**
@@ -911,9 +999,13 @@ export class SurveyPayloadValidator {
             this._validateGad7(assessment, responses);
         } else if (assessmentId === SURVEY_ASSESSMENT_IDS.ISI_K) {
             this._validateIsiK(assessment, responses);
+        } else if (assessmentId === SURVEY_ASSESSMENT_IDS.CAPE_15) {
+            this._validateCape15(payload, assessment, responses);
+        } else if (assessmentId === SURVEY_ASSESSMENT_IDS.CES_D) {
+            this._validateCesD(payload, assessment, responses);
         }
 
-        // Validate nested 5-scale scores if present in scaleScores object
+        // Validate nested scale scores if present in scaleScores object
         const nestedScales = assessment.scaleScores || assessment.scales;
         if (nestedScales && typeof nestedScales === 'object') {
             const bepsiObj = nestedScales.bepsik || nestedScales['bepsi-k'];
@@ -935,6 +1027,14 @@ export class SurveyPayloadValidator {
             const isiObj = nestedScales.isik || nestedScales['isi-k'];
             if (isiObj && typeof isiObj === 'object') {
                 this._validateIsiK(isiObj, isiObj.responses || isiObj.answers);
+            }
+            const capeObj = nestedScales['cape-15'] || nestedScales.cape15;
+            if (capeObj && typeof capeObj === 'object') {
+                this._validateCape15(capeObj, capeObj, capeObj.responses || capeObj.answers);
+            }
+            const cesdObj = nestedScales['ces-d'] || nestedScales.cesd;
+            if (cesdObj && typeof cesdObj === 'object') {
+                this._validateCesD(cesdObj, cesdObj, cesdObj.responses || cesdObj.answers);
             }
         }
     }
@@ -1245,6 +1345,135 @@ export class SurveyPayloadValidator {
             }
             if (assessment.totalScore === undefined) {
                 assessment.totalScore = sum;
+            }
+        }
+    }
+
+    /**
+     * CAPE-15 Validation:
+     * - 15 items with frequency (0-3) and distress (0-3) each
+     * - frequencySum: 0-45, distressSum: 0-45
+     * - frequencyMean = frequencySum / 15, distressMean = distressSum / 15
+     * - Both means should be in 0-3 range
+     * - Threshold: frequencyMean >= 1.47 OR distressMean >= 1.47 -> flag
+     */
+    _validateCape15(payload, assessment, responses) {
+        const scoringPolicy = payload.scoringPolicyId || assessment.scoringPolicyId;
+        if (scoringPolicy && scoringPolicy !== SURVEY_SCORING_POLICIES.CAPE_15_FREQUENCY_DISTRESS_MEAN) {
+            throw new SurveyOperationError(
+                SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                `Invalid CAPE-15 scoringPolicyId: ${scoringPolicy}`
+            );
+        }
+
+        if (Array.isArray(responses) && responses.length === 15) {
+            let frequencySum = 0;
+            let distressSum = 0;
+            for (let i = 0; i < 15; i++) {
+                const item = responses[i];
+                if (!item || typeof item !== 'object') {
+                    throw new SurveyOperationError(
+                        SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                        `CAPE-15 response ${i + 1} must be an object with frequency and distress`
+                    );
+                }
+                const frequency = typeof item.frequency === 'number' ? item.frequency : null;
+                const distress = typeof item.distress === 'number' ? item.distress : null;
+
+                if (frequency === null || frequency < 0 || frequency > 3 || !Number.isInteger(frequency)) {
+                    throw new SurveyOperationError(
+                        SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                        `CAPE-15 response ${i + 1} frequency must be an integer between 0 and 3 (got ${frequency})`
+                    );
+                }
+                if (distress === null || distress < 0 || distress > 3 || !Number.isInteger(distress)) {
+                    throw new SurveyOperationError(
+                        SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                        `CAPE-15 response ${i + 1} distress must be an integer between 0 and 3 (got ${distress})`
+                    );
+                }
+                frequencySum += frequency;
+                distressSum += distress;
+            }
+
+            if (frequencySum < 0 || frequencySum > 45) {
+                throw new SurveyOperationError(
+                    SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                    `CAPE-15 frequencySum must be between 0 and 45 (got ${frequencySum})`
+                );
+            }
+            if (distressSum < 0 || distressSum > 45) {
+                throw new SurveyOperationError(
+                    SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                    `CAPE-15 distressSum must be between 0 and 45 (got ${distressSum})`
+                );
+            }
+
+            const frequencyMean = frequencySum / 15;
+            const distressMean = distressSum / 15;
+
+            // Auto-populate if not provided
+            if (assessment.frequencySum === undefined) assessment.frequencySum = frequencySum;
+            if (assessment.distressSum === undefined) assessment.distressSum = distressSum;
+            if (assessment.frequencyMean === undefined) assessment.frequencyMean = frequencyMean;
+            if (assessment.distressMean === undefined) assessment.distressMean = distressMean;
+
+            // Set risk flag if either mean >= 1.47
+            const isRisk = frequencyMean >= 1.47 || distressMean >= 1.47;
+            if (assessment.riskFlag === undefined) {
+                assessment.riskFlag = isRisk;
+            }
+        }
+    }
+
+    /**
+     * CES-D Validation:
+     * - 20 items, each scored 0-3
+     * - Items 4, 8, 12, 16 are reverse-scored (3 - score)
+     * - Total score: 0-60
+     * - Threshold: totalScore >= 16 -> flag
+     */
+    _validateCesD(payload, assessment, responses) {
+        const scoringPolicy = payload.scoringPolicyId || assessment.scoringPolicyId;
+        if (scoringPolicy && scoringPolicy !== SURVEY_SCORING_POLICIES.CES_D_REVERSE_4_8_12_16) {
+            throw new SurveyOperationError(
+                SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                `Invalid CES-D scoringPolicyId: ${scoringPolicy}`
+            );
+        }
+
+        const reverseItems = new Set([4, 8, 12, 16]); // 1-indexed
+
+        if (Array.isArray(responses) && responses.length === 20) {
+            let totalScore = 0;
+            for (let i = 0; i < 20; i++) {
+                const item = responses[i];
+                const score = typeof item === 'number' ? item : (item && typeof item.score === 'number' ? item.score : null);
+                if (score === null || score < 0 || score > 3 || !Number.isInteger(score)) {
+                    throw new SurveyOperationError(
+                        SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                        `CES-D response ${i + 1} score must be an integer between 0 and 3 (got ${score})`
+                    );
+                }
+                // Reverse scoring for items 4, 8, 12, 16 (1-indexed)
+                const adjustedScore = reverseItems.has(i + 1) ? (3 - score) : score;
+                totalScore += adjustedScore;
+            }
+
+            if (totalScore < 0 || totalScore > 60) {
+                throw new SurveyOperationError(
+                    SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA,
+                    `CES-D totalScore must be between 0 and 60 (got ${totalScore})`
+                );
+            }
+
+            // Auto-populate if not provided
+            if (assessment.totalScore === undefined) assessment.totalScore = totalScore;
+
+            // Set risk flag if totalScore >= 16
+            const isRisk = totalScore >= 16;
+            if (assessment.riskFlag === undefined) {
+                assessment.riskFlag = isRisk;
             }
         }
     }

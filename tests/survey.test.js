@@ -154,7 +154,31 @@ describe('deriveAgeBandFromBirthDate', () => {
 // 2. 척도별 파생 (deriveScaleSeverities) 단위 테스트
 // ============================================================
 describe('deriveScaleSeverities', () => {
-    it('풀 scaleScores에서 5개 척도 추출', () => {
+    it('풀 scaleScores에서 7개 척도 추출 (CAPE-15, CES-D 포함)', () => {
+        const assessment = {
+            scaleScores: {
+                'phq-9': { label: '중등도 우울' },
+                'gad-7': { label: '경미한 불안' },
+                'bepsi-k': { label: '고스트레스군' },
+                'sbq-r': { label: '중위험군' },
+                'isi-k': { label: '경도 불면' },
+                'cape-15': { label: '추가 확인 권장' },
+                'ces-d': { label: '경도 우울' }
+            }
+        };
+        const result = deriveScaleSeverities(assessment);
+        assert.deepEqual(result, {
+            'phq-9': '중등도 우울',
+            'gad-7': '경미한 불안',
+            'bepsi-k': '고스트레스군',
+            'sbq-r': '중위험군',
+            'isi-k': '경도 불면',
+            'cape-15': '추가 확인 권장',
+            'ces-d': '경도 우울'
+        });
+    });
+
+    it('풀 scaleScores에서 5개 척도 추출 (기존 호환)', () => {
         const assessment = {
             scaleScores: {
                 'phq-9': { label: '중등도 우울' },
@@ -391,6 +415,293 @@ describe('aggregateUnifiedSeverity', () => {
 // ============================================================
 // 6. 엑셀 내보내기 척도 점수 표시 (SurveyExportService) 단위 테스트
 // ============================================================
+
+// ============================================================
+// 7. Campaign Scale Validation Tests (Task 3)
+// ============================================================
+import { SurveyPayloadValidator } from '../server/survey/surveyPayloadValidator.js';
+import { SURVEY_ASSESSMENT_IDS, SURVEY_ERROR_CODES, SURVEY_SCORING_POLICIES } from '../server/survey/surveyConstants.js';
+
+// Mock repository for campaign fetch
+function createMockRepository(campaigns = []) {
+    const campaignMap = new Map(campaigns.map(c => [c.code.toUpperCase(), c]));
+    return {
+        findCampaignByCode: async (code) => campaignMap.get(code?.toUpperCase()) || null
+    };
+}
+
+describe('SurveyPayloadValidator - Campaign Scale Validation', () => {
+    const validAssessments = ['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r', 'cape-15', 'ces-d'];
+
+    function createValidPayload(overrides = {}) {
+        return {
+            submissionId: 'test-sub-001',
+            schemaVersion: '1.0.0',
+            assessmentId: 'icheon-screening-23',
+            assessmentVersion: '1.0',
+            submittedAt: '2026-01-15T10:00:00.000Z',
+            consentEvidence: {
+                personalInfoConsent: true,
+                sensitiveInfoConsent: true,
+                contactOnlySubmission: false,
+                consentVersion: 'v1.0-2026',
+                consentedAt: '2026-01-15T10:00:00.000Z',
+                assessmentDataIncluded: true,
+                transmittedFieldSet: [
+                    'assessmentId', 'assessment', 'scaleScores', 'campaignCode',
+                    'contact', 'clientName', 'phone',
+                    'consentEvidence', 'personalInfoConsent', 'sensitiveInfoConsent'
+                ]
+            },
+            contact: {
+                clientName: '홍길동',
+                phone: '010-1234-5678'
+            },
+            assessment: {
+                scaleScores: {
+                    'phq-9': { totalScore: 10, severity: '경도 우울' },
+                    'gad-7': { totalScore: 8, severity: '경도 불안' },
+                    'isi-k': { totalScore: 9, severity: '경도 불면' },
+                    'bepsi-k': { meanScore: 2.0, severity: '보통' },
+                    'sbq-r': { totalScore: 5, severity: '저위험군' }
+                }
+            },
+            campaignCode: 'TEST-CAMPAIGN',
+            ...overrides
+        };
+    }
+
+    it('legacy campaign (no selectedAssessments) validates against default 5 scales', async () => {
+        const mockRepo = createMockRepository([
+            { code: 'TEST-CAMPAIGN', selectedAssessments: [] } // empty = legacy
+        ]);
+
+        const validator = new SurveyPayloadValidator({
+            getCampaign: mockRepo.findCampaignByCode
+        });
+
+        const payload = createValidPayload();
+        // Default 5 scales should pass
+        const result = await validator.validate(payload);
+        assert.equal(result.valid, true);
+    });
+
+    it('legacy campaign (no selectedAssessments field) uses default 5 scales', async () => {
+        const mockRepo = createMockRepository([
+            { code: 'TEST-CAMPAIGN' } // no selectedAssessments at all
+        ]);
+
+        const validator = new SurveyPayloadValidator({
+            getCampaign: mockRepo.findCampaignByCode
+        });
+
+        const payload = createValidPayload();
+        const result = await validator.validate(payload);
+        assert.equal(result.valid, true);
+    });
+
+    it('campaign with selectedAssessments accepts only those scales', async () => {
+        const mockRepo = createMockRepository([
+            { code: 'TEST-CAMPAIGN', selectedAssessments: ['phq-9', 'gad-7'] }
+        ]);
+
+        const validator = new SurveyPayloadValidator({
+            getCampaign: mockRepo.findCampaignByCode
+        });
+
+        const payload = createValidPayload({
+            assessment: {
+                scaleScores: {
+                    'phq-9': { totalScore: 10, severity: '경도 우울' },
+                    'gad-7': { totalScore: 8, severity: '경도 불안' }
+                }
+            }
+        });
+        const result = await validator.validate(payload);
+        assert.equal(result.valid, true);
+    });
+
+    it('campaign with selectedAssessments rejects disallowed scales', async () => {
+        const mockRepo = createMockRepository([
+            { code: 'TEST-CAMPAIGN', selectedAssessments: ['phq-9', 'gad-7'] }
+        ]);
+
+        const validator = new SurveyPayloadValidator({
+            getCampaign: mockRepo.findCampaignByCode
+        });
+
+        const payload = createValidPayload({
+            assessment: {
+                scaleScores: {
+                    'phq-9': { totalScore: 10, severity: '경도 우울' },
+                    'gad-7': { totalScore: 8, severity: '경도 불안' },
+                    'bepsi-k': { meanScore: 2.0, severity: '보통' } // NOT allowed
+                }
+            }
+        });
+
+        try {
+            await validator.validate(payload);
+            assert.fail('Should have thrown for disallowed scale');
+        } catch (err) {
+            assert.ok(err.code === SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA);
+            assert.ok(err.message.includes('bepsi-k'));
+            assert.ok(err.message.includes('campaign TEST-CAMPAIGN'));
+        }
+    });
+
+    it('campaign with selectedAssessments accepts cape-15 and ces-d when allowed', async () => {
+        const mockRepo = createMockRepository([
+            { code: 'FULL-CAMPAIGN', selectedAssessments: ['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r', 'cape-15', 'ces-d'] }
+        ]);
+
+        const validator = new SurveyPayloadValidator({
+            getCampaign: mockRepo.findCampaignByCode
+        });
+
+        const payload = createValidPayload({
+            campaignCode: 'FULL-CAMPAIGN',
+            assessment: {
+                scaleScores: {
+                    'phq-9': { totalScore: 10, severity: '경도 우울' },
+                    'gad-7': { totalScore: 8, severity: '경도 불안' },
+                    'isi-k': { totalScore: 9, severity: '경도 불면' },
+                    'bepsi-k': { meanScore: 2.0, severity: '보통' },
+                    'sbq-r': { totalScore: 5, severity: '저위험군' },
+                    'cape-15': { frequencyMean: 1.5, distressMean: 1.3, riskFlag: true },
+                    'ces-d': { totalScore: 18, riskFlag: true }
+                }
+            }
+        });
+        const result = await validator.validate(payload);
+        assert.equal(result.valid, true);
+    });
+
+    it('invalid campaign code (no valid campaign) skips scale validation', async () => {
+        const mockRepo = createMockRepository([
+            { code: 'VALID-CAMPAIGN', selectedAssessments: ['phq-9'] }
+        ]);
+
+        const validator = new SurveyPayloadValidator({
+            getCampaign: mockRepo.findCampaignByCode
+        });
+
+        const payload = createValidPayload({
+            campaignCode: 'INVALID-CAMPAIGN' // not in repo
+        });
+
+        // Campaign metadata will be INVALID/ABSENT, so validation should pass (legacy behavior)
+        const result = await validator.validate(payload);
+        assert.equal(result.valid, true);
+    });
+
+    it('fetch failure falls back to default 5 scales', async () => {
+        const mockRepo = createMockRepository([
+            { code: 'TEST-CAMPAIGN', selectedAssessments: ['phq-9'] }
+        ]);
+
+        // Override to simulate fetch failure
+        const failingRepo = {
+            findCampaignByCode: async () => { throw new Error('Network error'); }
+        };
+
+        const validator = new SurveyPayloadValidator({
+            getCampaign: failingRepo.findCampaignByCode
+        });
+
+        const payload = createValidPayload({
+            assessment: {
+                scaleScores: {
+                    'phq-9': { totalScore: 10, severity: '경도 우울' },
+                    'gad-7': { totalScore: 8, severity: '경도 불안' },
+                    'isi-k': { totalScore: 9, severity: '경도 불면' },
+                    'bepsi-k': { meanScore: 2.0, severity: '보통' },
+                    'sbq-r': { totalScore: 5, severity: '저위험군' }
+                }
+            }
+        });
+
+        // Should pass with default 5 scales
+        const result = await validator.validate(payload);
+        assert.equal(result.valid, true);
+    });
+
+    it('validation checks assessmentId against selectedAssessments', async () => {
+        const mockRepo = createMockRepository([
+            { code: 'TEST-CAMPAIGN', selectedAssessments: ['phq-9', 'gad-7'] }
+        ]);
+
+        const validator = new SurveyPayloadValidator({
+            getCampaign: mockRepo.findCampaignByCode
+        });
+
+        const payload = createValidPayload({
+            assessmentId: 'bepsi-k' // NOT in selectedAssessments
+        });
+
+        try {
+            await validator.validate(payload);
+            assert.fail('Should have thrown for disallowed assessmentId');
+        } catch (err) {
+            assert.ok(err.code === SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA);
+            assert.ok(err.message.includes('bepsi-k'));
+        }
+    });
+
+    it('validation checks scaleScores keys against selectedAssessments', async () => {
+        const mockRepo = createMockRepository([
+            { code: 'TEST-CAMPAIGN', selectedAssessments: ['phq-9'] }
+        ]);
+
+        const validator = new SurveyPayloadValidator({
+            getCampaign: mockRepo.findCampaignByCode
+        });
+
+        const payload = createValidPayload({
+            assessment: {
+                scaleScores: {
+                    'phq-9': { totalScore: 10, severity: '경도 우울' },
+                    'gad-7': { totalScore: 8, severity: '경도 불안' } // NOT in selectedAssessments
+                }
+            }
+        });
+
+        try {
+            await validator.validate(payload);
+            assert.fail('Should have thrown for disallowed scale in scaleScores');
+        } catch (err) {
+            assert.ok(err.code === SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA);
+            assert.ok(err.message.includes('gad-7'));
+        }
+    });
+
+    it('validation checks payload.scaleScores (normalized form) against selectedAssessments', async () => {
+        const mockRepo = createMockRepository([
+            { code: 'TEST-CAMPAIGN', selectedAssessments: ['phq-9'] }
+        ]);
+
+        const validator = new SurveyPayloadValidator({
+            getCampaign: mockRepo.findCampaignByCode
+        });
+
+        const payload = createValidPayload({
+            assessment: { scaleScores: { 'phq-9': { totalScore: 10 } } },
+            scaleScores: {
+                'phq-9': { totalScore: 10 },
+                'gad-7': { totalScore: 8 } // NOT in selectedAssessments
+            }
+        });
+
+        try {
+            await validator.validate(payload);
+            assert.fail('Should have thrown for disallowed scale in payload.scaleScores');
+        } catch (err) {
+            assert.ok(err.code === SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA);
+            assert.ok(err.message.includes('gad-7'));
+        }
+    });
+});
+
 describe('SurveyExportService - 엑셀 내보내기 척도 점수 표시', () => {
     const exportService = new SurveyExportService();
 
@@ -403,10 +714,59 @@ describe('SurveyExportService - 엑셀 내보내기 척도 점수 표시', () =>
         );
     }
 
-    it('종합검진 풀 숫자 scaleScores -> 5개 컬럼 전부 숫자 점수', () => {
+    it('종합검진 풀 숫자 scaleScores -> 7개 컬럼 전부 숫자 점수 (CAPE-15, CES-D 포함)', () => {
         const records = [
             {
                 submissionId: 'sub-comp-full',
+                assessmentId: 'icheon-screening-23',
+                submittedAt: '2026-03-01T10:00:00.000Z',
+                contact: { clientName: '홍길동', phone: '010-1234-5678' },
+                assessment: {
+                    totalScore: 0,
+                    severity: '종합검진',
+                    scaleScores: {
+                        'phq-9': { totalScore: 12, severity: '중등도 우울' },
+                        'gad-7': { totalScore: 8, severity: '경도 불안' },
+                        'isi-k': { totalScore: 10, severity: '중등도 불면' },
+                        'bepsi-k': { meanScore: 2.80, responseSum: 14, severity: '고스트레스군' },
+                        'sbq-r': { totalScore: 7, severity: '중위험군' },
+                        'cape-15': { frequencyMean: 1.5, distressMean: 1.3, riskFlag: true },
+                        'ces-d': { totalScore: 18, riskFlag: true }
+                    }
+                }
+            }
+        ];
+
+        const { buffer } = exportService.generateExcelBuffer(records);
+        const rows = parseExportSheet(buffer);
+
+        // Header verification
+        assert.deepEqual(rows[0], [
+            '이름', '연락처', '우울(PHQ-9)', '불안(GAD-7)', '수면(ISI-K)', '스트레스(BEPSI-K)', '자살위험(SBQ-R)', '정신병리(CAPE-15)', '우울역학(CES-D)'
+        ]);
+
+        const dataRow = rows[1];
+        assert.equal(dataRow[0], '홍*동');
+        assert.equal(dataRow[1], '010-****-5678');
+        assert.equal(dataRow[2], '12'); // PHQ-9
+        assert.equal(dataRow[3], '8');  // GAD-7
+        assert.equal(dataRow[4], '10'); // ISI-K
+        assert.equal(dataRow[5], '2.8'); // BEPSI-K
+        assert.equal(dataRow[6], '7');  // SBQ-R
+        assert.equal(dataRow[7], '1.5'); // CAPE-15 frequencyMean
+        assert.equal(dataRow[8], '18'); // CES-D totalScore
+
+        // All 7 score columns must be numeric
+        [2, 3, 4, 5, 6, 7, 8].forEach(colIdx => {
+            assert.notEqual(dataRow[colIdx], '-');
+            assert.ok(!Number.isNaN(Number(dataRow[colIdx])));
+        });
+    });
+
+    it('종합검진 풀 숫자 scaleScores -> 5개 컬럼 전부 숫자 점수 (기존 호환)', () => {
+        const records = [
+            {
+                submissionId: 'sub-comp-full-legacy',
                 assessmentId: 'icheon-screening-23',
                 submittedAt: '2026-03-01T10:00:00.000Z',
                 contact: { clientName: '홍길동', phone: '010-1234-5678' },
@@ -427,9 +787,9 @@ describe('SurveyExportService - 엑셀 내보내기 척도 점수 표시', () =>
         const { buffer } = exportService.generateExcelBuffer(records);
         const rows = parseExportSheet(buffer);
 
-        // Header verification
+        // Header verification (7 columns now)
         assert.deepEqual(rows[0], [
-            '이름', '연락처', '우울(PHQ-9)', '불안(GAD-7)', '수면(ISI-K)', '스트레스(BEPSI-K)', '자살위험(SBQ-R)'
+            '이름', '연락처', '우울(PHQ-9)', '불안(GAD-7)', '수면(ISI-K)', '스트레스(BEPSI-K)', '자살위험(SBQ-R)', '정신병리(CAPE-15)', '우울역학(CES-D)'
         ]);
 
         const dataRow = rows[1];
@@ -440,6 +800,8 @@ describe('SurveyExportService - 엑셀 내보내기 척도 점수 표시', () =>
         assert.equal(dataRow[4], '10'); // ISI-K
         assert.equal(dataRow[5], '2.8'); // BEPSI-K
         assert.equal(dataRow[6], '7');  // SBQ-R
+        assert.equal(dataRow[7], '-');  // CAPE-15 (not in data)
+        assert.equal(dataRow[8], '-');  // CES-D (not in data)
 
         // All 5 score columns must be numeric
         [2, 3, 4, 5, 6].forEach(colIdx => {

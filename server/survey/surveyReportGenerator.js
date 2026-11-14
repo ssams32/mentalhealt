@@ -278,6 +278,8 @@ export class SurveyReportGenerator {
         const isiData = extractScaleData(payload, 'isi-k');
         const bepsiData = extractScaleData(payload, 'bepsi-k');
         const sbqData = extractScaleData(payload, 'sbq-r');
+        const capeData = extractScaleData(payload, 'cape-15');
+        const cesdData = extractScaleData(payload, 'ces-d');
 
         // =========================================================================
         // PAGE 1: 표지 및 종합 선별 요약
@@ -348,14 +350,14 @@ export class SurveyReportGenerator {
         doc.text(`개인정보 수집·이용 동의: ${pConsentText}`, 24, 103);
         doc.text(`민감정보 및 검사결과 수집·이용 동의: ${sConsentText}`, 98, 103);
 
-        // Section 3: 5개 척도 종합 선별 결과 요약표
+        // Section 3: 7개 척도 종합 선별 결과 요약표
         doc.setFillColor(248, 250, 252);
-        doc.rect(18, 114, 174, 126, 'F');
-        doc.rect(18, 114, 174, 126, 'S');
+        doc.rect(18, 114, 174, 150, 'F');
+        doc.rect(18, 114, 174, 150, 'S');
 
         doc.setFontSize(10);
         doc.setTextColor(15, 23, 42);
-        doc.text('■ 마음건강 5개 척도 종합 선별 결과 요약', 22, 121);
+        doc.text('■ 마음건강 7개 척도 종합 선별 결과 요약', 22, 121);
 
         // Table Header
         doc.setFillColor(226, 232, 240);
@@ -427,6 +429,35 @@ export class SurveyReportGenerator {
                     const res = d.resultLabel || (num >= 7 ? '추가 확인 권장' : '선별 기준점 미만');
                     return { score: totalVal, result: res, note: '기준점 7점' };
                 }
+            },
+            {
+                name: '6. 정신병리 선별 (CAPE-15)',
+                scale: capeData,
+                format: (d) => {
+                    if (!hasSensitiveConsent) return { score: '검사결과 미전송', result: '민감정보 미동의', note: '평균 1.47' };
+                    if (!d) return { score: '검사 미실시', result: '해당 없음', note: '평균 1.47' };
+                    const freqMean = d.frequencyMean !== undefined && d.frequencyMean !== null
+                        ? (typeof d.frequencyMean === 'number' ? d.frequencyMean.toFixed(2) : d.frequencyMean)
+                        : (d.frequencySum ? (d.frequencySum / 15).toFixed(2) : '-');
+                    const distressMean = d.distressMean !== undefined && d.distressMean !== null
+                        ? (typeof d.distressMean === 'number' ? d.distressMean.toFixed(2) : d.distressMean)
+                        : (d.distressSum ? (d.distressSum / 15).toFixed(2) : '-');
+                    const isRisk = (parseFloat(freqMean) >= 1.47) || (parseFloat(distressMean) >= 1.47);
+                    const res = d.riskFlag || isRisk ? '추가 확인 권장' : '선별 기준점 미만';
+                    return { score: `빈도 평균 ${freqMean} / 고통 평균 ${distressMean}`, result: res, note: '평균 1.47' };
+                }
+            },
+            {
+                name: '7. 우울 역학 척도 (CES-D)',
+                scale: cesdData,
+                format: (d) => {
+                    if (!hasSensitiveConsent) return { score: '검사결과 미전송', result: '민감정보 미동의', note: '기준점 16점' };
+                    if (!d) return { score: '검사 미실시', result: '해당 없음', note: '기준점 16점' };
+                    const totalVal = d.totalScore !== undefined && d.totalScore !== null ? `${d.totalScore}점` : '미전송';
+                    const num = Number(d.totalScore) || 0;
+                    const res = d.riskFlag || (num >= 16 ? '추가 확인 권장' : '선별 기준점 미만');
+                    return { score: totalVal, result: res, note: '기준점 16점' };
+                }
             }
         ];
 
@@ -442,8 +473,8 @@ export class SurveyReportGenerator {
             doc.setTextColor(71, 85, 105);
             doc.text(parsed.score, 78, summaryY);
 
-            // Highlight SBQ-R or high stress
-            if (row.name.includes('SBQ-R') && parsed.result.includes('추가 확인')) {
+            // Highlight SBQ-R, CAPE-15, CES-D or high stress
+            if ((row.name.includes('SBQ-R') || row.name.includes('CAPE-15') || row.name.includes('CES-D')) && parsed.result.includes('추가 확인')) {
                 doc.setTextColor(190, 24, 93);
             } else if (parsed.result.includes('고스트레스') || parsed.result.includes('심한') || parsed.result.includes('중증')) {
                 doc.setTextColor(185, 28, 28);
@@ -462,15 +493,15 @@ export class SurveyReportGenerator {
         // Summary Note
         doc.setFontSize(8);
         doc.setTextColor(100, 116, 139);
-        doc.text('※ 세부 문항 응답 및 척도별 상세 분석 결과는 2페이지와 3페이지에 수록되어 있습니다.', 24, 206);
-        doc.text('※ 민감정보 수집에 미동의한 경우 문항 응답 및 점수를 출력하지 않고 기초 상담으로 전환됩니다.', 24, 212);
-        doc.text('※ 검사하지 않은 척도는 0점으로 왜곡하지 않고 [검사 미실시]로 정확히 기록 관리합니다.', 24, 218);
-        doc.text('※ 본 선별 결과지는 의학적 진단이 아니며 전문 인력의 초기 상담 및 면담용 보조자료로 활용됩니다.', 24, 224);
+        doc.text('※ 세부 문항 응답 및 척도별 상세 분석 결과는 2페이지와 3페이지에 수록되어 있습니다.', 24, 230);
+        doc.text('※ 민감정보 수집에 미동의한 경우 문항 응답 및 점수를 출력하지 않고 기초 상담으로 전환됩니다.', 24, 236);
+        doc.text('※ 검사하지 않은 척도는 0점으로 왜곡하지 않고 [검사 미실시]로 정확히 기록 관리합니다.', 24, 242);
+        doc.text('※ 본 선별 결과지는 의학적 진단이 아니며 전문 인력의 초기 상담 및 면담용 보조자료로 활용됩니다.', 24, 248);
 
         // Page 1 Footer
         doc.setFontSize(7.5);
         doc.setTextColor(148, 163, 184);
-        doc.text(`발급기관: ${this.institutionName} (${this.centerEnglish}) | [1 / 3 페이지]`, 18, 275);
+        doc.text(`발급기관: ${this.institutionName} (${this.centerEnglish}) | [1 / 4 페이지]`, 18, 275);
 
         // =========================================================================
         // PAGE 2: PHQ-9, GAD-7, ISI-K 상세 내역
@@ -493,6 +524,79 @@ export class SurveyReportGenerator {
         doc.text(`의뢰접수번호: ${refNo}   |   접수일자: ${submittedDateStr}   |   내담자: ${contact.clientName || '-'}`, 18, 33);
         doc.setDrawColor(226, 232, 240);
         doc.line(18, 36, 192, 36);
+
+        // CAPE-15 상세 섹션 (Page 2 시작 부분에 추가)
+        const renderCape15Detail = (startY, title, data) => {
+            doc.setFillColor(248, 250, 252);
+            doc.rect(18, startY, 174, 70, 'F');
+            doc.setDrawColor(203, 213, 225);
+            doc.rect(18, startY, 174, 70, 'S');
+
+            doc.setFontSize(9.5);
+            doc.setTextColor(15, 23, 42);
+            doc.text(`■ ${title}`, 22, startY + 7);
+
+            if (!hasSensitiveConsent) {
+                doc.setFontSize(8.5);
+                doc.setTextColor(185, 28, 28);
+                doc.text('검사결과 미전송 (민감정보 수집·이용 미동의로 인해 점수와 응답이 비공개 처리되었습니다)', 24, startY + 16);
+                return startY + 75;
+            }
+
+            if (!data) {
+                doc.setFontSize(8.5);
+                doc.setTextColor(100, 116, 139);
+                doc.text('검사 미실시 (해당 척도 설문이 진행되지 않았습니다)', 24, startY + 16);
+                return startY + 75;
+            }
+
+            const freqMean = data.frequencyMean !== undefined && data.frequencyMean !== null
+                ? (typeof data.frequencyMean === 'number' ? data.frequencyMean.toFixed(2) : data.frequencyMean)
+                : (data.frequencySum ? (data.frequencySum / 15).toFixed(2) : '-');
+            const distressMean = data.distressMean !== undefined && data.distressMean !== null
+                ? (typeof data.distressMean === 'number' ? data.distressMean.toFixed(2) : data.distressMean)
+                : (data.distressSum ? (data.distressSum / 15).toFixed(2) : '-');
+            const freqSum = data.frequencySum ?? data.frequencySum ?? '-';
+            const distressSum = data.distressSum ?? data.distressSum ?? '-';
+            const isRisk = data.riskFlag || (parseFloat(freqMean) >= 1.47) || (parseFloat(distressMean) >= 1.47);
+
+            doc.setFontSize(9);
+            doc.setTextColor(30, 41, 59);
+            doc.text(`빈도 평균 점수: ${freqMean}점`, 24, startY + 15);
+            doc.text(`고통 평균 점수: ${distressMean}점`, 95, startY + 15);
+            doc.text(`판정: ${isRisk ? '추가 확인 권장' : '선별 기준점 미만'}`, 138, startY + 15);
+
+            doc.setFontSize(7.5);
+            doc.setTextColor(100, 116, 139);
+            doc.text('채점 정책: CAPE_15_FREQUENCY_DISTRESS_MEAN (빈도 평균 ≥ 1.47 또는 고통 평균 ≥ 1.47 시 추가 확인 권장)', 24, startY + 21);
+
+            // Table mini header
+            doc.setFillColor(226, 232, 240);
+            doc.rect(22, startY + 25, 166, 6, 'F');
+            doc.setFontSize(8);
+            doc.setTextColor(51, 65, 85);
+            doc.text('문항', 25, startY + 29.5);
+            doc.text('정신병리 선별 문항 내용', 42, startY + 29.5);
+            doc.text('빈도/고통 점수', 145, startY + 29.5);
+
+            const responses = Array.isArray(data.responses) ? data.responses.slice(0, 5) : [];
+            let itemY = startY + 36;
+            if (responses.length > 0) {
+                responses.forEach((resp, rIdx) => {
+                    doc.setFontSize(7.5);
+                    doc.setTextColor(71, 85, 105);
+                    doc.text(`Q${resp.questionNumber || rIdx + 1}`, 25, itemY);
+                    const qText = resp.questionLabel ? String(resp.questionLabel).substring(0, 36) : `문항 ${rIdx + 1}`;
+                    doc.text(qText, 42, itemY);
+                    const freqStr = resp.frequency !== undefined ? `빈도 ${resp.frequency}` : '-';
+                    const distressStr = resp.distress !== undefined ? `고통 ${resp.distress}` : '-';
+                    doc.text(`${freqStr} / ${distressStr}`, 145, itemY);
+                    itemY += 5.2;
+                });
+            }
+
+            return startY + 75;
+        };
 
         const renderScaleDetail = (startY, title, data, maxScore) => {
             doc.setFillColor(248, 250, 252);
@@ -559,15 +663,85 @@ export class SurveyReportGenerator {
             return startY + 72;
         };
 
+        // CES-D 상세 섹션
+        const renderCesdDetail = (startY, title, data) => {
+            doc.setFillColor(248, 250, 252);
+            doc.rect(18, startY, 174, 70, 'F');
+            doc.setDrawColor(203, 213, 225);
+            doc.rect(18, startY, 174, 70, 'S');
+
+            doc.setFontSize(9.5);
+            doc.setTextColor(15, 23, 42);
+            doc.text(`■ ${title}`, 22, startY + 7);
+
+            if (!hasSensitiveConsent) {
+                doc.setFontSize(8.5);
+                doc.setTextColor(185, 28, 28);
+                doc.text('검사결과 미전송 (민감정보 수집·이용 미동의로 인해 점수와 응답이 비공개 처리되었습니다)', 24, startY + 16);
+                return startY + 75;
+            }
+
+            if (!data) {
+                doc.setFontSize(8.5);
+                doc.setTextColor(100, 116, 139);
+                doc.text('검사 미실시 (해당 척도 설문이 진행되지 않았습니다)', 24, startY + 16);
+                return startY + 75;
+            }
+
+            const totalStr = data.totalScore !== undefined && data.totalScore !== null ? `${data.totalScore}점` : '미전송';
+            const num = Number(data.totalScore) || 0;
+            const isRisk = data.riskFlag || (num >= 16);
+
+            doc.setFontSize(9);
+            doc.setTextColor(30, 41, 59);
+            doc.text(`선별 총점: ${totalStr} (범위: 0~60점)`, 24, startY + 15);
+            doc.text(`판정: ${isRisk ? '추가 확인 권장' : '선별 기준점 미만'}`, 95, startY + 15);
+
+            doc.setFontSize(7.5);
+            doc.setTextColor(100, 116, 139);
+            doc.text('채점 정책: CES_D_REVERSE_4_8_12_16 (문항 4,8,12,16 역채점, 총점 ≥ 16 시 추가 확인 권장)', 24, startY + 21);
+
+            // Table mini header
+            doc.setFillColor(226, 232, 240);
+            doc.rect(22, startY + 25, 166, 6, 'F');
+            doc.setFontSize(8);
+            doc.setTextColor(51, 65, 85);
+            doc.text('문항', 25, startY + 29.5);
+            doc.text('우울 역학 문항 내용', 42, startY + 29.5);
+            doc.text('선택 응답 / 점수', 145, startY + 29.5);
+
+            const responses = Array.isArray(data.responses) ? data.responses.slice(0, 5) : [];
+            let itemY = startY + 36;
+            const reverseItems = new Set([4, 8, 12, 16]);
+            if (responses.length > 0) {
+                responses.forEach((resp, rIdx) => {
+                    doc.setFontSize(7.5);
+                    doc.setTextColor(71, 85, 105);
+                    doc.text(`Q${resp.questionNumber || rIdx + 1}`, 25, itemY);
+                    const qText = resp.questionLabel ? String(resp.questionLabel).substring(0, 36) : `문항 ${rIdx + 1}`;
+                    doc.text(qText, 42, itemY);
+                    const scStr = resp.score !== undefined ? `${resp.score}점` : '-';
+                    const aText = resp.answerLabel ? String(resp.answerLabel).substring(0, 12) : scStr;
+                    const isReversed = reverseItems.has(rIdx + 1) ? ' (역채점)' : '';
+                    doc.text(`${aText} (${scStr})${isReversed}`, 145, itemY);
+                    itemY += 5.2;
+                });
+            }
+
+            return startY + 75;
+        };
+
         let nextY = 40;
         nextY = renderScaleDetail(nextY, '우울 건강선별도구 (PHQ-9)', phqData, 27);
         nextY = renderScaleDetail(nextY, '불안 선별도구 (GAD-7)', gadData, 21);
-        renderScaleDetail(nextY, '불면증 심각도 척도 (ISI-K)', isiData, 28);
+        nextY = renderScaleDetail(nextY, '불면증 심각도 척도 (ISI-K)', isiData, 28);
+        nextY = renderCape15Detail(nextY, '정신병리 선별 척도 (CAPE-15)', capeData);
+        renderCesdDetail(nextY, '우울 역학 척도 (CES-D)', cesdData);
 
         // Page 2 Footer
         doc.setFontSize(7.5);
         doc.setTextColor(148, 163, 184);
-        doc.text(`발급기관: ${this.institutionName} (${this.centerEnglish}) | [2 / 3 페이지]`, 18, 275);
+        doc.text(`발급기관: ${this.institutionName} (${this.centerEnglish}) | [2 / 4 페이지]`, 18, 275);
 
         // =========================================================================
         // PAGE 3: BEPSI-K, SBQ-R 상세 및 안전 고지문
@@ -735,10 +909,10 @@ export class SurveyReportGenerator {
         const reportUuid = crypto.randomUUID();
         const filename = `survey-report_${reportUuid}.pdf`;
 
-        // Page 3 Footer
+        // Page 4 Footer
         doc.setFontSize(7.5);
         doc.setTextColor(148, 163, 184);
-        doc.text(`발급기관: ${this.institutionName} (${this.centerEnglish}) | [3 / 3 페이지]`, 18, 260);
+        doc.text(`발급기관: ${this.institutionName} (${this.centerEnglish}) | [4 / 4 페이지]`, 18, 260);
         doc.text(`발급자 ID: ${actorId} | 처리엔진: ${this.systemName} v3.1 | 문서식별자: ${reportUuid}`, 18, 265);
 
         // Output Buffer

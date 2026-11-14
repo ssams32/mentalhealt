@@ -906,6 +906,7 @@ class ApiClient {
         startsAt?: string | null;
         endsAt?: string | null;
         isActive?: boolean;
+        selectedAssessments?: string[];
     }): Promise<{ success: boolean; campaign: any }> {
         return this.request('/surveys/campaigns', {
             method: 'POST',
@@ -919,6 +920,7 @@ class ApiClient {
         startsAt?: string | null;
         endsAt?: string | null;
         isActive?: boolean;
+        selectedAssessments?: string[];
     }): Promise<{ success: boolean; campaign: any }> {
         return this.request(`/surveys/campaigns/${encodeURIComponent(code)}`, {
             method: 'PATCH',
@@ -1071,8 +1073,10 @@ class ApiClient {
  * Track A 설문 기본 URL과 캠페인 코드를 결합하여 배포 링크를 안전하게 생성합니다.
  * 환경 변수(VITE_TRACK_A_BASE_URL 등) 또는 전달된 기본 URL을 기반으로 생성하며,
  * 배포 주소가 미설정된 경우 빈 문자열을 반환합니다 (fail-closed).
+ * 선택된 척도 목록(selectedAssessments)이 있으면 &scales= 파라미터를 추가합니다.
+ * 예: ?c=CODE&scales=cape-15,ces-d (코드 순서대로 콤마 구분, URL 인코딩)
  */
-export function buildCampaignDistributionUrl(campaignCode: string, customBaseUrl?: string): string {
+export function buildCampaignDistributionUrl(campaignCode: string, customBaseUrl?: string, selectedAssessments?: string[]): string {
     if (!campaignCode || typeof campaignCode !== 'string') return '';
     const cleanCode = campaignCode.trim().toUpperCase();
     if (!cleanCode) return '';
@@ -1088,7 +1092,20 @@ export function buildCampaignDistributionUrl(campaignCode: string, customBaseUrl
 
     baseUrl = baseUrl.replace(/\/+$/, '');
     const separator = baseUrl.includes('?') ? '&' : '?';
-    return `${baseUrl}${separator}c=${encoded}`;
+    let url = `${baseUrl}${separator}c=${encoded}`;
+
+    // 선택된 척도 목록이 있고 비어 있지 않으면 scales 파라미터 추가
+    if (selectedAssessments && Array.isArray(selectedAssessments) && selectedAssessments.length > 0) {
+        // 유효한 척도 코드만 필터링 (알려진 7개 척도)
+        const validScales = ['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r', 'cape-15', 'ces-d'];
+        const filteredScales = selectedAssessments.filter(s => validScales.includes(s));
+        if (filteredScales.length > 0) {
+            const scalesParam = filteredScales.join(',');
+            url += `&scales=${encodeURIComponent(scalesParam)}`;
+        }
+    }
+
+    return url;
 }
 
 /**
