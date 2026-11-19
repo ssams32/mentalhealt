@@ -10,6 +10,23 @@ import { getOrgShortName } from '../../services/orgConfig';
 import { safeLocalStorage } from '../../utils/safeLocalStorage';
 import sampleBudgetHierarchy from './sampleBudgetHierarchy.json';
 import { matchManualEntryToProposal, buildManualEntryFromProposal, findManualEntryForProposal } from './proposalMatch';
+import {
+    normalizeBudgetItem,
+    normalizeDepartmentName,
+    toBudgetKey,
+    toBudgetKeyNoYear,
+    parseBudgetKey,
+    stripYearFromKey,
+    getTransactionYear,
+    getPlanYear,
+    availableYears,
+    resolveInitialYear,
+    copyPlansToYear,
+    migrateBudgetPlansMap,
+    normalizeHiddenItemKeys,
+    findLatestYearWithPlans,
+    countPlansForYear
+} from './budgetYear';
 
 declare var XLSX: any;
 
@@ -54,69 +71,10 @@ interface BudgetPlan {
     budgetAmount: number;
     manualEntries: ManualEntry[];
     order?: number;
+    year?: number;
 }
 
-const normalizeBudgetItem = (name: string) => {
-    if (!name) return '';
-    let normalized = name.trim();
-    if (normalized.includes(' 외 ')) {
-        normalized = normalized.split(' 외 ')[0].trim();
-    } else {
-        normalized = normalized.replace(/[\s\u00A0]*외[\s\u00A0]*\d+[\s\u00A0]*건\s*$/, '').trim();
-    }
-    return normalized;
-};
-
-
-const normalizeDepartmentName = (name: string) => {
-    const text = (name || '').trim();
-    if (!text) return '';
-    if (text.includes('증진')) return '증진';
-    if (text.includes('회복')) return '회복';
-    if (text.includes('자살')) return '자살';
-    if (text.includes('남부')) return '남부';
-    if (text.includes('아동')) return '아동청소년';
-    return text.replace(/팀$/, '').trim();
-};
-
-const toBudgetKey = (department: string, item: string) => {
-    const dept = normalizeDepartmentName(department);
-    const normalizedItem = normalizeBudgetItem(item);
-    return dept && normalizedItem ? `${dept}_${normalizedItem}` : '';
-};
-
-const normalizeHiddenItemKeys = (hidden: string[]) => {
-    if (!Array.isArray(hidden)) return [];
-    const normalized = hidden
-        .map((key) => {
-            if (typeof key !== 'string') return '';
-            const idx = key.indexOf('_');
-            if (idx < 1) return '';
-            return toBudgetKey(key.slice(0, idx), key.slice(idx + 1));
-        })
-        .filter(Boolean);
-    return Array.from(new Set(normalized));
-};
-
-const normalizeBudgetPlansMap = (plans: Record<string, BudgetPlan>) => {
-    const normalized: Record<string, BudgetPlan> = {};
-    Object.values(plans || {}).forEach((plan: BudgetPlan) => {
-        if (!plan?.department || !plan?.budgetItem) return;
-        const key = toBudgetKey(plan.department, plan.budgetItem);
-        if (!key) return;
-        const [department, budgetItem] = key.split('_');
-        normalized[key] = {
-            ...plan,
-            categoryGroup: plan.categoryGroup || '미지정',
-            department,
-            budgetItem,
-            category2: plan.category2 || budgetItem,
-            budgetAmount: Number(plan.budgetAmount) || 0,
-            manualEntries: Array.isArray(plan.manualEntries) ? plan.manualEntries : []
-        };
-    });
-    return normalized;
-};
+// 예산 연도·키 정규화 로직은 components/budget/budgetYear.ts에 있다.
 
 const getBudgetItemEmoji = (name: string, customMap: Record<string, string> = {}) => {
     const n = name.toLowerCase().replace(/\s+/g, '');
@@ -838,6 +796,15 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
     const [modalState, setModalState] = useState<{ isOpen: boolean; department: string; budgetItem: string } | null>(null);
     const [uploadDate, setUploadDate] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'status' | 'history' | 'manual'>('status');
+    // 선택 연도 (2026/2027 분리). 저장된 연도가 있으면 그 연도, 없으면 올해.
+    const initialStoredYear = (() => {
+        const stored = Number(safeLocalStorage.getItem('budget_selected_year'));
+        return stored >= 1900 && stored <= 2100 ? stored : null;
+    })();
+    const [selectedYear, setSelectedYear] = useState<number>(initialStoredYear ?? new Date().getFullYear());
+    const storedYearRef = useRef<number | null>(initialStoredYear);
+    const yearInitializedRef = useRef(false);
+    const loadStartedRef = useRef(false);
     const [historySearch, setHistorySearch] = useState('');
     const [sortConfig, setSortConfig] = useState<{ key: keyof BudgetTransaction | null; direction: 'asc' | 'desc' }>({ key: null, direction: 'asc' });
     const [draggedItem, setDraggedItem] = useState<{ id: string, department: string, budgetItem: string, order: number } | null>(null);
@@ -940,12 +907,23 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                     }
 
                     if (loadedPlans && Object.keys(loadedPlans).length > 0) {
-                        const normalized = (typeof normalizeBudgetPlansMap === 'function') ? normalizeBudgetPlansMap(loadedPlans) : loadedPlans;
+                        // 옛 키(연도 없음)는 2026년 키로 이전한다
+                        const { map: normalized, changed } = migrateBudgetPlansMap(loadedPlans);
                         setBudgetPlans(normalized);
                         safeLocalStorage.setItem('budget_plans', JSON.stringify(normalized));
+                        if (changed && apiClient.isAvailable()) {
+                            apiClient.saveBudgetPlans(normalized).catch(e => console.warn('[BudgetPage] 이전된 계획 저장 실패:', e));
+                        }
                     } else {
                         const savedP = safeLocalStorage.getItem('budget_plans');
-                        if (savedP) setBudgetPlans(JSON.parse(savedP));
+                        if (savedP) {
+                            try {
+                                const { map: normalized } = migrateBudgetPlansMap<BudgetPlan>(JSON.parse(savedP));
+                                setBudgetPlans(normalized);
+                            } catch (e) {
+                                console.warn('[BudgetPage] 저장된 계획 파싱 실패:', e);
+                            }
+                        }
                     }
                 } else {
                     const saved = safeLocalStorage.getItem('budget_transactions');
@@ -963,23 +941,41 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
         return () => { isMounted = false; };
     }, []);
 
+    // 연도 초기값 보정: 저장된 연도가 없고 올해 데이터가 없으면 데이터가 있는 가장 최근 해로
+    useEffect(() => {
+        if (isLoadingData) {
+            loadStartedRef.current = true;
+            return;
+        }
+        if (!loadStartedRef.current || yearInitializedRef.current) return;
+        const resolved = resolveInitialYear(transactions, budgetPlans, storedYearRef.current);
+        if (resolved !== selectedYear) setSelectedYear(resolved);
+        yearInitializedRef.current = true;
+    }, [isLoadingData, transactions, budgetPlans]);
+
+    const handleYearChange = (year: number) => {
+        setSelectedYear(year);
+        safeLocalStorage.setItem('budget_selected_year', String(year));
+        yearInitializedRef.current = true;
+    };
+
     // Get all unique budget items from transactions and current plans
     const allBudgetItems = useMemo(() => {
         const items = new Set<string>();
-        // From transactions
+        // From transactions (선택 연도만)
         transactions.forEach(t => {
-            if (t.budgetItem) items.add(normalizeBudgetItem(t.budgetItem));
+            if (t.budgetItem && getTransactionYear(t) === selectedYear) items.add(normalizeBudgetItem(t.budgetItem));
         });
-        // From current plans
+        // From current plans (선택 연도만)
         (Object.values(budgetPlans) as BudgetPlan[]).forEach(p => {
-            if (p.budgetItem) items.add(normalizeBudgetItem(p.budgetItem));
+            if (p.budgetItem && getPlanYear(p) === selectedYear) items.add(normalizeBudgetItem(p.budgetItem));
         });
         // Ensure default items exist if empty (optional, but good for UX)
         if (items.size === 0) {
             ['여비', '수용비', '운영비', '사업비'].forEach(i => items.add(i));
         }
         return Array.from(items).sort();
-    }, [transactions, budgetPlans]);
+    }, [transactions, budgetPlans, selectedYear]);
 
     // Load presets
     useEffect(() => {
@@ -1018,8 +1014,8 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
             const next = Array.isArray(prev) ? JSON.parse(JSON.stringify(prev)) : [];
             let changed = false;
 
-            // 1. Create a set of valid keys currently present in plans
-            const validKeys = new Set(Object.keys(plans));
+            // 1. Create a set of valid keys currently present in plans (연도와 무관하게 부서_과목으로 비교)
+            const validBaseKeys = new Set(Object.keys(plans).map(stripYearFromKey));
 
             // 2. Add or Update items from plans
             Object.values(plans).forEach(plan => {
@@ -1072,8 +1068,8 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                     
                     // Filter children: Keep if key is valid OR if it has sub-children (to prevent accidental data loss)
                     root.children = root.children.filter((child: any) => {
-                        const key = toBudgetKey(root.name, child.name);
-                        const hasPlans = validKeys.has(key);
+                        const baseKey = toBudgetKeyNoYear(root.name, child.name);
+                        const hasPlans = validBaseKeys.has(baseKey);
                         const hasDetails = child.children && child.children.length > 0;
                         return hasPlans || hasDetails;
                     });
@@ -1161,13 +1157,13 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
         }
     }, [hierarchyData]);
 
-    const saveBudgetPlan = async (department: string, budgetItem: string, field: keyof BudgetPlan, value: any) => {
+    const saveBudgetPlan = async (year: number, department: string, budgetItem: string, field: keyof BudgetPlan, value: any) => {
         setIsSaving(true);
         const retryLimit = 3;
         let attempt = 0;
         
         try {
-            const key = toBudgetKey(department, budgetItem);
+            const key = toBudgetKey(year, department, budgetItem);
             const currentPlan = budgetPlans[key] || {
                 department,
                 budgetItem,
@@ -1178,10 +1174,11 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                 category2: budgetItem,
                 budgetAmount: 0,
                 manualEntries: [],
-                order: 0
+                order: 0,
+                year
             };
 
-            const newPlan = { ...currentPlan, [field]: value };
+            const newPlan = { ...currentPlan, year, [field]: value };
             
             // 1. Immediate Local State Update
             setBudgetPlans(prev => {
@@ -1266,7 +1263,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
         targetDepts.forEach(dept => {
             filter.budgetItem?.forEach(item => {
                 const normItem = normalizeBudgetItem(item);
-                const key = `${dept}_${normItem}`;
+                const key = toBudgetKey(selectedYear, dept, normItem);
 
                 // Remove from hidden items if present
                 const hiddenIdx = newHiddenItems.indexOf(key);
@@ -1285,7 +1282,8 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                         category2: normItem,
                         budgetAmount: 0,
                         manualEntries: [],
-                        order: 0
+                        order: 0,
+                        year: selectedYear
                     };
                     count++;
                 }
@@ -1320,9 +1318,9 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
         if (editingCell.field === 'department') {
             const newDept = String(value).trim();
             if (newDept && newDept !== department) {
-                // Migrate to new department key
-                const oldKey = `${department}_${budgetItem}`;
-                const newKey = `${newDept}_${budgetItem}`;
+                // Migrate to new department key (선택 연도 안에서만 이동)
+                const oldKey = toBudgetKey(selectedYear, department, budgetItem);
+                const newKey = toBudgetKey(selectedYear, newDept, budgetItem);
 
                 const oldPlan = budgetPlans[oldKey];
                 if (oldPlan) {
@@ -1342,7 +1340,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                 }
             }
         } else {
-            saveBudgetPlan(department, budgetItem, editingCell.field, value);
+            saveBudgetPlan(selectedYear, department, budgetItem, editingCell.field, value);
         }
         setEditingCell(null);
     };
@@ -1831,12 +1829,13 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
         if (!modalState) return;
         // MUST strip placeholders before saving to prevent row bloat and preserve correct count
         const cleanEntries = entries.filter(e => !e.isPlaceholder || (e.amount !== 0 || e.description.trim() !== ''));
-        await saveBudgetPlan(modalState.department, modalState.budgetItem, 'manualEntries', cleanEntries);
+        await saveBudgetPlan(selectedYear, modalState.department, modalState.budgetItem, 'manualEntries', cleanEntries);
     };
 
     // 품의 1클릭 수기 입력 버튼 상태 (데스크톱 표·모바일 카드 공용)
     const getOneClickEntryState = (t: BudgetTransaction): 'ready' | 'entered' | 'no-plan' => {
-        const key = toBudgetKey(t.department, t.budgetItem);
+        // 품의 자체의 연도 계획에서 찾는다 (보는 연도와 품의 연도가 다를 때를 대비)
+        const key = toBudgetKey(getTransactionYear(t), t.department, t.budgetItem);
         const plan = key ? budgetPlans[key] : undefined;
         if (!plan) return 'no-plan';
         const existing = findManualEntryForProposal(t, plan.manualEntries || []);
@@ -1845,7 +1844,8 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
 
     // 품의 1건을 클릭 1번으로 해당 과목의 수기 내역에 입력한다.
     const handleOneClickManualEntry = async (t: BudgetTransaction) => {
-        const key = toBudgetKey(t.department, t.budgetItem);
+        const entryYear = getTransactionYear(t);
+        const key = toBudgetKey(entryYear, t.department, t.budgetItem);
         if (!key) return;
         const plan = budgetPlans[key];
         // 과목 계획이 없으면 새 계획을 만들지 않고 아무것도 안 한다 (버튼이 비활성이라 올 일은 거의 없지만 방어).
@@ -1856,7 +1856,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
         const newEntry = buildManualEntryFromProposal(t);
         setOneClickSavingId(t.id);
         try {
-            await saveBudgetPlan(t.department, t.budgetItem, 'manualEntries', [...prevEntries, newEntry]);
+            await saveBudgetPlan(entryYear, t.department, t.budgetItem, 'manualEntries', [...prevEntries, newEntry]);
             showToast('수기 내역에 입력했습니다.');
         } catch (e) {
             // saveBudgetPlan은 로컬 state를 먼저 바꾸므로, 서버 저장 실패 시 로컬에 들어간 행을
@@ -2057,9 +2057,35 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
         setSortConfig({ key, direction });
     };
 
+    // 선택 연도 관련 파생 데이터
+    const yearOptions = useMemo(() => availableYears(transactions, budgetPlans), [transactions, budgetPlans]);
+    const yearTransactions = useMemo(() => transactions.filter(t => getTransactionYear(t) === selectedYear), [transactions, selectedYear]);
+    const selectedYearPlans = useMemo(() => (Object.values(budgetPlans) as BudgetPlan[]).filter(p => getPlanYear(p) === selectedYear), [budgetPlans, selectedYear]);
+    const copySourceYear = useMemo(() => findLatestYearWithPlans(budgetPlans, selectedYear), [budgetPlans, selectedYear]);
+    const hasSelectedYearPlans = selectedYearPlans.length > 0;
+
+    // 선택 연도에 계획이 없을 때 이전 해 과목 구조를 복사한다 (금액 0, 수기 빈 배열, 이월 없음)
+    const handleCopyPlansToYear = async () => {
+        if (copySourceYear == null) return;
+        const sourceCount = countPlansForYear(budgetPlans, copySourceYear);
+        if (!window.confirm(`${copySourceYear}년 과목 구조 ${sourceCount}개를 ${selectedYear}년으로 복사합니다. 금액은 0원으로 시작합니다.`)) return;
+        const copied = copyPlansToYear(budgetPlans, copySourceYear, selectedYear);
+        const newPlans = { ...budgetPlans, ...copied };
+        setBudgetPlans(newPlans);
+        safeLocalStorage.setItem('budget_plans', JSON.stringify(newPlans));
+        if (apiClient.isAvailable()) {
+            try {
+                await apiClient.saveBudgetPlans(newPlans);
+            } catch (e) {
+                console.warn('[BudgetPage] 복사본 서버 저장 실패:', e);
+            }
+        }
+        showToast(`${selectedYear}년 과목 구조 ${Object.keys(copied).length}개를 복사했습니다.`);
+    };
+
     const filteredData = useMemo(() => {
-        // Collect all manual entries from budgetPlans
-        const manualTrans: BudgetTransaction[] = (Object.values(budgetPlans) as BudgetPlan[]).flatMap((plan: BudgetPlan) =>
+        // Collect all manual entries from budgetPlans (선택 연도의 계획에서만 모은다)
+        const manualTrans: BudgetTransaction[] = (Object.values(budgetPlans) as BudgetPlan[]).filter((plan: BudgetPlan) => getPlanYear(plan) === selectedYear).flatMap((plan: BudgetPlan) =>
             (plan.manualEntries || []).map(entry => ({
                 id: entry.id,
                 date: entry.date,
@@ -2094,6 +2120,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
         }
 
         let data = allData.filter(t => {
+            if (getTransactionYear(t) !== selectedYear) return false;
             if (filter.department?.length && !filter.department.includes(t.department)) return false;
             if (filter.startDate && t.date < filter.startDate) return false;
             if (filter.endDate && t.date > filter.endDate) return false;
@@ -2127,7 +2154,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
         }
 
         return data;
-    }, [transactions, budgetPlans, filter, historySearch, sortConfig, activeTab]);
+    }, [transactions, budgetPlans, filter, historySearch, sortConfig, activeTab, selectedYear]);
 
     const budgetItemOptions = useMemo(() => {
         return Array.from(new Set(transactions.map(t => normalizeBudgetItem(t.budgetItem)))).filter(Boolean).sort();
@@ -2147,16 +2174,21 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
             const normName = normalizeBudgetItem(item.name);
             const normalizedDept = normalizeDepartmentName(dept);
 
-            // Filter transactions by both item name AND department
+            // Filter transactions by both item name AND department (선택 연도만)
             const itemTransactions = transactions.filter(t =>
+                getTransactionYear(t) === selectedYear &&
                 normalizeBudgetItem(t.budgetItem) === normName &&
                 normalizeDepartmentName(t.department) === normalizedDept
             );
 
             const originalItemName = item.originalName || item.name;
-            const planKey = toBudgetKey(dept, originalItemName);
+            const planKey = toBudgetKey(selectedYear, dept, originalItemName);
             const plan = budgetPlans[planKey];
             const manualEntries = plan?.manualEntries || [];
+            // 잎 항목의 예산액은 선택 연도 계획의 금액을 쓴다 (계층 트리는 연도 공용이라
+            // 다른 해 금액이 섞여 보일 수 있기 때문). 계획이 없으면 계층 금액을 쓴다.
+            const isLeafItem = !item.children || item.children.length === 0;
+            const effectiveAmount = isLeafItem && plan ? (plan.budgetAmount ?? item.amount ?? 0) : (item.amount || 0);
 
             const getQuarter = (dateStr: string) => {
                 if (!dateStr || dateStr.length < 5) return 0;
@@ -2193,6 +2225,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
 
             return {
                 ...item,
+                amount: effectiveAmount,
                 key: item.id,
                 level,
                 dept,
@@ -2203,8 +2236,8 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                 q1, q2, q3, q4,
                 children: processedChildren,
                 manualTotal: manualExec, // For display in leaf nodes if needed
-                balance: (item.amount || 0) - manualExec,
-                ratio: item.amount > 0 ? (manualExec / item.amount) * 100 : 0
+                balance: effectiveAmount - manualExec,
+                ratio: effectiveAmount > 0 ? (manualExec / effectiveAmount) * 100 : 0
             };
         };
 
@@ -2300,7 +2333,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
         });
 
         return flatList;
-    }, [hierarchyData, transactions, filter.department, budgetPlans, expandedRowKeys, customGroupNames]);
+    }, [hierarchyData, transactions, filter.department, budgetPlans, expandedRowKeys, customGroupNames, selectedYear]);
 
     // Selection Logic
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2494,6 +2527,17 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                 </div>
 
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-3">
+                    <div className="flex bg-gray-100 p-1 rounded-xl w-full md:w-auto" role="group" aria-label="연도 선택">
+                        {yearOptions.map(y => (
+                            <button
+                                key={y}
+                                onClick={() => handleYearChange(y)}
+                                className={`flex-1 md:flex-none px-[13px] py-[8px] text-[13px] font-bold rounded-lg transition-all duration-300 ${y === selectedYear ? 'bg-white text-black shadow-md scale-100 md:scale-105' : 'text-gray-500 hover:text-gray-900'}`}
+                            >
+                                {y}년
+                            </button>
+                        ))}
+                    </div>
                     <div className="flex bg-gray-100 p-1 rounded-xl w-full md:w-auto">
                         <button
                             onClick={() => setActiveTab('status')}
@@ -2511,7 +2555,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                             }}
                             className={`flex-1 md:flex-none px-[13px] py-[8px] text-[13px] font-bold rounded-lg transition-all duration-300 ${activeTab === 'history' ? 'bg-white text-black shadow-md scale-100 md:scale-105' : 'text-gray-500 hover:text-gray-900'}`}
                         >
-                            품의 내역 <span className="ml-1 opacity-50 text-[10px]">({transactions.length.toLocaleString()})</span>
+                            품의 내역 <span className="ml-1 opacity-50 text-[10px]">({yearTransactions.length.toLocaleString()})</span>
                         </button>
                         <button
                             onClick={() => {
@@ -2519,7 +2563,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                             }}
                             className={`flex-1 md:flex-none px-[13px] py-[8px] text-[13px] font-bold rounded-lg transition-all duration-300 ${activeTab === 'manual' ? 'bg-white text-black shadow-md scale-100 md:scale-105' : 'text-gray-500 hover:text-gray-900'}`}
                         >
-                            수기 내역 <span className="ml-1 opacity-50 text-[10px]">({(Object.values(budgetPlans) as BudgetPlan[]).reduce((sum, p) => sum + (p.manualEntries?.length || 0), 0)})</span>
+                            수기 내역 <span className="ml-1 opacity-50 text-[10px]">({selectedYearPlans.reduce((sum, p) => sum + (p.manualEntries?.length || 0), 0)})</span>
                         </button>
                     </div>
 
@@ -2643,6 +2687,26 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                 </div>
                             </div>
 
+                            {!hasSelectedYearPlans && !isLoadingData ? (
+                                <div className="bg-white rounded-[24px] p-[21px] shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center gap-3 py-16">
+                                    <Calculator size={40} className="text-gray-300" />
+                                    <p className="text-lg font-black text-gray-800">{selectedYear}년 예산이 아직 없습니다.</p>
+                                    <p className="text-sm font-bold text-gray-500">
+                                        {copySourceYear != null
+                                            ? `${copySourceYear}년 과목 구조를 복사해서 ${selectedYear}년을 시작할 수 있습니다. 금액은 0원부터 시작합니다.`
+                                            : '품의 내역이 올라오면 해당 연도에 표시됩니다.'}
+                                    </p>
+                                    {copySourceYear != null && (
+                                        <button
+                                            onClick={handleCopyPlansToYear}
+                                            className="mt-2 px-6 py-2.5 bg-black text-white text-sm font-bold rounded-xl hover:bg-gray-800 transition-all shadow-lg active:scale-95"
+                                        >
+                                            {copySourceYear}년 과목 구조 복사하기
+                                        </button>
+                                    )}
+                                </div>
+                            ) : (
+                            <>
                             {/* Summary Cards */}
                             <div className="bg-white rounded-[24px] p-[21px] shadow-sm border border-gray-100 flex-none z-10 hidden md:block">
                                 <div className="flex items-center justify-between gap-4 mb-4 pb-4 border-b border-gray-100">
@@ -2876,6 +2940,8 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                     </div>
                                 </HCard>
                             </div>
+                            </>
+                            )}
                         </div>
                     }
                     {/* Global Saving Indicator Overlay */}
@@ -3099,7 +3165,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                         if (entries.length > 0) await handleManualTransactionSave(entries[0]);
                                     }}
                                     currentUser={currentUser}
-                                    transactions={transactions}
+                                    transactions={yearTransactions}
                                 />
                             )}
                         </div>
@@ -3114,11 +3180,11 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                 onClose={() => setModalState(null)}
                                 title={`${modalState.department} - ${modalState.budgetItem}`}
                                 entries={
-                                    budgetPlans[toBudgetKey(modalState.department, modalState.budgetItem)]?.manualEntries || []
+                                    budgetPlans[toBudgetKey(selectedYear, modalState.department, modalState.budgetItem)]?.manualEntries || []
                                 }
                                 onSave={handleManualEntrySave}
                                 currentUser={currentUser}
-                                transactions={transactions}
+                                transactions={yearTransactions}
                                 budgetItem={modalState.budgetItem}
                             />
                         )
@@ -3221,7 +3287,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                     <div className="flex-1 overflow-y-auto p-6 bg-gray-50/30">
                                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                                             {allBudgetItems.map(item => {
-                                                const key = toBudgetKey(itemSelectionModal.department, item);
+                                                const key = toBudgetKey(selectedYear, itemSelectionModal.department, item);
                                                 const isSelected = !!budgetPlans[key];
 
                                                 return (
@@ -3239,16 +3305,16 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                                             checked={isSelected}
                                                             onChange={(e) => {
                                                                 const checked = e.target.checked;
-                                                                const normalizedKey = toBudgetKey(itemSelectionModal.department, item);
+                                                                const normalizedKey = toBudgetKey(selectedYear, itemSelectionModal.department, item);
                                                                 if (!normalizedKey) return;
-                                                                const [normalizedDepartment, normalizedItem] = normalizedKey.split('_');
+                                                                const { department: normalizedDepartment, budgetItem: normalizedItem } = parseBudgetKey(normalizedKey);
 
                                                                 setBudgetPlans((prevPlans) => {
                                                                     const nextPlans = { ...prevPlans };
                                                                     Object.keys(nextPlans).forEach((planKey) => {
                                                                         const plan = nextPlans[planKey];
                                                                         if (!plan) return;
-                                                                        if (toBudgetKey(plan.department, plan.budgetItem) === normalizedKey && planKey !== normalizedKey) {
+                                                                        if (toBudgetKey(getPlanYear(plan, planKey), plan.department, plan.budgetItem) === normalizedKey && planKey !== normalizedKey) {
                                                                             delete nextPlans[planKey];
                                                                         }
                                                                     });
@@ -3265,14 +3331,15 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                                                                 categoryGroup: '미지정',
                                                                                 budgetAmount: 0,
                                                                                 manualEntries: [],
-                                                                                order: Object.keys(nextPlans).length
+                                                                                order: Object.keys(nextPlans).length,
+                                                                                year: selectedYear
                                                                             };
                                                                         }
                                                                     } else {
                                                                         Object.keys(nextPlans).forEach((planKey) => {
                                                                             const plan = nextPlans[planKey];
                                                                             if (!plan) return;
-                                                                            if (toBudgetKey(plan.department, plan.budgetItem) === normalizedKey) {
+                                                                            if (toBudgetKey(getPlanYear(plan, planKey), plan.department, plan.budgetItem) === normalizedKey) {
                                                                                 delete nextPlans[planKey];
                                                                             }
                                                                         });
@@ -3300,7 +3367,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                     <div className="p-5 border-t border-gray-100 bg-white flex justify-end gap-3 rounded-b-2xl">
                                         <button
                                             onClick={() => {
-                                                const normalizedPlans = normalizeBudgetPlansMap(budgetPlans);
+                                                const normalizedPlans = migrateBudgetPlansMap(budgetPlans).map;
                                                 const normalizedHidden = normalizeHiddenItemKeys(hiddenItems);
                                                 setBudgetPlans(normalizedPlans);
                                                 setHiddenItems(normalizedHidden);
