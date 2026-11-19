@@ -10,16 +10,16 @@ if (typeof Chart !== 'undefined' && typeof ChartDataLabels !== 'undefined') {
   Chart.register(ChartDataLabels);
 }
 
-// === DIAGNOSTIC: Show errors visually ===
-function showError(msg: string) {
+function showDevErrorBanner(msg: string) {
   const div = document.createElement('div');
   div.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#cc0000;color:#fff;padding:20px;font-size:14px;z-index:99999;white-space:pre-wrap;font-family:monospace;';
-  div.textContent = '初期化エラー:\n' + msg;
+  div.textContent = '처리되지 않은 오류:\n' + msg;
   document.body.appendChild(div);
 }
-window.addEventListener('error', (e) => showError(e.message + '\n' + (e.filename || '') + ':' + e.lineno));
-window.addEventListener('unhandledrejection', (e) => showError(String(e.reason)));
-// =========================================
+if (import.meta.env.DEV) {
+  window.addEventListener('error', (e) => showDevErrorBanner(e.message + '\n' + (e.filename || '') + ':' + e.lineno));
+  window.addEventListener('unhandledrejection', (e) => showDevErrorBanner(String(e.reason)));
+}
 
 const container = document.getElementById('root');
 

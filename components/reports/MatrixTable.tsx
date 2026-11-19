@@ -67,7 +67,7 @@ const MatrixTable: React.FC<MatrixTableProps> = ({ title, data, rowKey, isAgeMat
     return (
         <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
              <h3 className="text-lg font-extrabold text-slate-900 tracking-tight mb-6">{title}</h3>
-             <div className="overflow-x-auto">
+             <div className="overflow-x-auto overflow-y-auto max-h-[70vh] custom-scrollbar">
                 <table className="w-full text-xs border-collapse min-w-[800px]">
                     <thead>
                         <tr className="text-slate-500 font-bold">

@@ -427,11 +427,6 @@ class ApiClient {
      * 홈페이지 인입 데이터와 기존 의뢰대장을 비교하여 동기화합니다.
      */
     async syncRequest(incoming: any, existingReferrals: Referral[]): Promise<{ updated: boolean; alert: boolean; matchKind?: ReferralMatchKind; matchedRefNo?: string; error?: string }> {
-        // [버그 수정] 예전에는 이름+연령만 같으면 기존 대장 기록을 홈페이지 값으로 덮어썼다(다른 사람 기록 훼손 가능).
-        // 이제 서버에 아무것도 쓰지 않고 비교만 한다.
-        // - 복합키[이름·연령·연락처] + 의뢰날짜가 모두 같은 기록이 있으면: 이미 등록된 건 → 알림 목록에서 제외
-        // - 복합키는 같은데 의뢰날짜가 다르면: 재의뢰 → 알림
-        // - 같은 대상자를 못 찾으면: 신규 접수 → 접수 대기 목록에 표시
         try {
             if (!incoming || !incoming.name) {
                 console.warn('[Sync] 필수 데이터(이름)가 누락되어 비교를 건너뜁니다.');
@@ -446,7 +441,6 @@ class ApiClient {
             };
         } catch (error) {
             console.error('[Sync] Error during syncRequest:', error);
-            // 비교에 실패하면 접수 누락이 없도록 목록에 남긴다
             return { updated: false, alert: true, error: String(error) };
         }
     }

@@ -18,7 +18,7 @@ interface SuicideAttemptersPageProps {
     allReferrals: SuicideAttempterReferral[];
     setAllReferrals: React.Dispatch<React.SetStateAction<SuicideAttempterReferral[]>>;
     onAddNewSAReferral: (newReferral: Omit<SuicideAttempterReferral, 'uid' | 'notes' | 'attachments'> & { uid: string, notes: ReferralNote[], attachments: Attachment[] }) => void;
-    onUpdateSAReferral: (updatedReferral: SuicideAttempterReferral) => void;
+    onUpdateSAReferral: (updatedReferral: SuicideAttempterReferral) => Promise<SuicideAttempterReferral>;
     onDeleteSAReferral: (uid: string) => void;
     showToast: (message: string) => void;
     currentUser: User;
@@ -161,21 +161,22 @@ const SuicideAttemptersPage: React.FC<SuicideAttemptersPageProps> = ({
         setIsAttachmentModalOpen(true);
     }, []);
 
-    const handleUpdateNotes = useCallback((uid: string, updatedNotes: ReferralNote[]) => {
-        setAllReferrals(prev => prev.map(r => r.uid === uid ? { ...r, notes: updatedNotes } : r));
-    }, [setAllReferrals]);
+    const saveReferralChange = useCallback((uid: string, change: Partial<SuicideAttempterReferral>) => {
+        const current = allReferrals.find(r => r.uid === uid);
+        return onUpdateSAReferral({ ...current, ...change } as SuicideAttempterReferral);
+    }, [allReferrals, onUpdateSAReferral]);
+
+    const handleUpdateNotes = useCallback((uid: string, updatedNotes: ReferralNote[]) =>
+        saveReferralChange(uid, { notes: updatedNotes }),
+    [saveReferralChange]);
 
     const handleUpdateAttachments = useCallback((uid: string, updatedAttachments: Attachment[]) => {
-        setAllReferrals(prev => prev.map(r => r.uid === uid ? { ...r, attachments: updatedAttachments } : r));
-    }, [setAllReferrals]);
+        saveReferralChange(uid, { attachments: updatedAttachments }).catch(() => {});
+    }, [saveReferralChange]);
 
     const handleUpdateField = useCallback((uid: string, field: keyof SuicideAttempterReferral, value: any) => {
-        const target = allReferrals.find(r => r.uid === uid);
-        if (target) {
-            const updated = { ...target, [field]: value };
-            onUpdateSAReferral(updated);
-        }
-    }, [allReferrals, onUpdateSAReferral]);
+        saveReferralChange(uid, { [field]: value }).catch(() => {});
+    }, [saveReferralChange]);
 
     const headerContent = (
         <div className="flex items-center gap-2">

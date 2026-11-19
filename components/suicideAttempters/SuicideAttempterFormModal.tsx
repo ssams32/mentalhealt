@@ -3,6 +3,7 @@ import { SuicideAttempterReferral, ReferralNote, Attachment, User } from '../../
 import { GENDER_OPTIONS, PROCESSING_STATUS_OPTIONS, DISPOSAL_REASON_OPTIONS, INTERVENTION_STATUS_OPTIONS, REGISTRATION_STATUS_OPTIONS, DIAGNOSIS_OPTIONS, INFO_TARGET_OPTIONS } from '../../constants';
 import { getRegions } from '../../services/orgConfig';
 import DocumentAttachmentModal from '../common/document-modal/DocumentAttachmentModal';
+import { todayKST } from '../../utils/date';
 
 
 interface SuicideAttempterFormModalProps {
@@ -94,7 +95,7 @@ const SuicideAttempterFormModal: React.FC<SuicideAttempterFormModalProps> = ({
                     setFormData({
                         uid: newCaseId,
                         sn: '',
-                        receiptDate: new Date().toISOString().split('T')[0],
+                        receiptDate: todayKST(),
                         gender: '기타',
                         region: getRegions()[0],
                         processingStatus: '처리중',

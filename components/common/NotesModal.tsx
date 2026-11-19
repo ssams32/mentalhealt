@@ -6,7 +6,7 @@ interface NotesModalProps {
     onClose: () => void;
     referralId: string;
     initialNotes: ReferralNote[];
-    onUpdateNotes: (notes: ReferralNote[]) => void;
+    onUpdateNotes: (notes: ReferralNote[]) => Promise<unknown>;
     currentUser: User;
     patientName?: string;
 }
@@ -26,17 +26,37 @@ const NotesModal: React.FC<NotesModalProps> = ({
     // Editing State
     const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
     const [editedNoteContent, setEditedNoteContent] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState('');
+
+    const saveNotes = async (updatedNotes: ReferralNote[]): Promise<boolean> => {
+        const previousNotes = notes;
+        setNotes(updatedNotes);
+        setSaveError('');
+        setIsSaving(true);
+        try {
+            await onUpdateNotes(updatedNotes);
+            return true;
+        } catch {
+            setNotes(previousNotes);
+            setSaveError('저장에 실패했습니다. 내용이 저장되지 않았으니 다시 시도해주세요.');
+            return false;
+        } finally {
+            setIsSaving(false);
+        }
+    };
 
     useEffect(() => {
         if (isOpen) {
             setNotes(initialNotes || []);
         }
-    }, [isOpen, initialNotes]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, referralId]);
 
     if (!isOpen) return null;
 
-    const handleAddNote = () => {
-        if (!newNoteContent.trim()) return;
+    const handleAddNote = async () => {
+        if (!newNoteContent.trim() || isSaving) return;
 
         const newNote: ReferralNote = {
             id: `note_${Date.now()}`,
@@ -46,16 +66,14 @@ const NotesModal: React.FC<NotesModalProps> = ({
         };
 
         const updatedNotes = [newNote, ...notes];
-        setNotes(updatedNotes);
-        setNewNoteContent('');
-        onUpdateNotes(updatedNotes);
+        if (await saveNotes(updatedNotes)) setNewNoteContent('');
     };
 
-    const handleDeleteNote = (noteId: string) => {
+    const handleDeleteNote = async (noteId: string) => {
+        if (isSaving) return;
         if (!confirm('정말 이 노트를 삭제하시겠습니까?')) return;
         const updatedNotes = notes.filter(n => n.id !== noteId);
-        setNotes(updatedNotes);
-        onUpdateNotes(updatedNotes);
+        await saveNotes(updatedNotes);
     };
 
     const handleEditStart = (note: ReferralNote) => {
@@ -68,8 +86,8 @@ const NotesModal: React.FC<NotesModalProps> = ({
         setEditedNoteContent('');
     };
 
-    const handleEditSave = () => {
-        if (!editingNoteId || !editedNoteContent.trim()) return;
+    const handleEditSave = async () => {
+        if (!editingNoteId || !editedNoteContent.trim() || isSaving) return;
 
         const updatedNotes = notes.map(n =>
             n.id === editingNoteId
@@ -77,10 +95,10 @@ const NotesModal: React.FC<NotesModalProps> = ({
                 : n
         );
 
-        setNotes(updatedNotes);
-        setEditingNoteId(null);
-        setEditedNoteContent('');
-        onUpdateNotes(updatedNotes);
+        if (await saveNotes(updatedNotes)) {
+            setEditingNoteId(null);
+            setEditedNoteContent('');
+        }
     };
 
     const title = patientName ? `${patientName}님의 상담/개입내역` : '상담/개입내역';
@@ -97,6 +115,12 @@ const NotesModal: React.FC<NotesModalProps> = ({
                         <i className="fas fa-times"></i>
                     </button>
                 </div>
+
+                {saveError && (
+                    <div role="alert" className="bg-red-50 border border-red-100 text-red-600 text-xs font-bold px-4 py-3 rounded-2xl">
+                        {saveError}
+                    </div>
+                )}
 
                 <div className="space-y-3 min-h-[200px] max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
                     {notes.length === 0 ? (

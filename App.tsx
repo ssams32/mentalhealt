@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { User, Referral, SuicideAttempterReferral, Log, Team, Page, Note, Attachment, AnyLog } from './types';
-import { initialUsers, initialReferrals, initialSuicideAttempterReferrals, PAGES_CONFIG } from './constants';
+import { initialReferrals, initialSuicideAttempterReferrals, PAGES_CONFIG } from './constants';
 import { apiClient, registerSessionExpiredHandler, notifySessionExpired, resetSessionExpiredGuard } from './services/apiClient';
-import { safeLocalStorage, safeSessionStorage } from './utils/safeLocalStorage';
+import { safeSessionStorage } from './utils/safeLocalStorage';
+import { todayKST } from './utils/date';
+import { clearBrowserStoredClientData, removeLedgerCacheLeftByOlderVersions } from './utils/sessionCleanup';
 import LoginScreen from './components/auth/LoginScreen';
 import SetupWizard from './components/setup/SetupWizard';
 import { initOrgConfig, refreshOrgConfig, getTeams, getOrgShortName } from './services/orgConfig';
@@ -92,9 +94,9 @@ function App() {
 
     const [users, setUsers] = useState<User[]>([]);
 
-    const [referrals, setReferrals] = useState<Referral[]>(() => { try { const saved = safeLocalStorage.getItem('referrals'); return saved ? JSON.parse(saved) : initialReferrals; } catch (e) { return initialReferrals; } });
-    const [unregisteredCandidates, setUnregisteredCandidates] = useState<Referral[]>(() => { try { const saved = safeLocalStorage.getItem('unregisteredCandidates'); return saved ? JSON.parse(saved) : []; } catch (e) { return []; } });
-    const [suicideAttempterReferrals, setSuicideAttempterReferrals] = useState<SuicideAttempterReferral[]>(() => { try { const saved = safeLocalStorage.getItem('suicideAttempterReferrals'); return saved ? JSON.parse(saved) : initialSuicideAttempterReferrals; } catch (e) { return initialSuicideAttempterReferrals; } });
+    const [referrals, setReferrals] = useState<Referral[]>(initialReferrals);
+    const [unregisteredCandidates, setUnregisteredCandidates] = useState<Referral[]>([]);
+    const [suicideAttempterReferrals, setSuicideAttempterReferrals] = useState<SuicideAttempterReferral[]>(initialSuicideAttempterReferrals);
     const [logs, setLogs] = useState<AnyLog[]>([]);
 
     const [isLoadingData, setIsLoadingData] = useState(true);
@@ -151,7 +153,7 @@ function App() {
                 } else {
                     setActivePage('home');
                     if (currentUser) {
-                        showToast('음성 녹음 분석(AI) 화면에 접근할 권한이 없습니다.', 'error');
+                        showToast('음성 녹음 분석(AI) 화면에 접근할 권한이 없습니다.');
                     }
                 }
             }
@@ -177,15 +179,11 @@ function App() {
                 console.log(`Loaded ${loadedUsers.length} users.`);
                 setUsers(loadedUsers);
             } else {
-                console.warn("No users found on server or invalid response, using local fallback.");
-                const saved = safeLocalStorage.getItem('users');
-                setUsers(saved ? JSON.parse(saved) : initialUsers);
+                console.warn("No users found on server or invalid response.");
                 setIsOfflineFallback(true);
             }
         }).catch(e => {
             console.warn('Users fetch failed', e);
-            const saved = safeLocalStorage.getItem('users');
-            setUsers(saved ? JSON.parse(saved) : initialUsers);
         });
 
         // 2. High Priority: Referrals (화면 즉시 표시를 위해 최우선 비동기 로드)
@@ -194,7 +192,6 @@ function App() {
             if (Array.isArray(loadedReferrals)) {
                 const referralsToSet = loadedReferrals.length > 0 ? loadedReferrals : initialReferrals;
                 setReferrals(referralsToSet);
-                safeLocalStorage.setItem('referrals', JSON.stringify(referralsToSet));
                 setIsOfflineFallback(false);
                 console.log(`[App] Server referrals (${referralsToSet.length} items) successfully synced.`);
             } else if (loadedReferrals === null) {
@@ -211,7 +208,6 @@ function App() {
         apiClient.getLogs().then(loadedLogs => {
             if (Array.isArray(loadedLogs)) {
                 setLogs(loadedLogs);
-                safeLocalStorage.setItem('logs', JSON.stringify(loadedLogs));
             }
         }).catch(e => console.error("Logs fetch failed", e));
 
@@ -290,37 +286,15 @@ function App() {
                     setIsLoadingData(false); // Unblock UI!
                     loadProtectedData();
                 } else {
-                    // Fallback to localStorage
-                    const saved = safeLocalStorage.getItem('users');
-                    setUsers(saved ? JSON.parse(saved) : initialUsers);
-                    setIsLoadingData(false); // Unblock UI
-
-                    const savedLogs = safeLocalStorage.getItem('logs');
-                    setLogs(savedLogs ? JSON.parse(savedLogs) : []);
-                    const savedRef = safeLocalStorage.getItem('referrals');
-                    setReferrals(savedRef ? JSON.parse(savedRef) : initialReferrals);
-                    const savedSA = safeLocalStorage.getItem('suicideAttempterReferrals');
-                    if (savedSA) {
-                        const parsedSAs = JSON.parse(savedSA);
-                        const sortedSAs = [...parsedSAs].sort((a, b) => (b.uid || "").localeCompare(a.uid || ""));
-                        setSuicideAttempterReferrals(sortedSAs);
-                    } else {
-                        setSuicideAttempterReferrals(initialSuicideAttempterReferrals);
-                    }
+                    setIsLoadingData(false);
+                    setIsReferralsLoading(false);
+                    setIsOfflineFallback(true);
                 }
             } catch (error) {
                 console.error('Error loading data:', error);
-                // Fallback on error
-                const saved = safeLocalStorage.getItem('users');
-                setUsers(saved ? JSON.parse(saved) : initialUsers);
-                setIsLoadingData(false); // Unblock UI
-
-                const savedLogs = safeLocalStorage.getItem('logs');
-                setLogs(savedLogs ? JSON.parse(savedLogs) : []);
-                const savedRef = safeLocalStorage.getItem('referrals');
-                setReferrals(savedRef ? JSON.parse(savedRef) : initialReferrals);
-                const savedSA = safeLocalStorage.getItem('suicideAttempterReferrals');
-                setSuicideAttempterReferrals(savedSA ? JSON.parse(savedSA) : initialSuicideAttempterReferrals);
+                setIsLoadingData(false);
+                setIsReferralsLoading(false);
+                setIsOfflineFallback(true);
             }
         };
 
@@ -465,13 +439,22 @@ function App() {
         }
     }, [websiteReferralItems.length]);
 
-    // Keep localStorage as backup
-    useEffect(() => { safeLocalStorage.setItem('referrals', JSON.stringify(referrals)); }, [referrals]);
-    useEffect(() => { safeLocalStorage.setItem('suicideAttempterReferrals', JSON.stringify(suicideAttempterReferrals)); }, [suicideAttempterReferrals]);
+    useEffect(() => { removeLedgerCacheLeftByOlderVersions(); }, []);
 
-    // 토스트 메시지를 표시하는 함수
     const showToast = useCallback((message: string) => {
         setToastMessage(message);
+    }, []);
+
+    const clearClientSessionData = useCallback(() => {
+        clearBrowserStoredClientData();
+        setReferrals([]);
+        setUnregisteredCandidates([]);
+        setSuicideAttempterReferrals([]);
+        setLogs([]);
+        setUsers([]);
+        setWebsiteReferralItems([]);
+        setPendingTransfer(null);
+        setIsOfflineFallback(false);
     }, []);
 
     const handleToastClose = useCallback(() => {
@@ -481,19 +464,13 @@ function App() {
     // [FIX 3 (a)] 세션 만료 핸들러 등록: 마운트 시 콜백 등록 (로컬 정리만, 서버 logout 미호출)
     useEffect(() => {
         registerSessionExpiredHandler(() => {
-            safeSessionStorage.removeItem('currentUser');
-            try {
-                if (typeof window !== 'undefined' && window.sessionStorage) {
-                    window.sessionStorage.removeItem('currentUser');
-                }
-            } catch (ignore) {}
+            clearClientSessionData();
             setCurrentUser(null);
             setActivePage('referrals');
             showToast('세션이 만료되어 로그아웃되었습니다.');
         });
-    }, [showToast]);
+    }, [showToast, clearClientSessionData]);
 
-    // 비밀번호 변경 권장 안내 (새로고침해도 같은 탭 세션 동안 유지, 로그아웃 시 제거)
     const [passwordChangeRecommended, setPasswordChangeRecommended] = useState<boolean>(
         () => safeSessionStorage.getItem(PW_RECOMMEND_KEY) === '1'
     );
@@ -512,7 +489,6 @@ function App() {
     const handleLogin = async (user: User, options?: { passwordChangeRecommended?: boolean }) => {
         resetSessionExpiredGuard();
         safeSessionStorage.setItem('currentUser', JSON.stringify(user));
-        // 단순한 비밀번호(숫자만·8자 미만 등)로 로그인한 경우 변경 권장 안내를 띄운다 (강제 아님)
         if (options?.passwordChangeRecommended) {
             safeSessionStorage.setItem(PW_RECOMMEND_KEY, '1');
             setPasswordChangeRecommended(true);
@@ -529,6 +505,7 @@ function App() {
 
         // Save to Sheets & Load protected data
         if (apiClient.isAvailable()) {
+            setIsReferralsLoading(true);
             loadProtectedData();
             await apiClient.createLog(newLog).catch(e => console.warn('Create log failed', e));
         }
@@ -568,17 +545,12 @@ function App() {
         } catch (err) {
             console.warn('[Auth] Error during performLogout steps:', err);
         } finally {
-            safeSessionStorage.removeItem('currentUser');
-            try {
-                if (typeof window !== 'undefined' && window.sessionStorage) {
-                    window.sessionStorage.removeItem('currentUser');
-                }
-            } catch (ignore) {}
+            clearClientSessionData();
             setCurrentUser(null);
             setActivePage('referrals');
             showToast('로그아웃 되었습니다.');
         }
-    }, [currentUser, logs, showToast]);
+    }, [currentUser, logs, showToast, clearClientSessionData]);
 
     // 수동 로그아웃 핸들러
     const handleLogout = useCallback(() => {
@@ -601,7 +573,7 @@ function App() {
 
     const handleAddNewReferral = useCallback(async (newReferral: Omit<Referral, 'refNo' | 'clientId'>): Promise<Referral> => {
         if (isOfflineFallback) {
-            const msg = '현재 오프라인 캐시 모드이므로 신규 저장이 제한됩니다. 백엔드 서버(Port 8889) 상태를 확인해주세요.';
+            const msg = '현재 서버에 연결되지 않아 신규 저장이 제한됩니다. 백엔드 서버(Port 8889) 상태를 확인해주세요.';
             showToast(msg);
             throw new Error(msg);
         }
@@ -643,9 +615,9 @@ function App() {
         }
     }, [isOfflineFallback, showToast]);
 
-    const handleUpdateReferral = useCallback(async (updatedReferral: Referral, originalRefNo?: string) => {
+    const handleUpdateReferral = useCallback(async (updatedReferral: Referral, originalRefNo?: string, options?: { silent?: boolean }) => {
         if (isOfflineFallback) {
-            const msg = '현재 오프라인 캐시 모드이므로 수정이 제한됩니다.';
+            const msg = '현재 서버에 연결되지 않아 수정이 제한됩니다.';
             showToast(msg);
             throw new Error(msg);
         }
@@ -667,7 +639,7 @@ function App() {
                 // Normal Update with OCC
                 const updateRes = await apiClient.updateReferral(updatedReferral);
                 const saved = updateRes.data || updatedReferral;
-                showToast('의뢰가 수정되었습니다.');
+                if (!options?.silent) showToast('의뢰가 수정되었습니다.');
 
                 setReferrals(prev => prev.map(r => {
                     const matchById = saved.referralId && r.referralId && r.referralId === saved.referralId;
@@ -688,7 +660,7 @@ function App() {
 
     const handleDeleteReferral = useCallback(async (refNoOrId: string) => {
         if (isOfflineFallback) {
-            showToast('현재 오프라인 캐시 모드이므로 삭제가 제한됩니다.');
+            showToast('현재 서버에 연결되지 않아 삭제가 제한됩니다.');
             return;
         }
 
@@ -737,9 +709,6 @@ function App() {
                 })
             };
 
-            const payloadStr = JSON.stringify(sanitizedReferral);
-            console.log(`🚀 [App] Final Payload Size: ${payloadStr.length} bytes`);
-            console.log('🚀 [App] Data:', sanitizedReferral);
 
             if (apiClient.isAvailable()) {
                 // 1. Primary Action: Create the record
@@ -833,7 +802,7 @@ function App() {
 
     const handleTransferToReferral = useCallback((sa: SuicideAttempterReferral) => {
         console.log("[App] Multi-Step Transfer: Initiating for", sa.name);
-        const today = new Date().toISOString().split('T')[0];
+        const today = todayKST();
 
         // 마지막 노트(최신 상담이력)만 이전: 모든 중간 편집본 제외
         let combinedNoteContent = `[자살시도자 이력 이전]\n접수일: ${sa.receiptDate || '미상'} | 의뢰기관: ${sa.requestAgency || '미상'} | 담당자: ${sa.pic || '미상'}`;
@@ -874,13 +843,9 @@ function App() {
         showToast(`${sa.name}님의 정보를 의뢰대장으로 이동합니다.`);
     }, [currentUser, showToast]);
 
-    const handleUpdateSAReferral = useCallback(async (updatedReferral: SuicideAttempterReferral) => {
-        // 1. Optimistic UI Update (Instant response)
-        setSuicideAttempterReferrals(prev => prev.map(r => r.uid === updatedReferral.uid ? updatedReferral : r));
-
-        // 2. Background Sync to Sheets
-        if (apiClient.isAvailable()) {
-            try {
+    const handleUpdateSAReferral = useCallback(async (updatedReferral: SuicideAttempterReferral): Promise<SuicideAttempterReferral> => {
+        try {
+            if (apiClient.isAvailable()) {
                 const sanitizedReferral = {
                     ...updatedReferral,
                     attachments: updatedReferral.attachments?.map(att => {
@@ -889,13 +854,20 @@ function App() {
                     }) || []
                 };
                 await apiClient.updateSuicideAttempter(sanitizedReferral);
-                await apiClient.logActivity(currentUser?.name || 'Unknown', '자살시도자 수정', `정보 수정: ${updatedReferral.name} (${updatedReferral.uid})`);
-            } catch (error) {
-                console.error('Update background error:', error);
-                // In a production app, we might want to roll back or notify the user
             }
+        } catch (error) {
+            console.error('[App] handleUpdateSAReferral error:', error);
+            showToast(`저장 실패: ${error instanceof Error ? error.message : '서버 오류'} (변경 내용이 저장되지 않았습니다)`);
+            throw error;
         }
-    }, [currentUser]);
+
+        setSuicideAttempterReferrals(prev => prev.map(r => r.uid === updatedReferral.uid ? updatedReferral : r));
+
+        apiClient.logActivity(currentUser?.name || 'Unknown', '자살시도자 수정', `정보 수정: ${updatedReferral.name} (${updatedReferral.uid})`)
+            .catch(logError => console.warn('[App] Activity logging failed (non-critical):', logError));
+
+        return updatedReferral;
+    }, [currentUser, showToast]);
 
     const handleDeleteSAReferral = useCallback(async (uid: string) => {
         if (window.confirm('정말로 이 정보를 삭제하시겠습니까?')) {
@@ -983,6 +955,7 @@ function App() {
                     initialFormData={pendingTransfer}
                     onInitialFormConsumed={handleInitialFormConsumed}
                     isLoading={isReferralsLoading}
+                    showToast={showToast}
                 />;
             case 'suicideAttempters':
                 return <SuicideAttemptersPage
@@ -1024,7 +997,7 @@ function App() {
 
                 if (!isVoiceAiPermitted) {
                     setTimeout(() => {
-                        showToast('음성 녹음 분석(AI) 기능에 접근할 권한이 없습니다.', 'error');
+                        showToast('음성 녹음 분석(AI) 기능에 접근할 권한이 없습니다.');
                         setActivePage('home');
                     }, 0);
                     return (
@@ -1065,7 +1038,7 @@ function App() {
 
                 if (!isSurveyPermitted) {
                     setTimeout(() => {
-                        showToast('온라인 설문 기능에 접근할 권한이 없습니다.', 'error');
+                        showToast('온라인 설문 기능에 접근할 권한이 없습니다.');
                         setActivePage('home');
                     }, 0);
                     return (
@@ -1207,7 +1180,7 @@ function App() {
                         <div className="bg-amber-500 text-white px-4 py-2 text-xs font-bold flex items-center justify-between shadow-md z-40">
                             <span className="flex items-center gap-2">
                                 <span>⚠️</span>
-                                <span>[오프라인 캐시 모드] 서버 응답이 지연되어 로컬에 캐시된 정보를 읽기 전용으로 표시하고 있습니다. 데이터 무결성을 위해 신규 저장/수정이 제한됩니다.</span>
+                                <span>[서버 연결 불가] 서버에서 데이터를 불러오지 못했습니다. 데이터 무결성을 위해 신규 저장/수정이 제한됩니다. 잠시 후 다시 연결해 주세요.</span>
                             </span>
                             <button
                                 onClick={() => window.location.reload()}

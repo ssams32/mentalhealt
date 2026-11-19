@@ -10,6 +10,10 @@ import DocumentAttachmentModal from '../common/document-modal/DocumentAttachment
 import FilePreviewModal from '../common/FilePreviewModal';
 import ReferralEditor from './ReferralEditor';
 import { compareReferralsByRequestDate } from './referralSort';
+import { sanitizeExcelCell } from '../../utils/excelSanitize';
+import { todayKST } from '../../utils/date';
+
+const LIST_AND_EDITOR_SIDE_BY_SIDE = '(min-width: 1024px)';
 
 // --- UI Helpers ---
 const getTeamColor = (team: string) => {
@@ -40,17 +44,6 @@ const getAssigneeColor = (name: string) => {
     return colors[Math.abs(hash) % colors.length];
 };
 
-// [Track B] CWE-1236: CSV/Excel Formula Injection 방어 함수
-export const sanitizeExcelCell = (value: any): string => {
-    if (value === null || value === undefined) return '';
-    const str = String(value);
-    // 수식 트리거 문자(=, +, -, @, \t, \r)로 시작하거나 공백 뒤에 수식 트리거가 오는 경우 작은따옴표(') 접두사로 안전하게 이스케이프
-    if (/^[=+\-@\t\r]/.test(str) || /^[=+\-@]/.test(str.trimStart())) {
-        return `'${str}`;
-    }
-    return str;
-};
-
 interface ReferralDashboardV2Props {
     allReferrals: Referral[];
     setAllReferrals: React.Dispatch<React.SetStateAction<Referral[]>>;
@@ -60,12 +53,13 @@ interface ReferralDashboardV2Props {
     selectedTeam: Team | 'all';
     setSelectedTeam: (team: Team | 'all') => void;
     users: User[];
-    onUpdateReferral: (updatedReferral: Referral, originalRefNo?: string) => Promise<Referral | void> | void;
+    onUpdateReferral: (updatedReferral: Referral, originalRefNo?: string, options?: { silent?: boolean }) => Promise<Referral | void> | void;
     onAddNewReferral: (newReferral: Omit<Referral, 'refNo' | 'clientId'>) => Promise<Referral>;
     // Pre-filled data to auto-open the new referral form (from SA transfer)
     initialFormData?: Partial<Omit<Referral, 'refNo' | 'clientId'>> | null;
     onInitialFormConsumed?: () => void;
     isLoading?: boolean;
+    showToast: (message: string) => void;
 }
 
 const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
@@ -82,6 +76,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
     initialFormData,
     onInitialFormConsumed,
     isLoading = false,
+    showToast,
 }) => {
     // --- State: Filters ---
     const [searchTerm, setSearchTerm] = useState('');
@@ -101,7 +96,9 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
     const [showNambu, setShowNambu] = useState(true);
 
     // --- State: Selection ---
-    const [selectedReferralId, setSelectedReferralId] = useState<string | null>(null);
+    const [selectedReferralKey, setSelectedReferralKey] = useState<string | null>(null);
+    const [requestedReferralId, setRequestedReferralId] = useState<string | null>(null);
+    const [autoSelectFirst, setAutoSelectFirst] = useState(true);
 
     // --- State: Modals & Editing ---
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -119,7 +116,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
             const anyData = initialFormData as any;
             if (anyData.targetReferralId || (anyData.referralId && !anyData.name)) {
                 const targetId = anyData.targetReferralId || anyData.referralId;
-                setSelectedReferralId(targetId);
+                setRequestedReferralId(String(targetId));
                 if (onInitialFormConsumed) onInitialFormConsumed();
                 return;
             }
@@ -218,19 +215,51 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
             .sort(compareReferralsByRequestDate);
     }, [activeDataset, selectedTeam, searchTerm, assigneeSearch, criFilter, statusFilter, startDate, endDate, referralPathFilter, showNambu]);
 
-    const activeReferral = useMemo(() =>
-        activeDataset.find(r => getReferralKey(r) === selectedReferralId) || filteredReferrals[0] || null,
-        [activeDataset, selectedReferralId, filteredReferrals, getReferralKey]);
+    const activeReferral = useMemo(() => {
+        if (!selectedReferralKey) return null;
+        return activeDataset.find(r => getReferralKey(r) === selectedReferralKey) || null;
+    }, [activeDataset, selectedReferralKey, getReferralKey]);
+
+    const findReferralByAnyId = useCallback((list: Referral[], id: string): Referral | undefined =>
+        list.find(r => r.referralId === id)
+        || list.find(r => r.clientId === id)
+        || list.find(r => r.refNo === id),
+    []);
+
+    useEffect(() => {
+        if (!requestedReferralId) return;
+        const registered = findReferralByAnyId(uniqueAllReferrals, requestedReferralId);
+        const unregistered = registered ? undefined : findReferralByAnyId(uniqueUnregistered, requestedReferralId);
+        const found = registered || unregistered;
+        if (found) {
+            setViewMode(registered ? 'standard' : 'unregistered');
+            setSelectedReferralKey(getReferralKey(found));
+            setRequestedReferralId(null);
+        } else if (!isLoading) {
+            setRequestedReferralId(null);
+            setSelectedReferralKey(null);
+            setAutoSelectFirst(false);
+            showToast('해당 의뢰를 목록에서 찾을 수 없습니다. 삭제되었거나 조회 권한이 없을 수 있습니다.');
+        }
+    }, [requestedReferralId, uniqueAllReferrals, uniqueUnregistered, isLoading, findReferralByAnyId, getReferralKey, showToast]);
+
+    const changeViewMode = useCallback((mode: 'standard' | 'unregistered' | 'trash') => {
+        setViewMode(mode);
+        setSelectedReferralKey(null);
+        setRequestedReferralId(null);
+        setAutoSelectFirst(true);
+    }, []);
 
     const selectedReferrals = useMemo(() => {
         return allReferrals.filter(r => selectedRefNos.has(getReferralKey(r)));
     }, [allReferrals, selectedRefNos, getReferralKey]);
 
     useEffect(() => {
-        if (!selectedReferralId && filteredReferrals.length > 0) {
-            setSelectedReferralId(getReferralKey(filteredReferrals[0]));
-        }
-    }, [filteredReferrals, selectedReferralId, getReferralKey]);
+        if (selectedReferralKey || requestedReferralId || !autoSelectFirst) return;
+        if (filteredReferrals.length === 0) return;
+        if (!window.matchMedia(LIST_AND_EDITOR_SIDE_BY_SIDE).matches) return;
+        setSelectedReferralKey(getReferralKey(filteredReferrals[0]));
+    }, [filteredReferrals, selectedReferralKey, requestedReferralId, autoSelectFirst, getReferralKey]);
 
     useEffect(() => {
         if (viewMode === 'trash') {
@@ -248,13 +277,18 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
         if (target) {
             const updated = { ...target, [field]: value };
             if (viewMode === 'standard') {
-                onUpdateReferral(updated);
+                try {
+                    await onUpdateReferral(updated);
+                } catch (e) {
+                    console.error('Failed to update referral field', e);
+                }
             } else {
                 try {
                     await apiClient.updateUnregistered(updated);
                     setUnregisteredCandidates(prev => prev.map(c => c.refNo === refNo ? updated : c));
                 } catch (e) {
                     console.error("Failed to update unregistered candidate", e);
+                    showToast('미등록 대상자 정보 저장에 실패했습니다.');
                 }
             }
         }
@@ -346,8 +380,8 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                 setUnregisteredCandidates(prev => prev.filter(c => c.refNo !== deleteId && c.clientId !== deleteId));
             }
 
-            if (referral && selectedReferralId === getReferralKey(referral)) {
-                setSelectedReferralId(null);
+            if (referral && selectedReferralKey === getReferralKey(referral)) {
+                setSelectedReferralKey(null);
             }
             alert('삭제되었습니다.');
         } catch (error) {
@@ -543,7 +577,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
 
             const fileName = referrals.length === 1
                 ? `${currentYear}년_회신서_${referrals[0].name}_${referrals[0].refNo}.xlsx`
-                : `${currentYear}년_통합_회신서_${referrals.length}명_${new Date().toISOString().split('T')[0]}.xlsx`;
+                : `${currentYear}년_통합_회신서_${referrals.length}명_${todayKST()}.xlsx`;
 
             XLSX.writeFile(wb, fileName);
 
@@ -602,7 +636,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
 
     // 1. Sidebar / List View
     const renderSidebarList = () => (
-        <div className={`flex flex-col bg-white border-r border-slate-200 h-full transition-all duration-300 ease-in-out shrink-0 ${selectedReferralId ? 'w-0 hidden lg:w-[440px] lg:flex' : 'w-full flex'}`}>
+        <div className={`flex flex-col bg-white border-r border-slate-200 h-full transition-all duration-300 ease-in-out shrink-0 ${selectedReferralKey ? 'w-0 hidden lg:w-[440px] lg:flex' : 'w-full lg:w-[440px] flex'}`}>
             {/* List Header & Filters */}
             <div className="flex-none p-[var(--space-5)] space-y-[var(--space-3)] border-b border-slate-100/80 bg-slate-50/50 backdrop-blur-sm sticky top-0 z-10">
                 <div className="flex items-center justify-between">
@@ -613,7 +647,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                     </h2>
                     <div className="flex gap-1 bg-slate-100/50 p-1 rounded-xl">
                         <button
-                            onClick={() => setViewMode('standard')}
+                            onClick={() => changeViewMode('standard')}
                             className={`p-1.5 px-2 rounded-lg transition-all flex items-center gap-1.5 font-bold text-xs ${viewMode === 'standard' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             title="의뢰대장"
                         >
@@ -621,7 +655,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                             <span>대장</span>
                         </button>
                         <button
-                            onClick={() => setViewMode('unregistered')}
+                            onClick={() => changeViewMode('unregistered')}
                             className={`p-1.5 px-2 rounded-lg transition-all flex items-center gap-1.5 font-bold text-xs ${viewMode === 'unregistered' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             title="미등록 관리"
                         >
@@ -630,7 +664,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                         </button>
 {currentUser?.role === 'admin' && (
                         <button
-                            onClick={() => setViewMode('trash')}
+                            onClick={() => changeViewMode('trash')}
                             className={`p-1.5 px-2 rounded-lg transition-all flex items-center gap-1.5 font-bold text-xs ${viewMode === 'trash' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             title="휴지통"
                         >
@@ -726,13 +760,13 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                     </div>
                 ) : (
                     filteredReferrals.map(referral => {
-                        const isSelected = selectedReferralId === getReferralKey(referral);
+                        const isSelected = selectedReferralKey === getReferralKey(referral);
                         const isChecked = selectedRefNos.has(getReferralKey(referral));
 
                         return (
                             <div
                                 key={getReferralKey(referral)}
-                                onClick={() => setSelectedReferralId(getReferralKey(referral))}
+                                onClick={() => setSelectedReferralKey(getReferralKey(referral))}
                                 className={`group relative p-[var(--card-padding-md)] rounded-xl border transition-all cursor-pointer hover:shadow-md mx-1 ${isSelected
                                     ? 'bg-white border-indigo-500 ring-[3px] ring-indigo-500/10 shadow-sm z-10'
                                     : 'bg-white border-slate-100 hover:border-indigo-200 hover:bg-slate-50/50'
@@ -872,11 +906,11 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
 
     // 2. Main Editor Area
     const renderMainEditor = () => (
-        <div className={`flex-1 flex flex-col bg-slate-50/50 h-full overflow-hidden relative p-[var(--content-padding-desktop)] ${selectedReferralId ? 'flex' : 'hidden lg:flex'}`}>
+        <div className={`flex-1 flex flex-col bg-slate-50/50 h-full overflow-hidden relative p-[var(--content-padding-desktop)] ${selectedReferralKey ? 'flex' : 'hidden lg:flex'}`}>
             {/* Mobile Back Button Header */}
-            <div className={`lg:hidden flex items-center p-4 bg-white border-b border-slate-200 ${!selectedReferralId ? 'hidden' : ''}`}>
+            <div className={`lg:hidden flex items-center p-4 bg-white border-b border-slate-200 ${!selectedReferralKey ? 'hidden' : ''}`}>
                 <button
-                    onClick={() => setSelectedReferralId(null)}
+                    onClick={() => { setAutoSelectFirst(false); setSelectedReferralKey(null); }}
                     className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors"
                 >
                     <ChevronLeft size={20} />
@@ -893,10 +927,10 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                     isEditing={true}
                     hideCancelButton={true}
                     mode="workspace"
-                    onSubmit={async (data, originalRefNo) => {
+                    onSubmit={async (data, originalRefNo, saveOptions) => {
                         try {
                             const payload = originalRefNo ? { ...data, originalRefNo } : data;
-                            const result = await onUpdateReferral(payload, originalRefNo);
+                            const result = await onUpdateReferral(payload, originalRefNo, { silent: !!saveOptions?.autoSave });
                             return result;
                         } catch (e) {
                             console.error('ReferralEditor onSubmit error:', e);
@@ -904,7 +938,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                         }
                     }}
                     onDelete={(id) => handleDeleteReferral(id, activeReferral)}
-                    showToast={(msg) => console.log(msg)}
+                    showToast={showToast}
                     onPreviewRequest={(file) => setPreviewFile(file)}
                 />
             ) : (
@@ -935,8 +969,9 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                     onSubmit={async (data) => {
                         try {
                             const saved = await onAddNewReferral(data);
-                            if (saved && (saved.referralId || saved.clientId)) {
-                                setSelectedReferralId((saved.referralId || saved.clientId) as string);
+                            if (saved) {
+                                setViewMode('standard');
+                                setSelectedReferralKey(getReferralKey(saved));
                             }
                             setIsAddModalOpen(false);
                             setTransferPrefill(null);
@@ -947,7 +982,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                     }}
                     referralData={transferPrefill as Referral | null}
                     currentUser={currentUser}
-                    showToast={() => { }}
+                    showToast={showToast}
                     users={users}
                 />
             )}
@@ -970,7 +1005,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                     onDelete={(id) => handleDeleteReferral(id, activeReferral)}
                     referralData={activeReferral}
                     currentUser={currentUser}
-                    showToast={() => { }}
+                    showToast={showToast}
                     users={users}
                 />
             )}

@@ -126,10 +126,7 @@ export const useAnalysisStorage = () => {
                 const response = await fetch(CASE_ANALYSIS_API);
                 if (response.ok) {
                     const data = await response.json();
-                    console.log('CASE ANALYSIS FETCH LOAD:', data);
-                    const merged = mergeSavedLists(data);
-                    console.log('MERGED LIST:', merged);
-                    setSavedList(merged);
+                    setSavedList(mergeSavedLists(data));
                 } else {
                     console.error('API FETCH FAILED STATUS:', response.status);
                     throw new Error('API fetch failed');
@@ -292,14 +289,26 @@ export const useAnalysisStorage = () => {
         };
 
         if (!hasGas) {
-            try {
-                await fetch(`${CASE_ANALYSIS_API}/${encodeURIComponent(id)}`, { method: 'DELETE' });
-                await refreshList();
-            } catch {
+            const isLocalOnly = loadLocalSavedResults().some(item => item.id === id);
+            if (isLocalOnly) {
                 deleteFromLocal();
+                setIsLoading(false);
+                return true;
             }
-            setIsLoading(false);
-            return true;
+            try {
+                const response = await fetch(`${CASE_ANALYSIS_API}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                if (!response.ok) {
+                    throw new Error(`삭제 실패 (HTTP ${response.status})`);
+                }
+                await refreshList();
+                setIsLoading(false);
+                return true;
+            } catch (e) {
+                console.error('[useAnalysisStorage] delete failed:', e);
+                setError('삭제에 실패했습니다. 잠시 후 다시 시도해주세요.');
+                setIsLoading(false);
+                return false;
+            }
         }
 
         return new Promise<boolean>((resolve) => {

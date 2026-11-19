@@ -169,7 +169,7 @@ const SuicideAttempterTable: React.FC<SuicideAttempterTableProps> = React.memo((
     };
 
     return (
-        <div className="w-full pb-20 px-2 flex flex-col gap-3">
+        <div className="w-full pb-4 px-2 flex flex-col gap-3 max-h-[75vh] overflow-y-auto custom-scrollbar">
             {data.map((item) => {
                 const isSelected = selectedIds.has(item.uid);
                 const isDuplicate = duplicates.has(item.uid);

@@ -1,12 +1,7 @@
 
 import { User, Referral, SuicideAttempterReferral, PageConfig, Team, Staff } from './types';
 
-export const initialUsers: User[] = [
-    { id: 'admin', username: 'admin', password: '1234', name: '시스템관리자', role: 'admin', createdDate: '2025-01-01', lastLogin: '2025-11-15 14:30:00', status: 'active', team: '증진팀' },
-    { id: 'manager1', username: 'manager1', password: 'manager123', name: '김관리자', role: 'manager', createdDate: '2025-01-15', lastLogin: '2025-11-14 16:20:00', status: 'active', team: '회복팀' },
-    { id: 'user1', username: 'user1', password: 'user123', name: '박상담사', role: 'user', createdDate: '2025-02-01', lastLogin: '2025-11-13 09:15:00', status: 'active', team: '증진팀' },
-    { id: 'user_jin', username: 'user_jin', password: 'user123', name: '김화자-증진팀', role: 'user', createdDate: '2025-03-01', lastLogin: '2025-11-16 10:00:00', status: 'active', team: '증진팀' }
-];
+export const initialUsers: User[] = [];
 
 // 담당자 선택 드롭다운에 사용될 직원 목록
 export const STAFF_LIST: Staff[] = [

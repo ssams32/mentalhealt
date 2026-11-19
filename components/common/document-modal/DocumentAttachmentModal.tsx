@@ -4,6 +4,7 @@ import { X, Upload, FileText, Image as ImageIcon, Trash2, Eye, Download, Search,
 import { jsPDF } from 'jspdf';
 import { OCR_KEYWORDS, MASKING_RULES } from '../../../config/ocrKeywords';
 import { apiClient } from '../../../services/apiClient';
+import { sanitizePreviewHtml } from '../../../utils/htmlSanitize';
 
 // Placeholder types - adjust based on your actual types
 import { Attachment, ReferralNote as Note } from '../../../types';
@@ -150,7 +151,7 @@ const DocumentAttachmentModal: React.FC<DocumentAttachmentModalProps> = ({
                         bytes[i] = binaryString.charCodeAt(i);
                     }
                     const result = await mammoth.convertToHtml({ arrayBuffer: bytes.buffer });
-                    setPreviewHtml(result.value);
+                    setPreviewHtml(sanitizePreviewHtml(result.value));
                 } else if (selectedFile.id) {
                     // Fallback to Drive Preview for HWP and other formats
                     setPreviewUrl(`https://drive.google.com/file/d/${selectedFile.id}/preview`);

@@ -14,6 +14,7 @@ import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { Printer, FileDown, LayoutDashboard, Calendar, Users, TrendingUp } from 'lucide-react';
 import ReportChart from './ReportChart';
+import { sanitizeExcelRows, sanitizeWorksheetStrings } from '../../utils/excelSanitize';
 import { AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 
 // --- Constants ---
@@ -719,7 +720,7 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
     };
 
     const downloadExcel = (data: any[], fileName: string) => {
-        const ws = XLSX.utils.json_to_sheet(data);
+        const ws = XLSX.utils.json_to_sheet(sanitizeExcelRows(data));
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
         const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
@@ -730,6 +731,7 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
         const table = document.getElementById(tableId);
         if (!table) return;
         const wb = XLSX.utils.table_to_book(table);
+        wb.SheetNames.forEach(name => sanitizeWorksheetStrings(wb.Sheets[name]));
         const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
         saveAs(new Blob([wbout], { type: 'application/octet-stream' }), `${fileName}.xlsx`);
     };
@@ -739,6 +741,7 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
     // 기간 필터 상태 (대시보드와 정합성을 위해 기본값은 빈 값 = 전체 기간)
     const [startDate, setStartDate] = useState<string>('');
     const [endDate, setEndDate] = useState<string>('');
+    const [selectedSaStatsYear, setSelectedSaStatsYear] = useState<string>('');
 
     // 데이터 필터링 및 중복 제거 로직 (ReferralDashboardV2와 일치)
     const filteredReferrals = useMemo(() => {
@@ -1041,6 +1044,17 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
 
 
     // --- 자살시도자 통계 전용 로직 ---
+    const saYearOf = (r: { receiptDate?: string }): string | null => {
+        const m = String(r.receiptDate || '').trim().match(/^(\d{4})\D/);
+        return m ? m[1] : null;
+    };
+    const saYearOptions = useMemo(() => {
+        const years = new Set<string>();
+        filteredSaReferrals.forEach(r => { const y = saYearOf(r); if (y) years.add(y); });
+        return Array.from(years).sort((a, b) => b.localeCompare(a));
+    }, [filteredSaReferrals]);
+    const effectiveSaYear = saYearOptions.includes(selectedSaStatsYear) ? selectedSaStatsYear : (saYearOptions[0] || '');
+
     const suicideStats = useMemo(() => {
         if (activeTab !== 'suicide') return null;
 
@@ -1067,6 +1081,9 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
 
         // 데이터 집계
         filteredSaReferrals.forEach(r => {
+            const recordYear = saYearOf(r);
+            if (recordYear && effectiveSaYear && recordYear !== effectiveSaYear) return;
+
             // 처리구분별 분포 (processingStatus)
             const pStatus = r.processingStatus || '미상';
             processingCounts[pStatus] = (processingCounts[pStatus] || 0) + 1;
@@ -1075,7 +1092,7 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
             const rStatus = r.registrationStatus || '미상';
             registrationCounts[rStatus] = (registrationCounts[rStatus] || 0) + 1;
 
-            if (!r.receiptDate) return;
+            if (!r.receiptDate || !recordYear) return;
             const month = parseInt(r.receiptDate.split('-')[1]);
             if (isNaN(month) || month < 1 || month > 12) return;
 
@@ -1177,9 +1194,10 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
             monthly: monthlyStats,
             q1: getQuarterStats(1, 3), q2: getQuarterStats(4, 6), q3: getQuarterStats(7, 9), q4: getQuarterStats(10, 12),
             total: getQuarterStats(1, 12),
-            processingDistribution, registrationDistribution
+            processingDistribution, registrationDistribution,
+            year: effectiveSaYear
         };
-    }, [filteredSaReferrals, activeTab]);
+    }, [filteredSaReferrals, activeTab, effectiveSaYear]);
 
 
     // SuicideReportDashboard component moved outside
@@ -1432,6 +1450,22 @@ export default function ReportsPage({ referrals, suicideAttempterReferrals, sort
 
             {/* Content Area */}
             <div className="animate-load" style={{ animationDelay: '0.4s' }}>
+                {activeTab === 'suicide' && saYearOptions.length > 0 && (
+                    <div className="flex items-center gap-3 mb-4 print:hidden">
+                        <label htmlFor="sa-stats-year" className="text-xs font-black text-slate-500">통계 기준 연도</label>
+                        <select
+                            id="sa-stats-year"
+                            value={effectiveSaYear}
+                            onChange={(e) => setSelectedSaStatsYear(e.target.value)}
+                            className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-indigo-500"
+                        >
+                            {saYearOptions.map(y => <option key={y} value={y}>{y}년</option>)}
+                        </select>
+                        {saYearOptions.length > 1 && (
+                            <span className="text-[11px] font-bold text-slate-400">월별·분기 통계는 선택한 한 해만 집계합니다.</span>
+                        )}
+                    </div>
+                )}
                 {activeTab === 'suicide' ? (
                     <SuicideReportDashboard 
                         stats={suicideStats} 

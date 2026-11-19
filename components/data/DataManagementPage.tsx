@@ -3,6 +3,8 @@ import { Referral, SuicideAttempterReferral, Page } from "../../types";
 import PageContainer from "../layout/PageContainer";
 import StatCard from "../common/StatCard";
 import { REFERRAL_EXCEL_HEADERS, SA_EXCEL_HEADERS } from "../../constants";
+import { sanitizeExcelRows, latestNoteContent } from "../../utils/excelSanitize";
+import { toKSTDateString } from "../../utils/date";
 
 declare var XLSX: any;
 
@@ -298,11 +300,7 @@ const DataManagementPage: React.FC<DataManagementPageProps> = ({
 
         if (isSA) {
           if (key === "notes") {
-            const saRow = row as SuicideAttempterReferral;
-            value =
-              saRow.notes && saRow.notes.length > 0
-                ? saRow.notes[0].content
-                : "";
+            value = latestNoteContent((row as SuicideAttempterReferral).notes || []);
           } else if (key === "attachments") {
             const saRow = row as SuicideAttempterReferral;
             value = Array.isArray(saRow.attachments)
@@ -321,14 +319,14 @@ const DataManagementPage: React.FC<DataManagementPageProps> = ({
         if (typeof value === "boolean") {
           value = value ? "Y" : "N";
         } else if (value instanceof Date) {
-          value = value.toISOString().split("T")[0];
+          value = toKSTDateString(value);
         }
         newRow[header] = value === undefined || value === null ? "" : value;
       });
       return newRow;
     });
 
-    const worksheet = XLSX.utils.json_to_sheet(processedData);
+    const worksheet = XLSX.utils.json_to_sheet(sanitizeExcelRows(processedData));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Data");
     const excelBuffer = XLSX.write(workbook, {

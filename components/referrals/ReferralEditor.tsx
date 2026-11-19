@@ -15,13 +15,14 @@ import ToggleSwitch from '../common/ToggleSwitch';
 import DocumentAttachmentModal from '../common/document-modal/DocumentAttachmentModal';
 import FilePreviewModal from '../common/FilePreviewModal';
 import { apiClient } from '../../services/apiClient';
+import { todayKST } from '../../utils/date';
 
 declare var _: any;
 
 interface ReferralEditorProps {
     referralData?: Referral | null;
     currentUser: User;
-    onSubmit: (referral: any, originalRefNo?: string) => Promise<any> | void;
+    onSubmit: (referral: any, originalRefNo?: string, saveOptions?: { autoSave?: boolean }) => Promise<any> | void;
     onDelete?: (refNo: string) => void;
     onCancel?: () => void;
     users: User[];
@@ -232,7 +233,7 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
                     : '';
 
             setFormData({
-                requestDate: referralData.requestDate || (referralData.externalReceivedAt ? String(referralData.externalReceivedAt).split('T')[0].split(' ')[0] : new Date().toISOString().split('T')[0]),
+                requestDate: referralData.requestDate || (referralData.externalReceivedAt ? String(referralData.externalReceivedAt).split('T')[0].split(' ')[0] : todayKST()),
                 team: (currentUser?.team || getTeams()[0]) as Team,
                 closureStatus: '미종결',
                 diagnosisProtectionRequest: false,
@@ -264,7 +265,7 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
             }
         } else if (!isEditing) {
             setFormData({
-                requestDate: new Date().toISOString().split('T')[0],
+                requestDate: todayKST(),
                 team: (currentUser?.team || getTeams()[0]) as Team,
                 gender: '',
                 region: getRegions()[0],
@@ -354,7 +355,7 @@ const ReferralEditor: React.FC<ReferralEditorProps> = ({
         setSaveStatus('saving');
         try {
             // Call the onSubmit function strictly for background syncing
-            const saved = await onSubmit(dataToSave, dataToSave.refNo);
+            const saved = await onSubmit(dataToSave, dataToSave.refNo, { autoSave: true });
 
             // [CRITICAL] 최신 버전 및 서버 상태 즉각 동기화
             if (saved && saved.version !== undefined) {

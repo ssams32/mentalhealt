@@ -7,6 +7,13 @@ import OrgSettingsPanel from '../setup/OrgSettingsPanel';
 import { apiClient } from '../../services/apiClient';
 import * as XLSX from 'xlsx';
 import { getPasswordWeaknesses, PASSWORD_RECOMMENDATION_TEXT } from '../../utils/passwordPolicy';
+import { todayKST } from '../../utils/date';
+import { sanitizeExcelRows } from '../../utils/excelSanitize';
+
+const UNAMBIGUOUS_PASSWORD_CHARACTERS = 'abcdefghijkmnpqrstuvwxyz23456789';
+
+const generateTemporaryPassword = (): string =>
+    Array.from(crypto.getRandomValues(new Uint8Array(10)), byte => UNAMBIGUOUS_PASSWORD_CHARACTERS[byte % UNAMBIGUOUS_PASSWORD_CHARACTERS.length]).join('');
 
 declare var _: any;
 declare const google: any;
@@ -18,7 +25,6 @@ interface AccountsPageProps {
     currentUser: User;
     onForceLogout: () => void;
     showToast: (msg: string) => void;
-    /** 비밀번호 변경 권장 안내에서 "지금 변경하기"로 들어온 경우 변경 창을 바로 연다 */
     autoOpenChangePassword?: boolean;
     onAutoOpenChangePasswordHandled?: () => void;
 }
@@ -264,19 +270,24 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
         };
         const userToAdd = {
             ...newUser,
-            createdDate: new Date().toISOString().split('T')[0],
+            createdDate: todayKST(),
             lastLogin: '',
             permissions: defaultPermissions
         } as User;
 
-        const result = await apiClient.createUser(userToAdd);
-        setIsSubmitting(false);
-
-        if (result.success) {
-            setUsers(prev => [...prev, userToAdd]);
-            handleCloseAddModal();
-        } else {
-            setAddUserError(result.error || '사용자 생성 실패');
+        try {
+            const result = await apiClient.createUser(userToAdd);
+            if (result.success) {
+                const { password: _omitPassword, ...safeUser } = userToAdd;
+                setUsers(prev => [...prev, safeUser as User]);
+                handleCloseAddModal();
+            } else {
+                setAddUserError(result.error || '사용자 생성 실패');
+            }
+        } catch (error: any) {
+            setAddUserError(error?.message || '사용자 생성 중 오류가 발생했습니다.');
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -285,7 +296,6 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
         if (!editingUser || isSubmitting) return;
 
         setIsSubmitting(true);
-        // 비밀번호는 보내지 않는다. 서버가 기존 레코드에 병합하며 비밀번호를 유지한다.
         const { password: _omitPassword, ...updatedUser } = editingUser as User;
 
         try {
@@ -307,13 +317,17 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
         if (isSubmitting) return;
         if (window.confirm(`정말로 '${userId}' 계정을 삭제하시겠습니까?`)) {
             setIsSubmitting(true);
-            const result = await apiClient.deleteUser(userId);
-            setIsSubmitting(false);
-
-            if (result.success) {
-                setUsers(users.filter(u => u.id !== userId));
-            } else {
-                alert(result.error || '사용자 삭제 실패');
+            try {
+                const result = await apiClient.deleteUser(userId);
+                if (result.success) {
+                    setUsers(prev => prev.filter(u => u.id !== userId));
+                } else {
+                    alert(result.error || '사용자 삭제 실패');
+                }
+            } catch (error: any) {
+                alert(error?.message || '사용자 삭제 중 오류가 발생했습니다.');
+            } finally {
+                setIsSubmitting(false);
             }
         }
     };
@@ -326,13 +340,11 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
         setIsChangePasswordModalOpen(true);
     }
 
-    // 비밀번호 변경 권장 안내에서 들어온 경우 변경 창을 바로 연다
     useEffect(() => {
         if (autoOpenChangePassword) {
             handleOpenChangePasswordModal();
             onAutoOpenChangePasswordHandled?.();
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [autoOpenChangePassword]);
 
     const handleChangePassword = async (e: React.FormEvent) => {
@@ -358,7 +370,6 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
             return;
         }
 
-        // 강제하지 않고 권장만 한다: 단순한 비밀번호면 한 번 더 확인
         const weaknesses = getPasswordWeaknesses(passwordData.newPassword);
         if (weaknesses.length > 0) {
             const proceed = window.confirm(
@@ -391,15 +402,18 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
         if (!userToReset) return;
         if (window.confirm(`'${userToReset.name}'(${userId}) 사용자의 비밀번호를 초기화하시겠습니까?`)) {
             setIsSubmitting(true);
-            const newPassword = Math.random().toString(36).substring(2, 10);
-            const result = await apiClient.resetUserPassword(currentUser.id, userId, newPassword);
-            setIsSubmitting(false);
-
-            if (result.success) {
-                setUsers(prev => prev.map(u => u.id === userId ? { ...u, password: newPassword } : u));
-                alert(`비밀번호가 초기화되었습니다.\n[ ${userId} ]의 새 비밀번호는 [ ${newPassword} ] 입니다.\n(꼭 전달해주세요!)`);
-            } else {
-                alert(result.error || '비밀번호 초기화 실패');
+            const newPassword = generateTemporaryPassword();
+            try {
+                const result = await apiClient.resetUserPassword(currentUser.id, userId, newPassword);
+                if (result.success) {
+                    alert(`비밀번호가 초기화되었습니다.\n[ ${userId} ]의 새 비밀번호는 [ ${newPassword} ] 입니다.\n(꼭 전달해주세요!)`);
+                } else {
+                    alert(result.error || '비밀번호 초기화 실패');
+                }
+            } catch (error: any) {
+                alert(error?.message || '비밀번호 초기화 중 오류가 발생했습니다.');
+            } finally {
+                setIsSubmitting(false);
             }
         }
     };
@@ -454,7 +468,8 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                     const newObj: any = {};
                     Object.keys(row).forEach(header => {
                         const key = headerMap[header];
-                        if (key) {
+                        const isBlankPassword = key === 'password' && String(row[header]).trim() === '';
+                        if (key && !isBlankPassword) {
                             newObj[key] = row[header];
                         }
                     });
@@ -486,13 +501,14 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
     };
 
     const handleExport = () => {
-        const dataToExport = users.map(u => {
+        const dataToExport = sanitizeExcelRows(users.map(u => {
             const row: any = {};
             Object.entries(USER_EXCEL_HEADERS).forEach(([key, label]) => {
+                if (key === 'password') return;
                 row[label] = (u as any)[key] || '';
             });
             return row;
-        });
+        }));
 
         const worksheet = XLSX.utils.json_to_sheet(dataToExport);
         const workbook = XLSX.utils.book_new();
@@ -635,9 +651,9 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                     </div>
 
                     {/* Desktop Table View */}
-                    <div className="hidden md:block bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden mb-8">
+                    <div className="hidden md:block bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-x-auto overflow-y-auto max-h-[65vh] custom-scrollbar mb-8">
                         <table className="w-full text-sm text-left text-slate-600">
-                            <thead className="bg-slate-50/50 text-xs text-slate-400 font-extrabold uppercase tracking-wider border-b border-slate-100">
+                            <thead className="bg-slate-50 sticky top-0 z-10 text-xs text-slate-400 font-extrabold uppercase tracking-wider border-b border-slate-100">
                                 <tr>
                                     {['ID', '이름', '소속팀', '역할', ...(currentUser.role === 'admin' ? ['온라인 설문', '음성 녹음 분석(AI)'] : []), '상태', '생성일', '관리'].map(h => (
                                         <th key={h} className="px-6 py-5 whitespace-nowrap">{h}</th>
@@ -890,9 +906,9 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
 
                     <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
                         <h3 className="text-lg font-extrabold text-slate-900 mb-6">최근 접속 기록</h3>
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto overflow-y-auto max-h-[50vh] custom-scrollbar">
                             <table className="w-full text-sm text-left text-slate-600">
-                                <thead className="text-xs text-slate-400 uppercase font-bold border-b border-slate-100">
+                                <thead className="bg-white sticky top-0 z-10 text-xs text-slate-400 uppercase font-bold border-b border-slate-100">
                                     <tr>
                                         <th className="pb-3 px-4">사용자 ID</th>
                                         <th className="pb-3 px-4">로그인 시간</th>
@@ -913,9 +929,9 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                     </div>
                 </>
             ) : activeTab === 'activity' ? (
-                <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
+                <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-x-auto overflow-y-auto max-h-[65vh] custom-scrollbar">
                     <table className="w-full text-sm text-left text-slate-600">
-                        <thead className="bg-slate-50/50 text-xs text-slate-400 font-extrabold uppercase tracking-wider border-b border-slate-100">
+                        <thead className="bg-slate-50 sticky top-0 z-10 text-xs text-slate-400 font-extrabold uppercase tracking-wider border-b border-slate-100">
                             <tr>
                                 <th className="px-8 py-5">시간</th>
                                 <th className="px-8 py-5">사용자</th>

@@ -208,7 +208,7 @@ const SuicideAttempterStatsTable: React.FC<{ data: SuicideAttempterReferral[] }>
                 </button>
             </div>
             <QuarterlyInfographic quarterlyData={stats.quarterlyStats} />
-            <div className="overflow-x-auto text-center text-xs border border-slate-200 rounded-2xl">
+            <div className="overflow-x-auto overflow-y-auto max-h-[75vh] custom-scrollbar text-center text-xs border border-slate-200 rounded-2xl">
                 <table className="min-w-max w-full">
                     <thead className="text-slate-600 font-bold bg-slate-50">
                         <tr className="border-b border-slate-200">
