@@ -9,7 +9,7 @@ import { apiClient } from '../../services/apiClient';
 import { getOrgShortName } from '../../services/orgConfig';
 import { safeLocalStorage } from '../../utils/safeLocalStorage';
 import sampleBudgetHierarchy from './sampleBudgetHierarchy.json';
-import { matchManualEntryToProposal } from './proposalMatch';
+import { matchManualEntryToProposal, buildManualEntryFromProposal, findManualEntryForProposal } from './proposalMatch';
 
 declare var XLSX: any;
 
@@ -830,6 +830,8 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
     const budgetPlansRef = useRef(budgetPlans);
     useEffect(() => { budgetPlansRef.current = budgetPlans; }, [budgetPlans]);
     const [isSaving, setIsSaving] = useState(false);
+    // 1클릭 수기 입력 중인 품의 id (저장 중 이중 클릭 방지용)
+    const [oneClickSavingId, setOneClickSavingId] = useState<string | null>(null);
     const [editingCell, setEditingCell] = useState<{ id: string, field: keyof BudgetPlan } | null>(null);
     const [editValue, setEditValue] = useState('');
 
@@ -1830,6 +1832,81 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
         // MUST strip placeholders before saving to prevent row bloat and preserve correct count
         const cleanEntries = entries.filter(e => !e.isPlaceholder || (e.amount !== 0 || e.description.trim() !== ''));
         await saveBudgetPlan(modalState.department, modalState.budgetItem, 'manualEntries', cleanEntries);
+    };
+
+    // 품의 1클릭 수기 입력 버튼 상태 (데스크톱 표·모바일 카드 공용)
+    const getOneClickEntryState = (t: BudgetTransaction): 'ready' | 'entered' | 'no-plan' => {
+        const key = toBudgetKey(t.department, t.budgetItem);
+        const plan = key ? budgetPlans[key] : undefined;
+        if (!plan) return 'no-plan';
+        const existing = findManualEntryForProposal(t, plan.manualEntries || []);
+        return existing ? 'entered' : 'ready';
+    };
+
+    // 품의 1건을 클릭 1번으로 해당 과목의 수기 내역에 입력한다.
+    const handleOneClickManualEntry = async (t: BudgetTransaction) => {
+        const key = toBudgetKey(t.department, t.budgetItem);
+        if (!key) return;
+        const plan = budgetPlans[key];
+        // 과목 계획이 없으면 새 계획을 만들지 않고 아무것도 안 한다 (버튼이 비활성이라 올 일은 거의 없지만 방어).
+        if (!plan) return;
+        // 이미 같은 날짜+금액 행이 있으면 이중 입력하지 않는다.
+        if (findManualEntryForProposal(t, plan.manualEntries || [])) return;
+        const prevEntries = plan.manualEntries || [];
+        const newEntry = buildManualEntryFromProposal(t);
+        setOneClickSavingId(t.id);
+        try {
+            await saveBudgetPlan(t.department, t.budgetItem, 'manualEntries', [...prevEntries, newEntry]);
+            showToast('수기 내역에 입력했습니다.');
+        } catch (e) {
+            // saveBudgetPlan은 로컬 state를 먼저 바꾸므로, 서버 저장 실패 시 로컬에 들어간 행을
+            // 되돌려 버튼이 '입력됨'으로 잘못 바뀌지 않게 한다.
+            const rollbackPlan = { ...plan, manualEntries: prevEntries };
+            setBudgetPlans(prev => {
+                const updated = { ...prev, [key]: rollbackPlan };
+                safeLocalStorage.setItem('budget_plans', JSON.stringify(updated));
+                budgetPlansRef.current = updated;
+                return updated;
+            });
+            showToast('수기 입력 저장에 실패했습니다. 다시 시도해주세요.');
+        } finally {
+            setOneClickSavingId(null);
+        }
+    };
+
+    // 1클릭 수기 입력 버튼 (데스크톱 표·모바일 카드 공용)
+    const renderOneClickEntryButton = (t: BudgetTransaction, fullWidth = false) => {
+        const state = getOneClickEntryState(t);
+        const saving = oneClickSavingId === t.id;
+        if (state === 'entered') {
+            return (
+                <span className={`inline-flex items-center justify-center px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 ${fullWidth ? 'w-full' : ''}`}>
+                    입력됨
+                </span>
+            );
+        }
+        if (state === 'no-plan') {
+            return (
+                <button
+                    type="button"
+                    disabled
+                    title="해당 과목의 수기 내역이 없습니다"
+                    className={`px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-400 text-xs font-bold cursor-not-allowed ${fullWidth ? 'w-full' : ''}`}
+                >
+                    수기 입력
+                </button>
+            );
+        }
+        return (
+            <button
+                type="button"
+                disabled={saving}
+                onClick={() => handleOneClickManualEntry(t)}
+                className={`px-2.5 py-1.5 rounded-lg bg-black text-white text-xs font-bold hover:bg-gray-800 transition-colors disabled:opacity-50 ${fullWidth ? 'w-full' : ''}`}
+            >
+                {saving ? '입력 중...' : '수기 입력'}
+            </button>
+        );
     };
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2898,22 +2975,23 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                         <thead className="bg-gray-50 sticky top-0 z-10 border-b border-gray-200">
                                             <tr>
                                                 {[
-                                                        { key: 'date', label: '날짜', width: 'w-32' },
-                                                        { key: 'writer', label: '작성자', width: 'w-24' },
-                                                        { key: 'description', label: '적요 (내용)', width: 'w-auto' },
-                                                        { key: 'amount', label: '금액', width: 'w-32 text-right' },
+                                                        { key: 'date', label: '날짜', width: 'w-32', sortable: true },
+                                                        { key: 'writer', label: '작성자', width: 'w-24', sortable: true },
+                                                        { key: 'description', label: '적요 (내용)', width: 'w-auto', sortable: true },
+                                                        { key: 'amount', label: '금액', width: 'w-32 text-right', sortable: true },
+                                                        { key: 'manualEntry', label: '수기 입력', width: 'w-28 text-center', sortable: false },
                                                     ].map(col => (
                                                         <th
                                                             key={col.key}
-                                                            className={`px-4 py-3 font-bold text-gray-500 cursor-pointer hover:bg-gray-100 transition-colors ${col.width}`}
-                                                            onClick={() => handleSort(col.key as keyof BudgetTransaction)}
+                                                            className={`px-4 py-3 font-bold text-gray-500 ${col.sortable ? 'cursor-pointer hover:bg-gray-100 transition-colors' : ''} ${col.width}`}
+                                                            onClick={col.sortable ? () => handleSort(col.key as keyof BudgetTransaction) : undefined}
                                                         >
-                                                            <div className={`flex items-center gap-1 ${col.key === 'amount' ? 'justify-end' : ''}`}>
+                                                            <div className={`flex items-center gap-1 ${col.key === 'amount' ? 'justify-end' : ''} ${col.key === 'manualEntry' ? 'justify-center' : ''}`}>
                                                                 {col.label}
-                                                                {sortConfig.key === col.key && (
+                                                                {col.sortable && sortConfig.key === col.key && (
                                                                     sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
                                                                 )}
-                                                                {sortConfig.key !== col.key && <ArrowUpDown size={12} className="opacity-30" />}
+                                                                {col.sortable && sortConfig.key !== col.key && <ArrowUpDown size={12} className="opacity-30" />}
                                                             </div>
                                                         </th>
                                                     ))}
@@ -2942,11 +3020,14 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                                         <td className="px-4 py-3 text-right font-mono font-bold text-black group-hover:text-blue-600">
                                                             {t.amount.toLocaleString()}
                                                         </td>
+                                                        <td className="px-4 py-3 text-center">
+                                                            {renderOneClickEntryButton(t)}
+                                                        </td>
                                                     </tr>
                                                 ))}
                                                 {filteredData.length === 0 && (
                                                     <tr>
-                                                        <td colSpan={4} className="p-12 text-center">
+                                                        <td colSpan={5} className="p-12 text-center">
                                                             <div className="flex flex-col items-center justify-center text-gray-300">
                                                                 <Search size={48} className="mb-4 opacity-50" />
                                                                 <p className="text-lg font-bold">검색 결과가 없습니다.</p>
@@ -2993,6 +3074,9 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                             <div className="flex justify-between items-center bg-gray-50 p-3 rounded-lg mt-2">
                                                 <span className="text-xs font-bold text-gray-500">집행금액</span>
                                                 <span className="font-mono font-bold text-lg text-black">{t.amount.toLocaleString()}</span>
+                                            </div>
+                                            <div className="mt-1">
+                                                {renderOneClickEntryButton(t, true)}
                                             </div>
                                         </div>
                                     ))}

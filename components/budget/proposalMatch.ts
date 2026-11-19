@@ -207,3 +207,60 @@ export function matchManualEntryToProposal(
         matchedCount: 0
     };
 }
+
+export interface BuiltManualEntry {
+    id: string;
+    date: string;
+    writer: string;
+    amount: number;
+    description: string;
+}
+
+/**
+ * 품의 1건을 수기 지출 내역 행으로 변환한다 (1클릭 자동 입력용).
+ * - date / writer / amount는 품의 값을 그대로 복사 (amount는 숫자로 변환).
+ * - description: 품의번호가 있으면 `[품의번호] 적요` 형태, 없으면 적요 그대로.
+ *   적요가 비어 있으면 품의번호만 `[품의번호]`로 둔다.
+ * - id는 기존 수기 행 생성 방식(Date.now 기반)을 따른다.
+ * - isPlaceholder는 넣지 않는다 (바로 저장되는 실제 행이기 때문).
+ */
+export function buildManualEntryFromProposal(t: BudgetTransaction): BuiltManualEntry {
+    const appNo = t.approvalNo ? t.approvalNo.trim() : '';
+    const desc = t.description ? t.description.trim() : '';
+    const description = appNo ? (desc ? `[${appNo}] ${desc}` : `[${appNo}]`) : desc;
+    return {
+        id: Date.now().toString(),
+        date: typeof t.date === 'string' ? t.date.trim() : '',
+        writer: t.writer || '',
+        amount: Number(t.amount) || 0,
+        description
+    };
+}
+
+/**
+ * 해당 품의와 날짜+금액이 같은 수기 행이 이미 있는지 찾는다 (이중 입력 방지용).
+ * - 빈 행(금액 0 + 적요 없음)과 placeholder 행은 무시한다.
+ * - 금액은 숫자로, 날짜는 문자열 그대로 비교한다.
+ * - 과목 스코프는 호출하는 쪽에서 이미 해당 과목의 manualEntries만 넘기므로
+ *   이 함수 안에서는 과목 비교를 하지 않는다.
+ * - 있으면 그 행, 없으면 null을 반환한다.
+ */
+export function findManualEntryForProposal(
+    t: BudgetTransaction | null | undefined,
+    manualEntries: ManualEntryLike[] = []
+): ManualEntryLike | null {
+    if (!t) return null;
+    const tDate = typeof t.date === 'string' ? t.date.trim() : '';
+    const tAmount = Number(t.amount);
+    if (!tDate || Number.isNaN(tAmount)) return null;
+    const list = Array.isArray(manualEntries) ? manualEntries : [];
+    for (const e of list) {
+        if (!e || e.isPlaceholder) continue;
+        const eAmount = Number(e.amount) || 0;
+        const eDescEmpty = !e.description || e.description.trim() === '';
+        if (eAmount === 0 && eDescEmpty) continue; // 빈 행 무시
+        const eDate = typeof e.date === 'string' ? e.date.trim() : '';
+        if (eDate === tDate && eAmount === tAmount) return e;
+    }
+    return null;
+}

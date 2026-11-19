@@ -21,7 +21,7 @@ const { outputText } = ts.transpileModule(src, {
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proposal-match-'));
 const tmpFile = path.join(tmpDir, 'proposalMatch.mjs');
 fs.writeFileSync(tmpFile, outputText);
-const { matchManualEntryToProposal, normalizeBudgetItem, isSameBudgetItem } = await import(pathToFileURL(tmpFile).href);
+const { matchManualEntryToProposal, normalizeBudgetItem, isSameBudgetItem, buildManualEntryFromProposal, findManualEntryForProposal } = await import(pathToFileURL(tmpFile).href);
 fs.rmSync(tmpDir, { recursive: true, force: true });
 
 describe('proposalMatch - 수기 지출 품의 내역 크로스체크', () => {
@@ -380,5 +380,121 @@ describe('proposalMatch - 수기 지출 품의 내역 크로스체크', () => {
         assert.equal(result.status, 'matched');
         assert.equal(result.badgeText, '일치');
         assert.equal(result.detailText, 'AP-11 문구류');
+    });
+});
+
+describe('proposalMatch - 품의 1클릭 수기 자동 입력', () => {
+
+    it('1. buildManualEntryFromProposal: 품의번호가 있으면 [번호] 적요 형태', () => {
+        const t = {
+            id: 't1',
+            approvalNo: '2026-0001',
+            date: '2026-11-19',
+            writer: '관리자',
+            amount: 50000,
+            description: '차량 유류비'
+        };
+        const entry = buildManualEntryFromProposal(t);
+        assert.equal(entry.description, '[2026-0001] 차량 유류비');
+        assert.equal(entry.date, '2026-11-19');
+        assert.equal(entry.writer, '관리자');
+        assert.equal(entry.amount, 50000);
+        assert.equal(typeof entry.id, 'string');
+        assert.ok(entry.id.length > 0);
+        assert.equal(entry.isPlaceholder, undefined);
+    });
+
+    it('2. buildManualEntryFromProposal: 품의번호가 없으면 적요 그대로', () => {
+        const t = {
+            id: 't2',
+            approvalNo: '',
+            date: '2026-11-18',
+            writer: '관리자',
+            amount: 20000,
+            description: '출장 여비'
+        };
+        const entry = buildManualEntryFromProposal(t);
+        assert.equal(entry.description, '출장 여비');
+    });
+
+    it('3. buildManualEntryFromProposal: 적요가 비어 있으면 품의번호만', () => {
+        const t = {
+            id: 't3',
+            approvalNo: ' 2026-0003 ',
+            date: '2026-11-17',
+            writer: '관리자',
+            amount: 30000,
+            description: '   '
+        };
+        const entry = buildManualEntryFromProposal(t);
+        assert.equal(entry.description, '[2026-0003]');
+    });
+
+    it('4. buildManualEntryFromProposal: 금액은 숫자로 변환', () => {
+        const t = {
+            id: 't4',
+            approvalNo: '2026-0004',
+            date: '2026-11-16',
+            writer: '관리자',
+            amount: '75000',
+            description: '소모품 구매'
+        };
+        const entry = buildManualEntryFromProposal(t);
+        assert.equal(entry.amount, 75000);
+        assert.equal(typeof entry.amount, 'number');
+    });
+
+    it('5. findManualEntryForProposal: 날짜+금액이 일치하면 그 행을 찾음', () => {
+        const t = { id: 't5', date: '2026-11-19', amount: 50000 };
+        const entries = [
+            { id: 'e1', date: '2026-11-18', amount: 50000, description: '다른 날' },
+            { id: 'e2', date: '2026-11-19', amount: 50000, description: '[2026-0001] 차량 유류비' },
+            { id: 'e3', date: '2026-11-19', amount: 30000, description: '다른 금액' }
+        ];
+        const found = findManualEntryForProposal(t, entries);
+        assert.equal(found.id, 'e2');
+    });
+
+    it('6. findManualEntryForProposal: 날짜만 맞으면 못 찾음', () => {
+        const t = { id: 't6', date: '2026-11-19', amount: 99000 };
+        const entries = [
+            { id: 'e1', date: '2026-11-19', amount: 50000, description: '날짜만 같음' }
+        ];
+        assert.equal(findManualEntryForProposal(t, entries), null);
+    });
+
+    it('7. findManualEntryForProposal: 금액만 맞으면 못 찾음', () => {
+        const t = { id: 't7', date: '2026-11-15', amount: 50000 };
+        const entries = [
+            { id: 'e1', date: '2026-11-19', amount: 50000, description: '금액만 같음' }
+        ];
+        assert.equal(findManualEntryForProposal(t, entries), null);
+    });
+
+    it('8. findManualEntryForProposal: 빈 행과 placeholder는 무시', () => {
+        const t = { id: 't8', date: '2026-11-19', amount: 0 };
+        const entries = [
+            { id: 'e1', date: '2026-11-19', amount: 0, description: '', isPlaceholder: true },
+            { id: 'e2', date: '2026-11-19', amount: 0, description: '' },
+            { id: 'e3', date: '2026-11-19', amount: 0, description: '0원 지출' }
+        ];
+        // e1(placeholder)과 e2(빈 행)는 무시되고, 적요가 있는 e3이 찾아짐
+        const found = findManualEntryForProposal(t, entries);
+        assert.equal(found.id, 'e3');
+    });
+
+    it('9. findManualEntryForProposal: 빈 목록이면 null', () => {
+        const t = { id: 't9', date: '2026-11-19', amount: 50000 };
+        assert.equal(findManualEntryForProposal(t, []), null);
+        assert.equal(findManualEntryForProposal(t), null);
+    });
+
+    it('10. findManualEntryForProposal: 금액 문자열도 숫자로 비교', () => {
+        const t = { id: 't10', date: '2026-11-19', amount: '50000' };
+        const entries = [
+            { id: 'e1', date: '2026-11-19', amount: 50000, description: '숫자 금액 행' }
+        ];
+        const found = findManualEntryForProposal(t, entries);
+        assert.equal(found.id, 'e1');
     });
 });
