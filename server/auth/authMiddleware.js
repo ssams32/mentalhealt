@@ -15,8 +15,6 @@ export function parseSessionCookie(cookieHeader) {
     for (let c of cookies) {
         const [key, ...valParts] = c.trim().split('=');
         if (key === COOKIE_NAME) {
-            // 잘못 인코딩된 쿠키(예: '%')는 decodeURIComponent가 URIError를 던져
-            // 서버 프로세스 전체를 종료시킬 수 있으므로 "토큰 없음"으로 처리한다.
             try {
                 return decodeURIComponent(valParts.join('='));
             } catch (ignore) {

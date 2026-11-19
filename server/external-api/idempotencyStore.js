@@ -25,14 +25,15 @@ function getSeenIdsPath(dataDir) {
  */
 function loadSeenIds(dataDir) {
   const filePath = getSeenIdsPath(dataDir);
-  if (!fs.existsSync(filePath)) return {};
+  if (!fs.existsSync(filePath)) return Object.create(null);
 
   try {
     const content = fs.readFileSync(filePath, "utf8");
-    if (!content.trim()) return {};
-    return JSON.parse(content);
-  } catch {
-    return {};
+    if (!content.trim()) return Object.create(null);
+    return Object.assign(Object.create(null), JSON.parse(content));
+  } catch (err) {
+    console.error("[IDEMPOTENCY] SeenIds 파일을 읽지 못했습니다 (빈 목록으로 시작):", err.message);
+    return Object.create(null);
   }
 }
 
@@ -43,7 +44,9 @@ function loadSeenIds(dataDir) {
  */
 function saveSeenIds(seenIds, dataDir) {
   const filePath = getSeenIdsPath(dataDir);
-  fs.writeFileSync(filePath, JSON.stringify(seenIds, null, 2), "utf8");
+  const tempPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
+  fs.writeFileSync(tempPath, JSON.stringify(seenIds, null, 2), "utf8");
+  fs.renameSync(tempPath, filePath);
 }
 
 /**
@@ -90,7 +93,7 @@ export class IdempotencyStore {
    * @returns {boolean}
    */
   hasSeen(externalId) {
-    return externalId in this._seenIds;
+    return Object.prototype.hasOwnProperty.call(this._seenIds, externalId);
   }
 
   /**
@@ -152,7 +155,7 @@ export class IdempotencyStore {
    * @returns {boolean} 삭제 성공 여부
    */
   removeSeen(externalId) {
-    if (externalId in this._seenIds) {
+    if (Object.prototype.hasOwnProperty.call(this._seenIds, externalId)) {
       delete this._seenIds[externalId];
       this._dirty = true;
       return true;

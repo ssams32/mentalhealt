@@ -423,7 +423,12 @@ import { SurveyPayloadValidator } from '../server/survey/surveyPayloadValidator.
 import { SURVEY_ASSESSMENT_IDS, SURVEY_ERROR_CODES, SURVEY_SCORING_POLICIES } from '../server/survey/surveyConstants.js';
 // Track A 실제 빌더 — 손으로 만든 축소 페이로드는 실제 결함을 못 잡으므로
 // 회귀 테스트는 Track A가 실제로 보내는 모양 그대로 만든다.
-import { buildSensitiveAssessmentPayload } from '../../mind-mobile-screening/src/utils/payloadAllowlist.js';
+let buildSensitiveAssessmentPayload = null;
+try {
+    ({ buildSensitiveAssessmentPayload } = await import('../../mind-mobile-screening/src/utils/payloadAllowlist.js'));
+} catch {
+    buildSensitiveAssessmentPayload = null;
+}
 
 // Mock repository for campaign fetch
 function createMockRepository(campaigns = []) {
@@ -798,7 +803,7 @@ describe('SurveyPayloadValidator - Campaign Scale Validation', () => {
 // Track A 빌더(buildSensitiveAssessmentPayload)로 페이로드를 만든 뒤
 // 검증기에 넣는다. 손으로 만든 scaleScores 페이로드는 별칭 키·
 // 점수 허용 목록·정규화 변환 결함을 잡지 못한다.
-describe('SurveyPayloadValidator - Track A 실제 페이로드 회귀', () => {
+describe('SurveyPayloadValidator - Track A 실제 페이로드 회귀', { skip: buildSensitiveAssessmentPayload ? false : 'mind-mobile-screening 저장소가 없어 건너뜀' }, () => {
     const contact = { name: '홍길동', phone: '010-1234-5678', preferredTime: '언제든 가능', note: '' };
     const profile = { age: 30, region: '이천시', gender: '남성' };
     const consent = { personalInfoConsent: true, sensitiveInfoConsent: true };

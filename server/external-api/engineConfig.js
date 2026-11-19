@@ -28,9 +28,6 @@ function getSettingsPath(dataDir) {
  * @returns {object} 환경변수 설정 객체
  */
 export function loadEnvConfig() {
-  // [버그 수정] 예전에는 환경변수가 없어도 기본값(mock, 폴링 꺼짐, 60초 등)을 돌려주었고,
-  // 병합 시 환경변수가 우선하므로 관리자 화면에서 저장한 설정이 재시작할 때마다 기본값으로 되돌아갔다.
-  // 이제 실제로 설정된 환경변수만 돌려주고, 기본값은 validateConfig에서 병합 뒤에 적용한다.
   const str = (name) => {
     const v = process.env[name];
     return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;

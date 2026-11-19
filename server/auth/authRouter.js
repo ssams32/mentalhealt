@@ -95,8 +95,6 @@ export function createAuthRouter(authService, requireAuthMiddleware, options = {
             return res.json({
                 success: true,
                 user, // Strictly sanitized: password and token excluded
-                // 단순한 비밀번호(숫자만·8자 미만 등)면 변경 권장 안내를 띄우도록 알려준다.
-                // 비밀번호 자체나 저장 형식은 바꾸지 않는다.
                 passwordChangeRecommended: isPasswordChangeRecommended(password)
             });
         } catch (err) {

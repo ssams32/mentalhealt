@@ -83,9 +83,7 @@ try {
 
 const app = express();
 
-// [안정성] async 라우트 핸들러에서 발생한 예외가 처리되지 않으면 Node가 프로세스를 종료한다.
-// 라우트 핸들러가 돌려준 Promise의 reject를 Express 오류 처리(next)로 넘겨 500 응답으로 끝내도록 감싼다.
-// (오류 처리 미들웨어처럼 인자가 4개인 함수와 app.get('설정이름') 형태의 설정 조회는 그대로 둔다)
+// Express 4 does not forward rejected promises from async handlers to error middleware.
 for (const method of ['get', 'post', 'put', 'patch', 'delete', 'all']) {
     const original = app[method].bind(app);
     app[method] = (...args) => {
@@ -108,7 +106,6 @@ for (const method of ['get', 'post', 'put', 'patch', 'delete', 'all']) {
     };
 }
 
-// [안정성] 위에서 감싸지 못한 경로(별도 Router 등)의 Promise 거부로 서버가 종료되지 않도록 기록만 남긴다.
 process.on('unhandledRejection', (reason) => {
     console.error('❌ [UNHANDLED_REJECTION]:', reason && reason.stack ? reason.stack : reason);
 });
@@ -265,6 +262,10 @@ const getData = (filename, defaultValue = []) => {
         try {
             const content = fs.readFileSync(filePath, 'utf8');
             if (content.trim() === '') {
+                 if (['Referrals', 'Users', 'SuicideAttempters'].includes(filename)) {
+                     console.error(`❌ [CRITICAL ERROR] ${filename}.json is empty on disk — refusing to treat it as an empty dataset.`);
+                     throw new Error(`Data Corruption Detected in ${filename}.json (empty file). Restore from backups before continuing.`);
+                 }
                  console.warn(`⚠️ [SERVER] ${filename}.json is empty on disk.`);
                  memoryCache[filename] = defaultValue;
                  return memoryCache[filename];
@@ -321,7 +322,15 @@ const TEAM_CODES = {
 };
 
 // Helper: Create a backup of a file before overwriting
+const PRE_SAVE_BACKUP_MIN_INTERVAL_MS = 60 * 1000;
+const lastPreSaveBackupAt = {};
+
 const createBackup = async (filename) => {
+    const nowMs = Date.now();
+    if (lastPreSaveBackupAt[filename] && nowMs - lastPreSaveBackupAt[filename] < PRE_SAVE_BACKUP_MIN_INTERVAL_MS) {
+        return;
+    }
+    lastPreSaveBackupAt[filename] = nowMs;
     const backupDir = path.join(DATA_DIR, 'backups', new Date().toISOString().split('T')[0]);
     if (!fs.existsSync(backupDir)) {
         fs.mkdirSync(backupDir, { recursive: true });
@@ -353,13 +362,8 @@ const fileLocks = {};
 // Helper: Persist data safely to disk (Atomic write: temp file -> JSON verify -> rename)
 // Returns a Promise that resolves ONLY when data is successfully flushed to disk.
 const persistData = async (filename, data) => {
-    if (filename.startsWith('Budget') || filename.startsWith('Asset_') || filename === 'Referrals' || filename === 'SuicideAttempters' || filename === 'Users') {
-        try {
-            await createBackup(filename);
-        } catch (e) {
-            console.error(`Pre-save backup failed: ${e}`);
-        }
-    }
+    const previousCache = memoryCache[filename];
+    memoryCache[filename] = data;
 
     if (!fileLocks[filename]) {
         fileLocks[filename] = Promise.resolve();
@@ -367,6 +371,13 @@ const persistData = async (filename, data) => {
 
     const currentLock = fileLocks[filename];
     const writeOperation = async () => {
+        if (filename.startsWith('Budget') || filename.startsWith('Asset_') || filename === 'Referrals' || filename === 'SuicideAttempters' || filename === 'Users') {
+            try {
+                await createBackup(filename);
+            } catch (e) {
+                console.error(`Pre-save backup failed: ${e}`);
+            }
+        }
         const filePath = path.join(DATA_DIR, `${filename}.json`);
         const dataToSave = JSON.stringify(data, null, 2);
         let retries = 3;
@@ -375,7 +386,13 @@ const persistData = async (filename, data) => {
         for (let i = 0; i < retries; i++) {
             const tempPath = `${filePath}.tmp.${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
             try {
-                await fs.promises.writeFile(tempPath, dataToSave, 'utf8');
+                const fh = await fs.promises.open(tempPath, 'w');
+                try {
+                    await fh.writeFile(dataToSave, 'utf8');
+                    await fh.sync();
+                } finally {
+                    await fh.close();
+                }
                 // Verify temp file is not empty and valid JSON
                 const written = await fs.promises.readFile(tempPath, 'utf8');
                 if (!written || written.length === 0) throw new Error("Empty file write detected");
@@ -393,6 +410,9 @@ const persistData = async (filename, data) => {
                     await new Promise(r => setTimeout(r, Math.pow(2, i) * 100));
                 }
             }
+        }
+        if (memoryCache[filename] === data) {
+            memoryCache[filename] = previousCache;
         }
         throw lastErr || new Error(`Failed to persist ${filename} after ${retries} attempts`);
     };
@@ -1159,7 +1179,7 @@ app.get('/api/settings', optionalAuth, (req, res) => {
 });
 
 // 설정 수정: 관리자 전용. teams가 비게 되는 변경은 거부 (드롭다운 붕괴 방지)
-app.put('/api/settings', requireAdmin, (req, res) => {
+app.put('/api/settings', requireAdmin, async (req, res) => {
     try {
         const body = req.body || {};
         const current = getOrgSettings();
@@ -1174,7 +1194,7 @@ app.put('/api/settings', requireAdmin, (req, res) => {
             }
         }
         const merged = { ...current, ...body, setupCompleted: true };
-        saveData('Settings', merged);
+        await persistData('Settings', merged);
         res.json({ success: true, settings: merged });
     } catch (e) {
         console.error('PUT /api/settings error:', e);
@@ -1183,11 +1203,15 @@ app.put('/api/settings', requireAdmin, (req, res) => {
 });
 
 // 초기 설정 마법사 완료: 인증 불필요, setupCompleted=false일 때만 1회 실행 가능
-app.post('/api/setup', (req, res) => {
+app.post('/api/setup', optionalAuth, (req, res) => {
     try {
         const current = getOrgSettings();
         if (current.setupCompleted) {
             return res.status(403).json({ success: false, error: '이미 초기 설정이 완료되었습니다.' });
+        }
+        const existingUsers = getData('Users', []);
+        if (Array.isArray(existingUsers) && existingUsers.length > 0 && req.auth?.role !== 'admin') {
+            return res.status(403).json({ success: false, error: '이미 계정이 존재합니다. 관리자로 로그인한 뒤 초기 설정을 진행해 주세요.' });
         }
         const { orgName, orgShortName, region, teams, subTeams, subTeamParent, regions, referralPaths, admin } = req.body || {};
         if (!orgName || !String(orgName).trim()) {
@@ -1245,7 +1269,7 @@ app.get('/api/users', requireAuth, (req, res) => {
 
 const ALLOWED_USER_ROLES = ['admin', 'staff', 'user', 'manager'];
 
-app.post('/api/users', requireAdmin, (req, res) => {
+app.post('/api/users', requireAdmin, async (req, res) => {
     const newUser = req.body || {};
     const users = getData('Users', []);
     if (!newUser.id || !newUser.password) {
@@ -1263,7 +1287,7 @@ app.post('/api/users', requireAdmin, (req, res) => {
         status: newUser.status || 'active',
         createdDate: newUser.createdDate || new Date().toISOString().split('T')[0]
     });
-    saveData('Users', users);
+    await persistData('Users', users);
     res.json({ success: true });
 });
 
@@ -1273,9 +1297,6 @@ app.put('/api/users', requireAdmin, async (req, res) => {
         const users = getData('Users', []);
         const index = users.findIndex(u => u.id === updatedUser.id);
         if (index !== -1) {
-            // [버그 수정] 목록 조회(GET /api/users)는 비밀번호를 내려주지 않으므로, 화면이 보낸 객체로
-            // 통째로 교체하면 저장된 비밀번호가 지워져 해당 사용자가 로그인할 수 없게 된다.
-            // 기존 레코드 위에 덮어쓰되 비밀번호는 이 경로에서 절대 바꾸지 않는다(변경은 전용 API 사용).
             const { password: _ignoredPassword, ...changes } = updatedUser;
             const merged = { ...users[index], ...changes, id: users[index].id };
             users[index] = merged;
@@ -1536,7 +1557,7 @@ app.patch('/api/users/:id/online-survey-access', requireAuth, async (req, res) =
     }
 });
 
-app.delete('/api/users/:id', requireAuth, (req, res) => {
+app.delete('/api/users/:id', requireAuth, async (req, res) => {
     if (!req.auth || req.auth.role !== 'admin') {
         return res.status(403).json({ success: false, error: "관리자만 사용자 권한을 변경할 수 있습니다." });
     }
@@ -1546,7 +1567,7 @@ app.delete('/api/users/:id', requireAuth, (req, res) => {
         return res.status(403).json({ success: false, error: "Cannot delete the default admin account." });
     }
     const filteredUsers = users.filter(u => u.id !== userId);
-    saveData('Users', filteredUsers);
+    await persistData('Users', filteredUsers);
     res.json({ success: true });
 });
 
@@ -1571,17 +1592,10 @@ app.get('/api/referrals', requireAuth, (req, res) => {
             referrals = referrals.filter(r => !isOnlineSurveyRecord(r));
         }
 
-        const reqUserId = req.headers['x-user-id'] || req.query.userId;
-        const reqUserRole = req.headers['x-user-role'] || req.query.userRole;
-        let reqUserTeam = req.headers['x-user-team'] || req.query.userTeam;
-        if (reqUserTeam) {
-            try { reqUserTeam = decodeURIComponent(reqUserTeam); } catch {}
-        }
-
         const users = getData('Users', []);
-        const user = users.find(u => u.id === reqUserId || u.username === reqUserId);
-        const role = user?.role || reqUserRole || 'user';
-        const userTeam = user?.team || reqUserTeam;
+        const user = users.find(u => u.id === req.auth?.id) || req.auth || {};
+        const role = user.role || 'user';
+        const userTeam = user.team;
         const canSelectAllTeams = role === 'admin' || (role === 'manager' && user?.permissions?.referrals?.read !== false);
 
         let effectiveTeam = team;
@@ -2108,7 +2122,8 @@ app.post('/api/referrals', requireAuth, async (req, res) => {
                 const yearYY = now.getFullYear().toString().slice(-2);
                 const prefix = `${teamCode}-${yearYY}-`;
 
-                const existingSeqs = refs
+                const trashedReferrals = (getData('Trash', []) || []).filter(t => t && t._trashSource === 'Referrals');
+                const existingSeqs = [...refs, ...trashedReferrals]
                     .filter(r => r && r.refNo && String(r.refNo).startsWith(prefix))
                     .map(r => {
                         const parts = String(r.refNo).split('-');
@@ -2376,7 +2391,9 @@ const handleReferralUpdate = async (req, res) => {
             const reqVer = Number(referral.version);
             const curVer = Number(currentRecord.version);
             if (reqVer !== curVer) {
-                const isConsecutiveSave = (curVer - reqVer === 1);
+                const actorForOcc = req.auth?.id || req.auth?.userId || null;
+                const isConsecutiveSave = (curVer - reqVer === 1) &&
+                    (!currentRecord.lastModifiedBy || currentRecord.lastModifiedBy === actorForOcc);
                 if (isConsecutiveSave) {
                     console.warn(`[OCC] Consecutive save detected for ${currentRecord.refNo || targetId} (reqVer: ${reqVer}, curVer: ${curVer}). Auto-resolving with merge.`);
                 } else {
@@ -2412,13 +2429,20 @@ const handleReferralUpdate = async (req, res) => {
         updatedReferral.externalReferralId = currentRecord.externalReferralId;
         updatedReferral.version = nextVersion;
         updatedReferral.updatedAt = new Date().toISOString();
+        updatedReferral.lastModifiedBy = req.auth?.id || req.auth?.userId || currentRecord.lastModifiedBy;
 
         await mutateReferrals({
             opType: 'UPDATE',
             targetId: currentRecord.referralId,
             actorUserId: req.auth?.id || req.auth?.userId || 'system'
         }, async (refs) => {
-            refs[index] = updatedReferral;
+            const idx = refs.findIndex(r => r && r.referralId === currentRecord.referralId);
+            if (idx === -1 || refs[idx].version !== currentRecord.version) {
+                const raceErr = new Error('다른 사용자에 의해 데이터가 변경되었습니다. 최신 정보를 불러온 후 다시 시도해주세요.');
+                raceErr.code = 'VERSION_CONFLICT';
+                throw raceErr;
+            }
+            refs[idx] = updatedReferral;
         });
 
         const responsePayload = { success: true, data: updatedReferral };
@@ -2434,6 +2458,9 @@ const handleReferralUpdate = async (req, res) => {
         res.json(responsePayload);
     } catch (err) {
         console.error('❌ PUT /api/referrals error:', err);
+        if (err.code === 'VERSION_CONFLICT') {
+            return res.status(409).json({ success: false, code: 'VERSION_CONFLICT', error: err.message });
+        }
         if (err.code === 'REFERRAL_DATA_INTEGRITY_VIOLATION') {
             return res.status(500).json({ success: false, code: err.code, error: err.message });
         }
@@ -2549,11 +2576,11 @@ app.get('/api/suicideattempters', requireAuth, (req, res) => {
     res.json(getData('SuicideAttempters', []));
 });
 
-app.post('/api/suicideattempters', requireAuth, (req, res) => {
+app.post('/api/suicideattempters', requireAuth, async (req, res) => {
     const sa = req.body;
     const records = getData('SuicideAttempters', []);
     records.push(sa);
-    saveData('SuicideAttempters', records);
+    await persistData('SuicideAttempters', records);
     res.json({ success: true });
 });
 
@@ -3003,17 +3030,10 @@ app.get('/api/analysis/current', requireAuth, (req, res) => {
         let data = getData('GlobalCaseAnalysis', null);
         if (!data) return res.json({ success: true, data: null });
 
-        const reqUserId = req.headers['x-user-id'] || req.query.userId;
-        const reqUserRole = req.headers['x-user-role'] || req.query.userRole;
-        let reqUserTeam = req.headers['x-user-team'] || req.query.userTeam;
-        if (reqUserTeam) {
-            try { reqUserTeam = decodeURIComponent(reqUserTeam); } catch {}
-        }
-
         const users = getData('Users', []);
-        const user = users.find(u => u.id === reqUserId || u.username === reqUserId);
-        const role = user?.role || reqUserRole || 'user';
-        const userTeam = user?.team || reqUserTeam;
+        const user = users.find(u => u.id === req.auth?.id) || req.auth || {};
+        const role = user.role || 'user';
+        const userTeam = user.team;
 
         if (role === 'user' && userTeam) {
             const teamMap = {
@@ -3061,7 +3081,7 @@ app.post('/api/analysis/current', requireAuth, (req, res) => {
 });
 
 // BRIEFING SUPERVISION COMMENTS API (설계서 §3.3, §4.5)
-app.post('/api/analysis/briefing-comments', requireAuth, (req, res) => {
+app.post('/api/analysis/briefing-comments', requireAuth, async (req, res) => {
     try {
         const { memberKey, text } = req.body;
         if (!memberKey || !text || !String(text).trim()) {
@@ -3085,7 +3105,7 @@ app.post('/api/analysis/briefing-comments', requireAuth, (req, res) => {
         };
 
         data.briefingComments[memberKey].push(comment);
-        saveData('GlobalCaseAnalysis', data);
+        await persistData('GlobalCaseAnalysis', data);
         res.json({ success: true, comment, comments: data.briefingComments[memberKey] });
     } catch (err) {
         console.error('❌ POST /api/analysis/briefing-comments error:', err);
@@ -3093,7 +3113,7 @@ app.post('/api/analysis/briefing-comments', requireAuth, (req, res) => {
     }
 });
 
-app.put('/api/analysis/briefing-comments', requireAuth, (req, res) => {
+app.put('/api/analysis/briefing-comments', requireAuth, async (req, res) => {
     try {
         const { memberKey, commentId, text } = req.body;
         if (!memberKey || !commentId || !text || !String(text).trim()) {
@@ -3119,7 +3139,7 @@ app.put('/api/analysis/briefing-comments', requireAuth, (req, res) => {
         comment.text = String(text).trim();
         comment.updatedAt = new Date().toISOString();
 
-        saveData('GlobalCaseAnalysis', data);
+        await persistData('GlobalCaseAnalysis', data);
         res.json({ success: true, comment, comments: data.briefingComments[memberKey] });
     } catch (err) {
         console.error('❌ PUT /api/analysis/briefing-comments error:', err);
@@ -3127,7 +3147,7 @@ app.put('/api/analysis/briefing-comments', requireAuth, (req, res) => {
     }
 });
 
-app.delete('/api/analysis/briefing-comments', requireAuth, (req, res) => {
+app.delete('/api/analysis/briefing-comments', requireAuth, async (req, res) => {
     try {
         const { memberKey, commentId } = req.body;
         if (!memberKey || !commentId) {
@@ -3151,7 +3171,7 @@ app.delete('/api/analysis/briefing-comments', requireAuth, (req, res) => {
         }
 
         data.briefingComments[memberKey] = data.briefingComments[memberKey].filter(c => c.id !== commentId);
-        saveData('GlobalCaseAnalysis', data);
+        await persistData('GlobalCaseAnalysis', data);
         res.json({ success: true, comments: data.briefingComments[memberKey] });
     } catch (err) {
         console.error('❌ DELETE /api/analysis/briefing-comments error:', err);
@@ -3210,8 +3230,6 @@ app.get('/api/pending-referrals', requireAuth, (req, res) => {
         return !isRegistered;
     });
 
-    // [데이터 보존] 예전에는 조회(GET) 때마다 등록된 것으로 보이는 대기 항목을 파일에서 영구 삭제했다.
-    // 조회가 데이터를 지우지 않도록 응답에서만 걸러내고 원본 PendingReferrals는 그대로 둔다.
     if (allPending.length !== beforeCount) {
         console.log(`[pending-referrals] 등록된 것으로 보이는 대기 항목 ${beforeCount - allPending.length}건을 응답에서 제외 (원본 보존)`);
     }
@@ -3244,10 +3262,10 @@ app.get('/api/pending-referrals/status', requireAuth, (req, res) => {
     });
 });
 
-app.post('/api/pending-referrals', requireAuth, (req, res) => {
+app.post('/api/pending-referrals', requireAuth, async (req, res) => {
     const list = getData('PendingReferrals', []);
     list.push(req.body);
-    saveData('PendingReferrals', list);
+    await persistData('PendingReferrals', list);
     res.json({ success: true });
 });
 
@@ -3293,7 +3311,7 @@ app.get('/api/health/storage', requireAdmin, (req, res) => {
     }
 });
 
-app.post('/api/users/import', requireAdmin, (req, res) => {
+app.post('/api/users/import', requireAdmin, async (req, res) => {
     try {
         const parsedData = req.body;
         if (!Array.isArray(parsedData)) {
@@ -3325,7 +3343,7 @@ app.post('/api/users/import', requireAdmin, (req, res) => {
             }
         });
 
-        saveData('Users', users);
+        await persistData('Users', users);
         console.log(`📥 [Import] Users imported: ${createdCount} created, ${updatedCount} updated.`);
         res.json({
             success: true,
@@ -3339,9 +3357,8 @@ app.post('/api/users/import', requireAdmin, (req, res) => {
 
 // [P0-D5] body.adminId를 신뢰하지 않음. requireAdmin이 세션의 req.auth만 검증한다.
 // FE가 adminId를 계속 보내도 무시된다 (회귀 없음).
-app.post('/api/users/reset-password', requireAdmin, (req, res) => {
+app.post('/api/users/reset-password', requireAdmin, async (req, res) => {
     const { targetId, newPassword } = req.body || {};
-    // 빈 값/비문자열로 비밀번호가 지워지는 것을 막는다 (기존 최소 길이 4자 유지)
     if (typeof newPassword !== 'string' || newPassword.length < 4) {
         return res.status(400).json({ success: false, error: "새 비밀번호는 4자 이상이어야 합니다." });
     }
@@ -3353,14 +3370,13 @@ app.post('/api/users/reset-password', requireAdmin, (req, res) => {
     }
 
     users[userIndex].password = newPassword;
-    saveData('Users', users);
+    await persistData('Users', users);
     res.json({ success: true, message: "Password reset successful" });
 });
 
 // [P0-D4] 세션 바인딩: 본인 또는 관리자만 변경 가능. 비밀번호 평문 로그 제거됨.
-app.post('/api/users/change-password', requireAuth, (req, res) => {
+app.post('/api/users/change-password', requireAuth, async (req, res) => {
     const { userId, oldPassword, newPassword } = req.body || {};
-    // 빈 값/비문자열로 비밀번호가 지워지는 것을 막는다 (기존 최소 길이 4자 유지)
     if (typeof newPassword !== 'string' || newPassword.length < 4) {
         return res.status(400).json({ success: false, error: "새 비밀번호는 4자 이상이어야 합니다." });
     }
@@ -3387,7 +3403,7 @@ app.post('/api/users/change-password', requireAuth, (req, res) => {
     }
 
     users[userIndex].password = newPassword;
-    const saveSuccess = saveData('Users', users);
+    const saveSuccess = await persistData('Users', users);
 
     if (saveSuccess) {
         res.json({ success: true, message: "Password changed successful" });
@@ -3492,19 +3508,19 @@ app.post('/api/referrals/bulk-delete', requireAuth, requireAdmin, async (req, re
     }
 });
 
-app.put('/api/suicideattempters', requireAuth, (req, res) => {
+app.put('/api/suicideattempters', requireAuth, async (req, res) => {
     const updatedSA = req.body;
     const records = getData('SuicideAttempters', []);
     const index = records.findIndex(r => r.uid === updatedSA.uid);
     if (index !== -1) {
         records[index] = updatedSA;
-        saveData('SuicideAttempters', records);
+        await persistData('SuicideAttempters', records);
         return res.json({ success: true });
     }
     res.status(404).json({ success: false, error: "Record not found" });
 });
 
-app.delete('/api/suicideattempters/:uid', requireAuth, (req, res) => {
+app.delete('/api/suicideattempters/:uid', requireAdmin, async (req, res) => {
     const { uid } = req.params;
     console.log(`[DELETE] Request for SuicideAttempter: ${uid}`);
 
@@ -3521,8 +3537,8 @@ app.delete('/api/suicideattempters/:uid', requireAuth, (req, res) => {
             deletedAt: new Date().toISOString()
         });
         records.splice(index, 1);
-        saveData('SuicideAttempters', records);
-        saveData('Trash', trash);
+        await persistData('SuicideAttempters', records);
+        await persistData('Trash', trash);
 
         console.log(`[DELETE] Successfully removed: ${uid}`);
         res.json({ success: true, movedToTrash: true });
@@ -3533,7 +3549,7 @@ app.delete('/api/suicideattempters/:uid', requireAuth, (req, res) => {
     }
 });
 
-app.post('/api/suicideattempters/bulk-delete', requireAuth, (req, res) => {
+app.post('/api/suicideattempters/bulk-delete', requireAdmin, async (req, res) => {
     const { uids } = req.body;
     console.log(`[BULK-DELETE] Request for UIDs: ${JSON.stringify(uids)}`);
 
@@ -3561,8 +3577,8 @@ app.post('/api/suicideattempters/bulk-delete', requireAuth, (req, res) => {
         // Remove from main list
         records = records.filter(r => !uids.includes(r.uid));
 
-        saveData('SuicideAttempters', records);
-        saveData('Trash', trash);
+        await persistData('SuicideAttempters', records);
+        await persistData('Trash', trash);
         console.log(`[BULK-DELETE] Removed ${itemsToDelete.length} items.`);
     } else {
         console.warn(`[BULK-DELETE] None of the requested items found. Returning success.`);
@@ -3579,7 +3595,7 @@ app.get('/api/unregistered', requireAuth, (req, res) => {
     res.json(getData('UnregisteredCandidates', []));
 });
 
-app.post('/api/unregistered', requireAuth, (req, res) => {
+app.post('/api/unregistered', requireAuth, async (req, res) => {
     const candidate = req.body;
     if (!candidate || (!candidate.clientId && !candidate.refNo)) {
         return res.status(400).json({ success: false, error: "Invalid candidate data" });
@@ -3591,7 +3607,7 @@ app.post('/api/unregistered', requireAuth, (req, res) => {
         : candidates.some(c => candidate.refNo && c.refNo === candidate.refNo);
     if (!exists) {
         candidates.push(candidate);
-        const saved = saveData('UnregisteredCandidates', candidates);
+        const saved = await persistData('UnregisteredCandidates', candidates);
         if (!saved) {
             return res.status(500).json({ success: false, error: "Database write failed" });
         }
@@ -3599,7 +3615,7 @@ app.post('/api/unregistered', requireAuth, (req, res) => {
     res.json({ success: true, message: "Unregistered candidate processed successfully" });
 });
 
-app.put('/api/unregistered', requireAuth, (req, res) => {
+app.put('/api/unregistered', requireAuth, async (req, res) => {
     const candidate = req.body;
     const candidates = getData('UnregisteredCandidates', []);
     const index = candidate.clientId
@@ -3607,17 +3623,17 @@ app.put('/api/unregistered', requireAuth, (req, res) => {
         : candidates.findIndex(c => candidate.refNo && c.refNo === candidate.refNo);
     if (index !== -1) {
         candidates[index] = candidate;
-        saveData('UnregisteredCandidates', candidates);
+        await persistData('UnregisteredCandidates', candidates);
         return res.json({ success: true });
     }
     res.status(404).json({ success: false, error: "Candidate not found" });
 });
 
-app.delete('/api/unregistered/:id', requireAuth, (req, res) => {
+app.delete('/api/unregistered/:id', requireAuth, async (req, res) => {
     const { id } = req.params;
     let candidates = getData('UnregisteredCandidates', []);
     candidates = candidates.filter(c => c.refNo !== id && c.clientId !== id);
-    saveData('UnregisteredCandidates', candidates);
+    await persistData('UnregisteredCandidates', candidates);
     res.json({ success: true });
 });
 
@@ -3754,9 +3770,21 @@ app.get('/api/pcassets', requireAuth, (req, res) => {
     res.json(getData('PC_Assets', []));
 });
 
-app.post('/api/pcassets', requireAuth, (req, res) => {
+const rejectUnexpectedShape = (res, body, expected) => {
+    const isArray = Array.isArray(body);
+    const isPlainObject = body !== null && typeof body === 'object' && !isArray;
+    const ok = expected === 'array' ? isArray : isPlainObject;
+    if (!ok) {
+        res.status(400).json({ success: false, error: `저장 형식이 올바르지 않습니다 (${expected === 'array' ? '목록' : '객체'} 필요).` });
+        return true;
+    }
+    return false;
+};
+
+app.post('/api/pcassets', requireAuth, async (req, res) => {
     const assets = req.body;
-    saveData('PC_Assets', assets);
+    if (rejectUnexpectedShape(res, assets, 'array')) return;
+    await persistData('PC_Assets', assets);
     res.json({ success: true });
 });
 
@@ -3772,8 +3800,9 @@ app.get('/api/budget/plans', requireAuth, (req, res) => {
     res.json(getData('BudgetPlans', {}));
 });
 
-app.post('/api/budget/plans', requireAuth, (req, res) => {
-    saveData('BudgetPlans', req.body);
+app.post('/api/budget/plans', requireAuth, async (req, res) => {
+    if (rejectUnexpectedShape(res, req.body, 'object')) return;
+    await persistData('BudgetPlans', req.body);
     res.json({ success: true });
 });
 
@@ -3781,8 +3810,9 @@ app.get('/api/budget/transactions', requireAuth, (req, res) => {
     res.json(getData('BudgetTransactions', []));
 });
 
-app.post('/api/budget/transactions', requireAuth, (req, res) => {
-    saveData('BudgetTransactions', req.body);
+app.post('/api/budget/transactions', requireAuth, async (req, res) => {
+    if (rejectUnexpectedShape(res, req.body, 'array')) return;
+    await persistData('BudgetTransactions', req.body);
     res.json({ success: true });
 });
 
@@ -3790,8 +3820,9 @@ app.get('/api/budget/metadata', requireAuth, (req, res) => {
     res.json(getData('BudgetMetadata', {}));
 });
 
-app.post('/api/budget/metadata', requireAuth, (req, res) => {
-    saveData('BudgetMetadata', req.body);
+app.post('/api/budget/metadata', requireAuth, async (req, res) => {
+    if (rejectUnexpectedShape(res, req.body, 'object')) return;
+    await persistData('BudgetMetadata', req.body);
     res.json({ success: true });
 });
 
@@ -3799,7 +3830,7 @@ app.get('/api/budget/hierarchy', requireAuth, (req, res) => {
     res.json(getData('BudgetHierarchy', []));
 });
 
-app.post('/api/budget/hierarchy', requireAuth, (req, res) => {
+app.post('/api/budget/hierarchy', requireAuth, async (req, res) => {
     try {
         console.log('📥 [POST] /api/budget/hierarchy - Request body type:', typeof req.body);
         if (!req.body) {
@@ -3807,7 +3838,8 @@ app.post('/api/budget/hierarchy', requireAuth, (req, res) => {
             return res.status(400).json({ success: false, error: "Request body is empty" });
         }
 
-        const success = saveData('BudgetHierarchy', req.body);
+        if (rejectUnexpectedShape(res, req.body, 'array')) return;
+        const success = await persistData('BudgetHierarchy', req.body);
         // [NAS FIX] Don't return 400 even if success is false, as saveData is now always returning true or handled
         res.json({ success: true });
     } catch (error) {
@@ -3816,17 +3848,17 @@ app.post('/api/budget/hierarchy', requireAuth, (req, res) => {
     }
 });
 
-app.delete('/api/pending-referrals/:id', requireAuth, (req, res) => {
+app.delete('/api/pending-referrals/:id', requireAuth, async (req, res) => {
     const { id } = req.params;
     let list = getData('PendingReferrals', []);
     list = list.filter(item => item.id !== id);
-    saveData('PendingReferrals', list);
+    await persistData('PendingReferrals', list);
 
     // Explicitly add to ScrapedExternalIds to prevent re-scraping
     const scrapedIdsArray = getData('ScrapedExternalIds', []);
     const scrapedIds = new Set(scrapedIdsArray);
     scrapedIds.add(id);
-    saveData('ScrapedExternalIds', Array.from(scrapedIds));
+    await persistData('ScrapedExternalIds', Array.from(scrapedIds));
 
     res.json({ success: true });
 });
@@ -3851,7 +3883,7 @@ app.get('/api/analysis-results', requireAuth, (req, res) => {
     res.json(list);
 });
 
-app.post('/api/analysis-results', requireAuth, (req, res) => {
+app.post('/api/analysis-results', requireAuth, async (req, res) => {
     const { name, data } = req.body || {};
     if (!name || !data) {
         return res.status(400).json({ success: false, error: 'name and data are required' });
@@ -3874,7 +3906,7 @@ app.post('/api/analysis-results', requireAuth, (req, res) => {
     const normalizedNext = normalizeSavedAnalysisList(next);
 
     const startTime = Date.now();
-    const saved = saveData(CASE_ANALYSIS_FILE, normalizedNext);
+    const saved = await persistData(CASE_ANALYSIS_FILE, normalizedNext);
     const duration = Date.now() - startTime;
 
     if (!saved) {
@@ -3896,7 +3928,7 @@ app.get('/api/analysis-results/:id', requireAuth, (req, res) => {
     res.json({ success: true, name: found.name, data: found.data });
 });
 
-app.delete('/api/analysis-results/:id', requireAuth, (req, res) => {
+app.delete('/api/analysis-results/:id', requireAuth, async (req, res) => {
     const { id } = req.params;
     const source = normalizeSavedAnalysisList(getData(CASE_ANALYSIS_FILE, []));
     const next = source.filter(item => item?.id !== id);
@@ -3905,7 +3937,7 @@ app.delete('/api/analysis-results/:id', requireAuth, (req, res) => {
         return res.status(404).json({ success: false, error: 'Saved analysis not found' });
     }
 
-    const saved = saveData(CASE_ANALYSIS_FILE, next);
+    const saved = await persistData(CASE_ANALYSIS_FILE, next);
     if (!saved) {
         return res.status(500).json({ success: false, error: 'Failed to delete saved analysis' });
     }
@@ -3961,7 +3993,6 @@ app.post('/api/upload', requireAuth, async (req, res) => {
     const { base64, filename, mimeType, referralId, referralName, folderType } = req.body || {};
     const requestId = `UPLOAD_${Date.now()}`;
 
-    // 1. 필수 필드 검증 (문자열이 아니면 path.extname 등에서 예외가 나므로 함께 거른다)
     if (!base64 || !filename || typeof base64 !== 'string' || typeof filename !== 'string') {
         console.warn(`⚠️ [${requestId}] ATTACH_400: base64 또는 filename 누락`);
         return res.status(400).json({
@@ -4272,7 +4303,9 @@ app.post('/api/saveNotes', requireAuth, async (req, res) => {
             const reqVer = Number(version);
             const curVer = Number(target.version);
             if (reqVer !== curVer) {
-                const isConsecutiveSave = (curVer - reqVer === 1);
+                const actorForOcc = req.auth?.id || req.auth?.userId || null;
+                const isConsecutiveSave = (curVer - reqVer === 1) &&
+                    (!target.lastModifiedBy || target.lastModifiedBy === actorForOcc);
                 if (isConsecutiveSave) {
                     console.warn(`[OCC] Consecutive notes save detected for ${target.refNo || req.params.id} (reqVer: ${reqVer}, curVer: ${curVer}). Auto-resolving with merge.`);
                 } else {
@@ -4311,7 +4344,8 @@ app.post('/api/saveNotes', requireAuth, async (req, res) => {
             latestNote: newNotes.length > 0 ? (newNotes[0].content || '') : '',
             latestNoteDate: newNotes.length > 0 ? (newNotes[0].createdAt || newNotes[0].date || new Date().toLocaleString('ko-KR')) : '',
             version: (target.version || 1) + 1,
-            updatedAt: new Date().toISOString()
+            updatedAt: new Date().toISOString(),
+            lastModifiedBy: req.auth?.id || req.auth?.userId || target.lastModifiedBy
         };
 
         await mutateReferrals({
@@ -4319,7 +4353,13 @@ app.post('/api/saveNotes', requireAuth, async (req, res) => {
             targetId: target.referralId,
             actorUserId: req.auth?.id || req.auth?.userId || 'system'
         }, async (refs) => {
-            refs[index] = updatedTarget;
+            const idx = refs.findIndex(r => r && r.referralId === target.referralId);
+            if (idx === -1 || refs[idx].version !== target.version) {
+                const raceErr = new Error('다른 사용자에 의해 데이터가 변경되었습니다. 최신 정보를 불러온 후 다시 시도해주세요.');
+                raceErr.code = 'VERSION_CONFLICT';
+                throw raceErr;
+            }
+            refs[idx] = updatedTarget;
         });
 
         const responsePayload = { success: true, data: updatedTarget };
@@ -4335,6 +4375,9 @@ app.post('/api/saveNotes', requireAuth, async (req, res) => {
         res.json(responsePayload);
     } catch (err) {
         console.error('❌ POST /api/saveNotes error:', err);
+        if (err.code === 'VERSION_CONFLICT') {
+            return res.status(409).json({ success: false, code: 'VERSION_CONFLICT', error: err.message });
+        }
         if (err.code === 'REFERRAL_DATA_INTEGRITY_VIOLATION') {
             return res.status(500).json({ success: false, code: err.code, error: err.message });
         }
@@ -4343,97 +4386,6 @@ app.post('/api/saveNotes', requireAuth, async (req, res) => {
 });
 
 
-app.get('/api/budget/transactions', (req, res) => {
-    try {
-        const transactions = getData('BudgetTransactions', []);
-        res.json(transactions);
-    } catch (e) {
-        console.error('❌ Budget transactions GET error:', e);
-        res.status(500).json({ success: false, error: e.toString() });
-    }
-});
-
-app.post('/api/budget/transactions', (req, res) => {
-    try {
-        const transactions = Array.isArray(req.body) ? req.body : [];
-        saveData('BudgetTransactions', transactions);
-        console.log(`💰 Budget transactions saved: ${transactions.length} items`);
-        res.json({ success: true, count: transactions.length });
-    } catch (e) {
-        console.error('❌ Budget transactions POST error:', e);
-        res.status(500).json({ success: false, error: e.toString() });
-    }
-});
-
-app.get('/api/budget/plans', (req, res) => {
-    try {
-        const plans = getData('BudgetPlans', {});
-        res.json(plans);
-    } catch (e) {
-        console.error('❌ Budget plans GET error:', e);
-        res.status(500).json({ success: false, error: e.toString() });
-    }
-});
-
-app.post('/api/budget/plans', (req, res) => {
-    try {
-        const plans = req.body && typeof req.body === 'object' ? req.body : {};
-        saveData('BudgetPlans', plans);
-        console.log(`📋 Budget plans saved: ${Object.keys(plans).length} items`);
-        res.json({ success: true, count: Object.keys(plans).length });
-    } catch (e) {
-        console.error('❌ Budget plans POST error:', e);
-        res.status(500).json({ success: false, error: e.toString() });
-    }
-});
-
-app.get('/api/budget/metadata', (req, res) => {
-    try {
-        const metadata = getData('BudgetMetadata', {});
-        res.json(metadata);
-    } catch (e) {
-        console.error('❌ Budget metadata GET error:', e);
-        res.status(500).json({ success: false, error: e.toString() });
-    }
-});
-
-app.post('/api/budget/metadata', (req, res) => {
-    try {
-        const metadata = req.body && typeof req.body === 'object' ? req.body : {};
-        saveData('BudgetMetadata', metadata);
-        res.json({ success: true });
-    } catch (e) {
-        console.error('❌ Budget metadata POST error:', e);
-        res.status(500).json({ success: false, error: e.toString() });
-    }
-});
-
-app.get('/api/budget/hierarchy', (req, res) => {
-    res.json(getData('BudgetHierarchy', {}));
-});
-
-app.post('/api/budget/hierarchy', (req, res) => {
-    saveData('BudgetHierarchy', req.body);
-    res.json({ success: true });
-});
-
-app.get('/api/logs', (req, res) => {
-    res.json(getData('Logs', []));
-});
-
-app.post('/api/logs', (req, res) => {
-    const logs = getData('Logs', []);
-    if (req.body && Object.keys(req.body).length > 0) {
-        logs.unshift(req.body); // Newest first
-        if (logs.length > 2000) logs.pop(); // Keep last 2000
-        saveData('Logs', logs);
-    }
-    res.json({ success: true });
-});
-
-app.get('/api/unregistered', (req, res) => {
-    res.json(getData('Unregistered', []));
-});
 
 // ==========================================
 // 🚀 EXTERNAL REFERRAL SCRAPER (imhc.co.kr)
@@ -5346,6 +5298,19 @@ if (EXTERNAL_SCRAPER_ENABLED) {
     console.log('⏸️ [Scraper] 홈페이지 의뢰 수집 비활성화 (기본값 OFF — API 방식 전환 예정)');
 }
 
+let isShuttingDown = false;
+const shutdownGracefully = async (signal) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    console.log(`🛑 [SHUTDOWN] ${signal} 수신 — 진행 중인 저장을 기다린 뒤 종료합니다.`);
+    const timeout = new Promise(resolve => setTimeout(resolve, 8000));
+    const pendingWrites = Promise.allSettled(Object.values(fileLocks));
+    await Promise.race([pendingWrites, timeout]);
+    process.exit(0);
+};
+process.on('SIGTERM', () => { shutdownGracefully('SIGTERM'); });
+process.on('SIGINT', () => { shutdownGracefully('SIGINT'); });
+
 // START SERVER
 app.listen(PORT, async () => {
     console.log(`🚀 이천센터 의뢰관리시스템 v${SERVER_VERSION} 서버 실행 중 (포트: ${PORT})`);
@@ -5367,7 +5332,6 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(FRONTEND_DIST, 'index.html'));
 });
 
-// [안정성] 라우트 처리 중 발생한 오류의 최종 처리. 내부 오류 내용은 서버 로그에만 남긴다.
 app.use((err, req, res, next) => {
     console.error('❌ [ROUTE ERROR]:', req.method, req.originalUrl, err && err.stack ? err.stack : err);
     if (res.headersSent) return next(err);

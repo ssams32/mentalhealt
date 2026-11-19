@@ -1,8 +1,3 @@
-/**
- * 비밀번호 "권장" 정책 (server/auth/passwordPolicy.js 와 같은 규칙).
- * 기존 비밀번호를 막지 않고, 단순한 비밀번호일 때 변경을 권장하는 안내에만 사용한다.
- */
-
 export const PASSWORD_RECOMMENDED_MIN_LENGTH = 8;
 
 export const PASSWORD_RECOMMENDATION_TEXT =

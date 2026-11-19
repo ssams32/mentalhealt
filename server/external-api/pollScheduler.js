@@ -24,6 +24,8 @@ export class HomepagePollScheduler {
     this._intervalSeconds = config?.pollIntervalSeconds || 60;
     this._initialDelaySeconds = config?.pollInitialDelaySeconds || 60;
     this._lastManualSyncAt = 0;
+    this._generation = 0;
+    this._chainActive = false;
   }
 
   /**
@@ -52,8 +54,7 @@ export class HomepagePollScheduler {
       return;
     }
 
-    // 이미 실행 중이면 무시
-    if (this._timer) {
+    if (this._timer || this._chainActive) {
       console.warn("[POLL_SCHEDULER] 이미 실행 중입니다.");
       return;
     }
@@ -61,6 +62,8 @@ export class HomepagePollScheduler {
     console.log(
       `[POLL_SCHEDULER] 자동 수신 스케줄러 시작: 초기 지연 ${this._initialDelaySeconds}초, 주기 ${this._intervalSeconds}초`,
     );
+    this._generation += 1;
+    this._chainActive = true;
     this._scheduleNext(this._initialDelaySeconds * 1000);
 
     // 기동 시 1회 상태 기록
@@ -71,9 +74,14 @@ export class HomepagePollScheduler {
    * 스케줄러 정지
    */
   stop() {
+    this._generation += 1;
+    const wasActive = this._chainActive || Boolean(this._timer);
+    this._chainActive = false;
     if (this._timer) {
       clearTimeout(this._timer);
       this._timer = null;
+    }
+    if (wasActive) {
       console.log("[POLL_SCHEDULER] 자동 수신 스케줄러 정지");
     }
   }
@@ -83,12 +91,15 @@ export class HomepagePollScheduler {
    * @param {number} delayMs - 지연 시간(ms)
    */
   _scheduleNext(delayMs) {
+    const generation = this._generation;
     this._timer = setTimeout(async () => {
       this._timer = null;
+      if (generation !== this._generation) return;
       await this._runCycle();
-      // 실패해도 다음 예약 유지
-      if (!this._running) {
+      if (generation === this._generation && this._enabled && !this._running) {
         this._scheduleNext(this._intervalSeconds * 1000);
+      } else if (generation === this._generation) {
+        this._chainActive = false;
       }
     }, delayMs);
 
@@ -214,9 +225,9 @@ export class HomepagePollScheduler {
     }
 
     // 재시작이 필요한 경우
-    if (this._enabled && !this._timer && this.engineService?.client) {
+    if (this._enabled && !this._timer && !this._chainActive && this.engineService?.client) {
       this.start();
-    } else if (!this._enabled && this._timer) {
+    } else if (!this._enabled) {
       this.stop();
     }
   }

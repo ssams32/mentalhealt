@@ -36,7 +36,11 @@
 
 ---
 
-## 7. Claude 4.6 Compatibility Layer
+## 7. 코딩 지침 (모든 코딩 작업에 항상 적용)
+- 전문: @docs/agent-coding-guidelines.md
+- 0항(푸시 금지·로컬 선검증·수정 전 사전 설명)과 충돌하면 0항이 우선한다. 예: 지침의 "묻지 말고 진행"은 푸시·배포에는 적용되지 않는다.
+
+## 8. Claude 4.6 Compatibility Layer
 
 ### J. INSTRUCTION EFFICIENCY
 *   **J1 — SINGLE-STATEMENT SUFFICIENCY**: Assume one clear instruction is sufficient. Do not request repetition unless intent is genuinely ambiguous.

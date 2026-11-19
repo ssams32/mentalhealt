@@ -6,7 +6,7 @@
 import express from 'express';
 import { SURVEY_ASSIGNMENT_PRIORITY, NOTIFICATION_TYPES, SURVEY_ERROR_CODES, CAMPAIGN_CODE_PATTERN } from './surveyConstants.js';
 import { hasOnlineSurveyAccess, hasSurveyAssignmentAccess } from '../permissions/voiceCapabilities.js';
-import { getKstDateRangeUtcBoundaries, formatKstDateTime } from './kstUtils.js';
+import { getKstDateRangeUtcBoundaries, formatKstDateTime, canAccessReferralAttachment } from './kstUtils.js';
 
 /**
  * Validates and normalizes campaign filter inputs for import list and export endpoints (Calibration 4).
@@ -975,12 +975,25 @@ export function createSurveyImportRouter(deps = {}) {
             // 기간 필터 기준일 = 실제 검사 완료 시각(screeningCompletedAt) 우선 — 목록 필터(DATE_FILTER_CANONICAL_FIELD)와 동일 기준.
             // 임포트 시각으로 거르면 동기화가 늦은 과거 검사 건이 현재 기간으로 잘못 포함된다.
             const recordDateOf = (r) => r.screeningCompletedAt || r.submittedAt || r.importedAt || r.createdAt || '';
-            if (startDate) {
+            const isDateOnly = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+            if ((startDate && isDateOnly(startDate)) || (endDate && isDateOnly(endDate))) {
+                const { startUtcMs, endUtcMs } = getKstDateRangeUtcBoundaries(
+                    isDateOnly(startDate) ? startDate : null,
+                    isDateOnly(endDate) ? endDate : null
+                );
+                records = records.filter(r => {
+                    const t = Date.parse(recordDateOf(r));
+                    if (Number.isNaN(t)) return false;
+                    if (startUtcMs !== null && t < startUtcMs) return false;
+                    if (endUtcMs !== null && t > endUtcMs) return false;
+                    return true;
+                });
+            }
+            if (startDate && !isDateOnly(startDate)) {
                 records = records.filter(r => recordDateOf(r) >= startDate);
             }
-            if (endDate) {
-                const endDateTime = endDate.length === 10 ? `${endDate}T23:59:59.999Z` : endDate;
-                records = records.filter(r => recordDateOf(r) <= endDateTime);
+            if (endDate && !isDateOnly(endDate)) {
+                records = records.filter(r => recordDateOf(r) <= endDate);
             }
             if (campaignFilterResult.type === 'UNSPECIFIED') {
                 records = records.filter(r => !r.campaignCode);
@@ -2048,6 +2061,32 @@ export function createSurveyImportRouter(deps = {}) {
                 (sub && (r.sourceSubmissionId === sub.submissionId || r.sourceSurveyId === sub.internalSurveyId))
             ));
 
+            if (!sub && !ref) {
+                return res.status(404).json({
+                    error: { code: 'REPORT_NOT_FOUND', message: '검사결과 리포트를 찾을 수 없습니다.' }
+                });
+            }
+            {
+                const isAdminUser = String(req.auth?.role || '').toLowerCase() === 'admin';
+                const currentUserId = String(req.auth?.id || req.auth?.userId || '');
+                const isSurveyAssignee = Boolean(sub && sub.assignedUserId && String(sub.assignedUserId) === currentUserId);
+                const isReferralAllowed = Boolean(ref && canAccessReferralAttachment({ authUser: req.auth, referral: ref }).allowed);
+                if (!isAdminUser && !isSurveyAssignee && !isReferralAllowed) {
+                    if (typeof auditLogger === 'function') {
+                        auditLogger({
+                            actorUserId: currentUserId || 'unknown',
+                            targetUserId: sub?.submissionId || id,
+                            action: 'ONLINE_SURVEY_PDF_ACCESS_DENIED',
+                            result: 'DENIED',
+                            reasonCode: 'NOT_ASSIGNED_STAFF'
+                        });
+                    }
+                    return res.status(403).json({
+                        error: { code: 'FORBIDDEN', message: '담당자 또는 관리자만 검사결과 리포트를 볼 수 있습니다.' }
+                    });
+                }
+            }
+
             const attachment = ref?.attachments?.find(a =>
                 a.type === 'application/pdf' ||
                 (a.name && String(a.name).endsWith('.pdf')) ||
@@ -2062,7 +2101,6 @@ export function createSurveyImportRouter(deps = {}) {
             if (ref?.referralId) foldersToSearch.push(ref.referralId);
             if (sub?.internalSurveyId) foldersToSearch.push(sub.internalSurveyId);
             if (sub?.submissionId) foldersToSearch.push(sub.submissionId);
-            if (id) foldersToSearch.push(id);
 
             if (targetDir && attachment) {
                 for (const f of foldersToSearch) {
