@@ -9,6 +9,7 @@ import { apiClient } from '../../services/apiClient';
 import { getOrgShortName } from '../../services/orgConfig';
 import { safeLocalStorage } from '../../utils/safeLocalStorage';
 import sampleBudgetHierarchy from './sampleBudgetHierarchy.json';
+import { matchManualEntryToProposal } from './proposalMatch';
 
 declare var XLSX: any;
 
@@ -310,7 +311,9 @@ function ManualEntryModal({
     title,
     entries,
     onSave,
-    currentUser
+    currentUser,
+    transactions = [],
+    budgetItem
 }: {
     isOpen: boolean;
     onClose: () => void;
@@ -318,6 +321,8 @@ function ManualEntryModal({
     entries: ManualEntry[];
     onSave: (entries: ManualEntry[]) => Promise<void>;
     currentUser: User;
+    transactions?: BudgetTransaction[];
+    budgetItem?: string;
 }) {
     const [localEntries, setLocalEntries] = useState<ManualEntry[]>([]);
     const [isSavingLocal, setIsSavingLocal] = useState(false);
@@ -598,7 +603,7 @@ function ManualEntryModal({
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 font-sans p-[21px]">
-            <div className="bg-white rounded-2xl shadow-2xl budget-manual-modal-container flex flex-col overflow-hidden animate-scale-in w-full max-w-[912px] max-h-[calc(100vh-89px)]">
+            <div className="bg-white rounded-2xl shadow-2xl budget-manual-modal-container flex flex-col overflow-hidden animate-scale-in w-full max-w-[1280px] max-h-[calc(100vh-89px)]">
                 {/* Header */}
                 <div className="p-[21px] bg-black text-white flex justify-between items-center">
                     <div>
@@ -673,13 +678,25 @@ function ManualEntryModal({
                                         <th className="p-2 border-r border-gray-200 col-writer text-center" style={{ width: '100px', minWidth: '100px' }}>작성자</th>
                                         <th className="p-2 border-r border-gray-200 col-amount text-right" style={{ width: '140px', minWidth: '140px' }}>금액 (Amount)</th>
                                         <th className="p-2 border-r border-gray-200 col-desc" style={{ minWidth: '320px' }}>적요 (Description)</th>
+                                        <th className="p-2 border-r border-gray-200 col-crosscheck" style={{ width: '220px', minWidth: '200px' }}>품의 대조</th>
                                         <th className="p-2 col-action text-center" style={{ width: '48px', minWidth: '48px' }}>
                                             <Trash2 size={12} className="mx-auto opacity-20" />
                                         </th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-200">
-                                    {filteredEntries.map(entry => (
+                                    {filteredEntries.map(entry => {
+                                        const match = matchManualEntryToProposal(entry, transactions, budgetItem);
+                                        const badgeClass =
+                                            match.status === 'matched'
+                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                : match.status === 'other-item'
+                                                    ? 'bg-orange-50 text-orange-700 border-orange-200'
+                                                    : match.status === 'date-only' || match.status === 'amount-only'
+                                                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                        : 'bg-gray-100 text-gray-500 border-gray-200';
+
+                                        return (
                                         <tr key={entry.id} className={`hover:bg-blue-50/40 transition-colors group ${entry.isPlaceholder ? 'bg-gray-50/30' : ''}`}>
                                             <td className="p-0 border-r border-gray-200 col-date" style={{ width: '120px', minWidth: '120px' }}>
                                                 <input
@@ -722,6 +739,22 @@ function ManualEntryModal({
                                                     className="w-full px-2 py-2 bg-transparent outline-none focus:bg-white focus:ring-1 focus:ring-blue-400 border-none font-medium text-gray-800"
                                                 />
                                             </td>
+                                            <td className="px-2 py-1.5 border-r border-gray-200 col-crosscheck align-middle" style={{ width: '220px', minWidth: '200px' }}>
+                                                {match.status === 'skipped' ? (
+                                                    <span className="text-gray-300 px-1 text-center block font-mono">-</span>
+                                                ) : (
+                                                    <div className="flex items-center gap-1.5 min-w-0">
+                                                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border shrink-0 ${badgeClass}`}>
+                                                            {match.badgeText}
+                                                        </span>
+                                                        {match.detailText && (
+                                                            <span className="text-[11px] text-gray-600 truncate font-medium" title={match.detailText}>
+                                                                {match.detailText}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </td>
                                             <td className="p-1 col-action text-center align-middle" style={{ width: '48px', minWidth: '48px' }}>
                                                 {!entry.isPlaceholder && (
                                                     <button
@@ -734,10 +767,11 @@ function ManualEntryModal({
                                                 )}
                                             </td>
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                     {filteredEntries.length === 0 && (
                                         <tr>
-                                            <td colSpan={5} className="p-12 text-center text-gray-300 bg-white">
+                                            <td colSpan={6} className="p-12 text-center text-gray-300 bg-white">
                                                 <div className="flex flex-col items-center justify-center gap-3">
                                                     <Search size={32} className="opacity-10" />
                                                     <p className="font-bold text-gray-400 text-sm">일치하는 내역이 없습니다.</p>
@@ -2980,6 +3014,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                         if (entries.length > 0) await handleManualTransactionSave(entries[0]);
                                     }}
                                     currentUser={currentUser}
+                                    transactions={transactions}
                                 />
                             )}
                         </div>
@@ -2998,6 +3033,8 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                 }
                                 onSave={handleManualEntrySave}
                                 currentUser={currentUser}
+                                transactions={transactions}
+                                budgetItem={modalState.budgetItem}
                             />
                         )
                     }
