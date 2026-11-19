@@ -2493,6 +2493,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                         </div>
                     </div>
                 </div>
+            </div >
 
                 {/* Content */}
                 <div className="flex-1 flex overflow-hidden p-[21px] gap-[21px] relative">
@@ -2621,9 +2622,9 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                             </div>
 
                             {/* Main Budget Table */}
-                            <div className="flex-1 budget-management-wrapper custom-scrollbar min-h-0">
+                            <div className="flex-1 flex flex-col budget-management-wrapper custom-scrollbar min-h-0">
                                 <HCard className="flex-1 flex flex-col border-none shadow-sm bg-white overflow-hidden mb-6">
-                                    <div className="flex-1 overflow-auto custom-scrollbar" style={{ maxHeight: 'calc(100vh - 450px)' }}>
+                                    <div className="flex-1 min-h-0 overflow-auto custom-scrollbar pb-6">
                                         <table className="w-full text-sm border-collapse min-w-[1000px]">
                                             <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
                                                 <tr>
@@ -3296,7 +3297,6 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                         </div>
                     )}
                 </div >
-            </div >
         </div >
     );
 }
