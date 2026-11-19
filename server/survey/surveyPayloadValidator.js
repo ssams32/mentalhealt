@@ -120,8 +120,29 @@ const ALLOWED_SCORES_KEYS = new Set([
     'bepsik',
     'isik',
     'phq9',
-    'gad7'
+    'gad7',
+    'cape',
+    'cesd',
+    'cape-15',
+    'ces-d'
 ]);
+
+// scaleScores에 정규화 단계가 함께 만드는 별칭 키 -> 표준 척도 코드.
+// 캠페인 검사는 검사 쪽에서만 별칭을 표준 코드로 바꿔서 본다 (저장 형태는 그대로 둔다).
+const SCALE_ALIAS_TO_CANONICAL = Object.freeze({
+    phq9: 'phq-9',
+    gad7: 'gad-7',
+    isik: 'isi-k',
+    bepsik: 'bepsi-k',
+    sbqr: 'sbq-r'
+});
+
+// Track A가 보내는 채점 정책 ID -> NAS 표준 정책 ID.
+// 모르는 정책 ID는 그대로 두어 검증기가 거절하게 한다.
+const TRACK_A_SCORING_POLICY_TO_CANONICAL = Object.freeze({
+    CAPE15_FREQUENCY_DISTRESS_CUTOFF_1_47: 'CAPE_15_FREQUENCY_DISTRESS_MEAN',
+    CESD_20_CUTOFF_16: 'CES_D_REVERSE_4_8_12_16'
+});
 
 const ALLOWED_BEPSI_KEYS = new Set([
     'assessmentId',
@@ -622,6 +643,41 @@ export class SurveyPayloadValidator {
                     canonicalScales.sbqr = canonicalScales['sbq-r'];
                 }
 
+                // CAPE-15 (별칭 키는 만들지 않음)
+                const capeSrc = s.cape || s['cape-15'];
+                if (capeSrc && typeof capeSrc === 'object') {
+                    canonicalScales['cape-15'] = canonicalScales['cape-15'] || {
+                        assessmentId: 'cape-15',
+                        scoringPolicyId: TRACK_A_SCORING_POLICY_TO_CANONICAL[capeSrc.scoringPolicyId] || capeSrc.scoringPolicyId || SURVEY_SCORING_POLICIES.CAPE_15_FREQUENCY_DISTRESS_MEAN,
+                        freqSum: capeSrc.freqSum,
+                        distressSum: capeSrc.distressSum,
+                        freqMean: capeSrc.freqMean,
+                        distressMean: capeSrc.distressMean,
+                        displayFreqMean: capeSrc.displayFreqMean,
+                        displayDistressMean: capeSrc.displayDistressMean,
+                        cutoff: capeSrc.cutoff,
+                        isAboveCutoff: capeSrc.isAboveCutoff,
+                        isFreqAboveCutoff: capeSrc.isFreqAboveCutoff,
+                        isDistressAboveCutoff: capeSrc.isDistressAboveCutoff,
+                        resultCode: capeSrc.resultCode,
+                        resultLabel: capeSrc.resultLabel
+                    };
+                }
+
+                // CES-D (별칭 키는 만들지 않음)
+                const cesdSrc = s.cesd || s['ces-d'];
+                if (cesdSrc && typeof cesdSrc === 'object') {
+                    canonicalScales['ces-d'] = canonicalScales['ces-d'] || {
+                        assessmentId: 'ces-d',
+                        scoringPolicyId: TRACK_A_SCORING_POLICY_TO_CANONICAL[cesdSrc.scoringPolicyId] || cesdSrc.scoringPolicyId || SURVEY_SCORING_POLICIES.CES_D_REVERSE_4_8_12_16,
+                        totalScore: cesdSrc.totalScore,
+                        screeningCutoff: cesdSrc.screeningCutoff !== undefined ? cesdSrc.screeningCutoff : cesdSrc.cutoff,
+                        isAboveCutoff: cesdSrc.isAboveCutoff,
+                        resultCode: cesdSrc.resultCode,
+                        resultLabel: cesdSrc.resultLabel
+                    };
+                }
+
                 assessment.scaleScores = canonicalScales;
                 payload.scaleScores = canonicalScales;
             }
@@ -953,18 +1009,23 @@ export class SurveyPayloadValidator {
         }
 
         // Extract scales from assessment.scaleScores / assessment.scales
+        // (별칭 키는 표준 코드로 바꿔서 본다 — 정규화가 scaleScores에 표준 키와
+        // 별칭 키를 같이 만들기 때문에, 별칭을 그대로 세면 캠페인이 5종을 다
+        // 골라도 "phq9 not allowed"로 튕긴다. 저장 형태는 바꾸지 않는다.)
         const assessment = payload.assessment || {};
         const scaleScores = assessment.scaleScores || assessment.scales;
         if (scaleScores && typeof scaleScores === 'object') {
             for (const key of Object.keys(scaleScores)) {
-                submittedScales.add(key.toLowerCase());
+                const lower = key.toLowerCase();
+                submittedScales.add(SCALE_ALIAS_TO_CANONICAL[lower] || lower);
             }
         }
 
         // Also check payload.scaleScores (normalized form)
         if (payload.scaleScores && typeof payload.scaleScores === 'object') {
             for (const key of Object.keys(payload.scaleScores)) {
-                submittedScales.add(key.toLowerCase());
+                const lower = key.toLowerCase();
+                submittedScales.add(SCALE_ALIAS_TO_CANONICAL[lower] || lower);
             }
         }
 

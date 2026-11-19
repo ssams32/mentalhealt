@@ -421,6 +421,9 @@ describe('aggregateUnifiedSeverity', () => {
 // ============================================================
 import { SurveyPayloadValidator } from '../server/survey/surveyPayloadValidator.js';
 import { SURVEY_ASSESSMENT_IDS, SURVEY_ERROR_CODES, SURVEY_SCORING_POLICIES } from '../server/survey/surveyConstants.js';
+// Track A 실제 빌더 — 손으로 만든 축소 페이로드는 실제 결함을 못 잡으므로
+// 회귀 테스트는 Track A가 실제로 보내는 모양 그대로 만든다.
+import { buildSensitiveAssessmentPayload } from '../../mind-mobile-screening/src/utils/payloadAllowlist.js';
 
 // Mock repository for campaign fetch
 function createMockRepository(campaigns = []) {
@@ -786,6 +789,112 @@ describe('SurveyPayloadValidator - Campaign Scale Validation', () => {
             assert.ok(err.code === SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA);
             assert.ok(err.message.includes('gad-7'));
         }
+    });
+});
+
+// 8. Track A 실제 페이로드 모양 회귀 테스트 (validator-fix)
+// ============================================================
+// 재현 스크립트(~/workspace/repro-cape15-validator.mjs)와 같은 방식:
+// Track A 빌더(buildSensitiveAssessmentPayload)로 페이로드를 만든 뒤
+// 검증기에 넣는다. 손으로 만든 scaleScores 페이로드는 별칭 키·
+// 점수 허용 목록·정규화 변환 결함을 잡지 못한다.
+describe('SurveyPayloadValidator - Track A 실제 페이로드 회귀', () => {
+    const contact = { name: '홍길동', phone: '010-1234-5678', preferredTime: '언제든 가능', note: '' };
+    const profile = { age: 30, region: '이천시', gender: '남성' };
+    const consent = { personalInfoConsent: true, sensitiveInfoConsent: true };
+    const risk = { level: 'LOW', label: '낮음', reasons: [] };
+
+    // Track A가 실제로 보내는 점수 모양 (짧은 키 + Track A 채점 정책 ID)
+    const capeScores = {
+        cape: {
+            assessmentId: 'cape-15',
+            scoringPolicyId: 'CAPE15_FREQUENCY_DISTRESS_CUTOFF_1_47',
+            freqSum: 10, distressSum: 8, freqMean: 0.67, distressMean: 0.53,
+            cutoff: 1.47, isAboveCutoff: false, isFreqAboveCutoff: false,
+            isDistressAboveCutoff: false, resultCode: 'LOW', resultLabel: '낮음'
+        }
+    };
+    const capeCesdScores = {
+        ...capeScores,
+        cesd: {
+            assessmentId: 'ces-d',
+            scoringPolicyId: 'CESD_20_CUTOFF_16',
+            totalScore: 20, screeningCutoff: 16, isAboveCutoff: true,
+            resultCode: 'HIGH', resultLabel: '높음'
+        }
+    };
+    const fiveScores = {
+        phq: 5, phqLevel: 'LOW', phqQ9: 0,
+        gad: 4, gadLevel: 'LOW',
+        isi: 6, isiLevel: 'LOW',
+        bepsi: {
+            assessmentId: 'bepsi-k', scoringPolicyId: 'BEPSI_K_REVISED_QUARTILE_1_6_2_2',
+            responseSum: 10, meanScore: 2, displayMean: '2.00', resultCode: 'LOW', resultLabel: '낮음'
+        },
+        sbqr: {
+            assessmentId: 'sbq-r', scoringPolicyId: 'SBQR_GENERAL_POPULATION_CUTOFF_7',
+            totalScore: 5, resultCode: 'LOW', resultLabel: '낮음', isAboveCutoff: false, screeningCutoff: 7
+        }
+    };
+
+    function makeTrackAPayload(scores, campaignCode = 'SS-01') {
+        return buildSensitiveAssessmentPayload({
+            submissionId: 'test-tracka-' + Math.random().toString(36).slice(2, 8),
+            contact, profile, consent, scores, risk,
+            answers: {},
+            campaignCode
+        });
+    }
+
+    function validatorFor(selectedAssessments) {
+        const mockRepo = createMockRepository([
+            { code: 'SS-01', selectedAssessments }
+        ]);
+        return new SurveyPayloadValidator({ getCampaign: mockRepo.findCampaignByCode });
+    }
+
+    it('a. CAPE-15만 + 캠페인 선택 [cape-15] -> 통과', async () => {
+        const validator = validatorFor(['cape-15']);
+        const result = await validator.validate(makeTrackAPayload(capeScores));
+        assert.equal(result.valid, true);
+    });
+
+    it('b. CAPE-15+CES-D + 캠페인 선택 [cape-15, ces-d] -> 통과', async () => {
+        const validator = validatorFor(['cape-15', 'ces-d']);
+        const result = await validator.validate(makeTrackAPayload(capeCesdScores));
+        assert.equal(result.valid, true);
+    });
+
+    it('c. 5종 + 캠페인 선택 5종 전부 -> 통과 (별칭 결함 수정 확인)', async () => {
+        const validator = validatorFor(['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r']);
+        const result = await validator.validate(makeTrackAPayload(fiveScores));
+        assert.equal(result.valid, true);
+    });
+
+    it('d. 5종 + 캠페인 선택 [cape-15] -> INVALID_PAYLOAD_SCHEMA로 거절', async () => {
+        const validator = validatorFor(['cape-15']);
+        try {
+            await validator.validate(makeTrackAPayload(fiveScores));
+            assert.fail('Should have thrown for disallowed 5 scales');
+        } catch (err) {
+            assert.ok(err.code === SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA);
+            assert.ok(err.message.includes('phq-9'));
+            assert.ok(err.message.includes('Allowed scales: cape-15'));
+        }
+    });
+
+    it('e. 5종 + 옛 캠페인 (selectedAssessments 없음) -> 통과 (65dd413 폴백 유지)', async () => {
+        const mockRepo = createMockRepository([{ code: 'SS-01' }]);
+        const validator = new SurveyPayloadValidator({ getCampaign: mockRepo.findCampaignByCode });
+        const result = await validator.validate(makeTrackAPayload(fiveScores));
+        assert.equal(result.valid, true);
+    });
+
+    it('f. CAPE-15만 + 옛 캠페인 (selectedAssessments 없음) -> 통과', async () => {
+        const mockRepo = createMockRepository([{ code: 'SS-01' }]);
+        const validator = new SurveyPayloadValidator({ getCampaign: mockRepo.findCampaignByCode });
+        const result = await validator.validate(makeTrackAPayload(capeScores));
+        assert.equal(result.valid, true);
     });
 });
 
