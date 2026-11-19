@@ -500,6 +500,93 @@ describe('SurveyPayloadValidator - Campaign Scale Validation', () => {
         assert.equal(result.valid, true);
     });
 
+    it('legacy campaign (no selectedAssessments) accepts cape-15', async () => {
+        const mockRepo = createMockRepository([
+            { code: 'TEST-CAMPAIGN', selectedAssessments: [] }
+        ]);
+
+        const validator = new SurveyPayloadValidator({
+            getCampaign: mockRepo.findCampaignByCode
+        });
+
+        const payload = createValidPayload({
+            assessment: {
+                scaleScores: {
+                    'cape-15': { frequencyMean: 1.5, distressMean: 1.3, riskFlag: true }
+                }
+            }
+        });
+        const result = await validator.validate(payload);
+        assert.equal(result.valid, true);
+    });
+
+    it('legacy campaign (no selectedAssessments) accepts ces-d', async () => {
+        const mockRepo = createMockRepository([
+            { code: 'TEST-CAMPAIGN', selectedAssessments: [] }
+        ]);
+
+        const validator = new SurveyPayloadValidator({
+            getCampaign: mockRepo.findCampaignByCode
+        });
+
+        const payload = createValidPayload({
+            assessment: {
+                scaleScores: {
+                    'ces-d': { totalScore: 18, riskFlag: true }
+                }
+            }
+        });
+        const result = await validator.validate(payload);
+        assert.equal(result.valid, true);
+    });
+
+    it('campaign with selectedAssessments [phq-9] rejects cape-15', async () => {
+        const mockRepo = createMockRepository([
+            { code: 'TEST-CAMPAIGN', selectedAssessments: ['phq-9'] }
+        ]);
+
+        const validator = new SurveyPayloadValidator({
+            getCampaign: mockRepo.findCampaignByCode
+        });
+
+        const payload = createValidPayload({
+            assessment: {
+                scaleScores: {
+                    'cape-15': { frequencyMean: 1.5, distressMean: 1.3, riskFlag: true }
+                }
+            }
+        });
+
+        try {
+            await validator.validate(payload);
+            assert.fail('Should have thrown for disallowed cape-15');
+        } catch (err) {
+            assert.ok(err.code === SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA);
+            assert.ok(err.message.includes('cape-15'));
+        }
+    });
+
+    it('campaign fetch failure falls back to all known scales and accepts cape-15', async () => {
+        const failingRepo = {
+            findCampaignByCode: async () => { throw new Error('Network error'); }
+        };
+
+        const validator = new SurveyPayloadValidator({
+            getCampaign: failingRepo.findCampaignByCode
+        });
+
+        const payload = createValidPayload({
+            assessment: {
+                scaleScores: {
+                    'cape-15': { frequencyMean: 1.5, distressMean: 1.3, riskFlag: true }
+                }
+            }
+        });
+
+        const result = await validator.validate(payload);
+        assert.equal(result.valid, true);
+    });
+
     it('campaign with selectedAssessments accepts only those scales', async () => {
         const mockRepo = createMockRepository([
             { code: 'TEST-CAMPAIGN', selectedAssessments: ['phq-9', 'gad-7'] }

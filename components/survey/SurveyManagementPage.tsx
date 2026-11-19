@@ -2020,11 +2020,35 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
         }
     };
 
+    const SURVEY_ERROR_CODE_LABELS: Record<string, string> = {
+        INVALID_PAYLOAD_SCHEMA: '스키마/척도 불일치',
+        QUARANTINED_SCHEMA: '스키마 격리',
+        QUARANTINED_CONSENT: '동의 미비 격리',
+        QUARANTINED_SBQR_GATE: 'SBQ-R 게이트 격리',
+        QUARANTINED_TAMPERED: '위변조 의심 격리',
+        SBQR_GATE_UNAPPROVED: 'SBQ-R 미승인',
+        CONSENT_VIOLATION_PERSONAL: '개인정보 동의 누락',
+        CONSENT_VIOLATION_SENSITIVE: '민감정보 동의 누락',
+        TRANSMITTED_FIELDSET_MISMATCH: '전송 필드셋 불일치',
+        PROHIBITED_UNKNOWN_FIELDS: '비허용 필드 포함',
+        CIPHERTEXT_AUTHENTICATION_FAILED: '복호화 인증 실패',
+        INVALID_ENVELOPE_SCHEMA: '봉투 스키마 오류'
+    };
+
     // Helper: Safe Business Data Transfer Status
     const renderTransferStatusBadge = (item?: any) => {
         if (!item) return null;
-        if (item.internalStatus === 'IMPORT_FAILED' || item.lastErrorCode) {
-            return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">처리 오류</span>;
+        if (item.internalStatus === 'IMPORT_FAILED' || item.lastErrorCode || String(item.internalStatus || '').startsWith('QUARANTINED')) {
+            const errCode = item.lastErrorCode;
+            const errDesc = errCode ? (SURVEY_ERROR_CODE_LABELS[errCode] || errCode) : null;
+            return (
+                <span
+                    className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200"
+                    title={errCode ? `오류/격리 사유: ${errCode}${errDesc ? ` (${errDesc})` : ''}` : undefined}
+                >
+                    {errDesc ? `오류: ${errDesc}` : '처리 오류'}
+                </span>
+            );
         }
         if (item.internalStatus === 'PENDING' || item.externalStatus === 'PENDING') {
             return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-50 text-slate-600 border border-slate-200">외부 접수 대기</span>;
@@ -3865,9 +3889,23 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
                                             <td className="px-4 py-3 font-mono font-bold text-slate-800">{item.submissionId}</td>
                                             <td className="px-4 py-3 text-slate-500">{item.schemaVersion || 'v1.0'} / {item.keyVersion || 'v1'}</td>
                                             <td className="px-4 py-3">
-                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${item.internalStatus === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' : 'bg-purple-100 text-purple-800'}`}>
-                                                    {item.internalStatus}
-                                                </span>
+                                                <div className="flex flex-col gap-0.5 items-start">
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                        item.internalStatus === 'COMPLETED'
+                                                            ? 'bg-emerald-100 text-emerald-800'
+                                                            : String(item.internalStatus || '').startsWith('QUARANTINED') || item.internalStatus === 'ERROR'
+                                                                ? 'bg-rose-100 text-rose-800'
+                                                                : 'bg-purple-100 text-purple-800'
+                                                    }`}>
+                                                        {item.internalStatus}
+                                                    </span>
+                                                    {item.lastErrorCode && (
+                                                        <span className="text-[10px] text-rose-600 font-mono font-medium">
+                                                            {item.lastErrorCode}
+                                                            {SURVEY_ERROR_CODE_LABELS[item.lastErrorCode] ? ` (${SURVEY_ERROR_CODE_LABELS[item.lastErrorCode]})` : ''}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className="px-4 py-3">
                                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${item.externalStatus === 'DELETED' ? 'bg-slate-100 text-slate-700' : 'bg-rose-100 text-rose-800'}`}>

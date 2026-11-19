@@ -13,7 +13,8 @@ import {
     BEPSI_K_RESULT_CODES,
     SBQR_RESULT_CODES,
     TRACK_A_ASSESSMENT_QUESTION_COUNTS,
-    CAMPAIGN_CODE_PATTERN
+    CAMPAIGN_CODE_PATTERN,
+    KNOWN_SCALE_CODES
 } from './surveyConstants.js';
 import { SurveyOperationError } from './surveyErrors.js';
 
@@ -918,9 +919,8 @@ export class SurveyPayloadValidator {
         try {
             const campaign = await this.getCampaign(campaignMeta.code);
             if (!campaign || !Array.isArray(campaign.selectedAssessments) || campaign.selectedAssessments.length === 0) {
-                // Legacy campaign with no selectedAssessments - use default 5 scales
-                const defaultScales = ['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r'];
-                this._checkScalesAgainstAllowed(payload, defaultScales, `campaign ${campaignMeta.code} (legacy, no selectedAssessments)`);
+                // Legacy campaign with no selectedAssessments - fall back to all known scales
+                this._checkScalesAgainstAllowed(payload, KNOWN_SCALE_CODES, `campaign ${campaignMeta.code} (legacy, no selectedAssessments)`);
                 return;
             }
 
@@ -931,9 +931,8 @@ export class SurveyPayloadValidator {
             if (err instanceof SurveyOperationError && err.code === SURVEY_ERROR_CODES.INVALID_PAYLOAD_SCHEMA) {
                 throw err; // Re-throw validation errors
             }
-            // If campaign fetch fails, fall back to default 5 scales for backward compatibility
-            const defaultScales = ['phq-9', 'gad-7', 'isi-k', 'bepsi-k', 'sbq-r'];
-            this._checkScalesAgainstAllowed(payload, defaultScales, `campaign ${campaignMeta.code} (fetch failed, fallback)`);
+            // If campaign fetch fails, fall back to all known scales for backward compatibility
+            this._checkScalesAgainstAllowed(payload, KNOWN_SCALE_CODES, `campaign ${campaignMeta.code} (fetch failed, fallback)`);
         }
     }
 
