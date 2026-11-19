@@ -560,8 +560,9 @@ export function createExternalApiRouter(deps) {
           });
       }
 
-      const { v4: uuidv4 } = await import("crypto");
-      const jobId = `job_${Date.now()}_${uuidv4().slice(0, 8)}`;
+      // [버그 수정] Node crypto에는 v4가 없어 항상 500이 났다. randomUUID 사용.
+      const { randomUUID } = await import("crypto");
+      const jobId = `job_${Date.now()}_${randomUUID().slice(0, 8)}`;
 
       // 비동기로 실행 (catch에서 에러 처리)
       engineService

@@ -397,6 +397,25 @@ export class HomepageEngineService {
   }
 
   /**
+   * [버그 수정] persistData는 파일 전체를 교체하므로, 새로 받은 항목만 넘기면
+   * 기존에 쌓여 있던 대기 의뢰·설문 제출 기록이 모두 지워진다.
+   * 기존 목록을 읽어 같은 외부 ID는 새 값으로 교체하고 나머지는 그대로 둔 채 이어 붙인다.
+   */
+  async _appendAndPersist(name, newItems, idKey) {
+    const current = this.getData(name, []);
+    const existing = Array.isArray(current) ? current : [];
+    const newIds = new Set(
+      newItems
+        .map((item) => item && item[idKey])
+        .filter((id) => id !== undefined && id !== null && id !== ""),
+    );
+    const kept = existing.filter(
+      (item) => !(item && newIds.has(item[idKey])),
+    );
+    await this.persistData(name, [...kept, ...newItems]);
+  }
+
+  /**
    * 항목 저장 (어댑터 매핑 → persistData)
    */
   async _persistItems(items, actorId, cycleId) {
@@ -450,7 +469,11 @@ export class HomepageEngineService {
 
     if (referralsToStore.length > 0) {
       try {
-        await this.persistData("PendingReferrals", referralsToStore);
+        await this._appendAndPersist(
+          "PendingReferrals",
+          referralsToStore,
+          "externalIdx",
+        );
       } catch (persistErr) {
         // 저장 자체가 실패하면 저장하려던 항목을 재시도 큐에 등록 (08 C4)
         this._queuePersistFailed(referralsToStore, "referral", "externalIdx");
@@ -467,7 +490,11 @@ export class HomepageEngineService {
 
     if (assessmentsToStore.length > 0) {
       try {
-        await this.persistData("SurveySubmissions", assessmentsToStore);
+        await this._appendAndPersist(
+          "SurveySubmissions",
+          assessmentsToStore,
+          "submissionId",
+        );
       } catch (persistErr) {
         this._queuePersistFailed(
           assessmentsToStore,

@@ -1,11 +1,12 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { User, Log, Permission, AnyLog, Team } from '../../types';
 import PageContainer from '../layout/PageContainer';
 import { getTeams, getTeamsConfig } from '../../services/orgConfig';
 import OrgSettingsPanel from '../setup/OrgSettingsPanel';
 import { apiClient } from '../../services/apiClient';
 import * as XLSX from 'xlsx';
+import { getPasswordWeaknesses, PASSWORD_RECOMMENDATION_TEXT } from '../../utils/passwordPolicy';
 
 declare var _: any;
 declare const google: any;
@@ -17,6 +18,9 @@ interface AccountsPageProps {
     currentUser: User;
     onForceLogout: () => void;
     showToast: (msg: string) => void;
+    /** 비밀번호 변경 권장 안내에서 "지금 변경하기"로 들어온 경우 변경 창을 바로 연다 */
+    autoOpenChangePassword?: boolean;
+    onAutoOpenChangePasswordHandled?: () => void;
 }
 
 const USER_EXCEL_HEADERS: Record<string, string> = {
@@ -28,7 +32,7 @@ const USER_EXCEL_HEADERS: Record<string, string> = {
     status: '상태'
 };
 
-const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, currentUser, onForceLogout, showToast }) => {
+const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, currentUser, onForceLogout, showToast, autoOpenChangePassword, onAutoOpenChangePasswordHandled }) => {
     const [activeTab, setActiveTab] = useState<'users' | 'activity' | 'org'>('users');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -281,16 +285,21 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
         if (!editingUser || isSubmitting) return;
 
         setIsSubmitting(true);
-        const updatedUser = { ...editingUser, password: editingUser.password || users.find(u => u.id === editingUser.id)?.password || '' } as User;
+        // 비밀번호는 보내지 않는다. 서버가 기존 레코드에 병합하며 비밀번호를 유지한다.
+        const { password: _omitPassword, ...updatedUser } = editingUser as User;
 
-        const result = await apiClient.updateUser(updatedUser);
-        setIsSubmitting(false);
-
-        if (result.success) {
-            setUsers(users.map(u => u.id === editingUser.id ? updatedUser : u));
-            handleCloseEditModal();
-        } else {
-            alert(result.error || '사용자 업데이트 실패');
+        try {
+            const result = await apiClient.updateUser(updatedUser as User);
+            if (result.success) {
+                setUsers(users.map(u => u.id === editingUser.id ? (updatedUser as User) : u));
+                handleCloseEditModal();
+            } else {
+                alert(result.error || '사용자 업데이트 실패');
+            }
+        } catch (error: any) {
+            alert(error?.message || '사용자 업데이트 중 오류가 발생했습니다.');
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -317,6 +326,15 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
         setIsChangePasswordModalOpen(true);
     }
 
+    // 비밀번호 변경 권장 안내에서 들어온 경우 변경 창을 바로 연다
+    useEffect(() => {
+        if (autoOpenChangePassword) {
+            handleOpenChangePasswordModal();
+            onAutoOpenChangePasswordHandled?.();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [autoOpenChangePassword]);
+
     const handleChangePassword = async (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -333,6 +351,20 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
         if (passwordData.newPassword.length < 4) {
             alert('비밀번호는 최소 4자 이상이어야 합니다.');
             return;
+        }
+
+        if (passwordData.newPassword === passwordData.oldPassword) {
+            alert('새 비밀번호가 현재 비밀번호와 같습니다. 다른 비밀번호를 입력해주세요.');
+            return;
+        }
+
+        // 강제하지 않고 권장만 한다: 단순한 비밀번호면 한 번 더 확인
+        const weaknesses = getPasswordWeaknesses(passwordData.newPassword);
+        if (weaknesses.length > 0) {
+            const proceed = window.confirm(
+                `입력한 비밀번호가 단순합니다 (${weaknesses.join(', ')}).\n${PASSWORD_RECOMMENDATION_TEXT}\n\n그래도 이 비밀번호로 변경하시겠습니까?`
+            );
+            if (!proceed) return;
         }
 
         setIsSubmitting(true);
@@ -378,14 +410,19 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
         if (!user) return;
 
         setIsSubmitting(true);
-        const updatedUser = { ...user, status: user.status === 'active' ? 'suspended' as const : 'active' as const };
-        const result = await apiClient.updateUser(updatedUser);
-        setIsSubmitting(false);
-
-        if (result.success) {
-            setUsers(users.map(u => u.id === userId ? updatedUser : u));
-        } else {
-            alert(result.error || '상태 변경 실패');
+        const { password: _omitPassword, ...rest } = user;
+        const updatedUser = { ...rest, status: user.status === 'active' ? 'suspended' as const : 'active' as const } as User;
+        try {
+            const result = await apiClient.updateUser(updatedUser);
+            if (result.success) {
+                setUsers(users.map(u => u.id === userId ? updatedUser : u));
+            } else {
+                alert(result.error || '상태 변경 실패');
+            }
+        } catch (error: any) {
+            alert(error?.message || '상태 변경 중 오류가 발생했습니다.');
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -1012,6 +1049,15 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 mb-1 ml-1">새 비밀번호</label>
                                 <input type="password" value={passwordData.newPassword} onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20" required placeholder="변경할 비밀번호" />
+                                {(() => {
+                                    if (!passwordData.newPassword) {
+                                        return <p className="text-[11px] text-slate-500 mt-1 ml-1">권장: {PASSWORD_RECOMMENDATION_TEXT}</p>;
+                                    }
+                                    const weaknesses = getPasswordWeaknesses(passwordData.newPassword);
+                                    return weaknesses.length > 0
+                                        ? <p className="text-[11px] text-amber-600 font-bold mt-1 ml-1">단순한 비밀번호입니다 ({weaknesses.join(', ')}). {PASSWORD_RECOMMENDATION_TEXT}</p>
+                                        : <p className="text-[11px] text-emerald-600 font-bold mt-1 ml-1">권장 기준을 충족하는 비밀번호입니다.</p>;
+                                })()}
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 mb-1 ml-1">새 비밀번호 확인</label>

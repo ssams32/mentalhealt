@@ -84,65 +84,76 @@ export async function createExternalApiEngine(deps) {
   let client = null;
   let keyFingerprint = null;
 
-  if (config.enabled !== false) {
-    const keyInfo = await resolveApiKey({ dataDir });
+  // [안정성] 저장된 설정이 잘못된 경우(예: 운영 모드인데 http 주소) HomepageClient 생성자가 예외를 던져
+  // 서버 전체가 기동하지 못했다. 연동 엔진만 비활성화하고 관리자 화면에서 고칠 수 있게 둔다.
+  try {
+    if (config.enabled !== false) {
+      const keyInfo = await resolveApiKey({ dataDir });
 
-    if (config.mode === "mock") {
-      // Mock 모드에서는 환경변수 키로 진짜 HomepageClient 사용 (HTTP Mock 서버 호출)
-      // 테스트에서 잘못된 키를 주면 401이 발생하도록 함
-      const mockApiKey =
-        process.env.HOMEPAGE_API_KEY || (keyInfo ? keyInfo.key : MOCK_API_KEY);
-      const baseClient = new HomepageClient({
-        baseUrl: config.baseUrl || "http://localhost:9999",
-        apiKey: mockApiKey,
-        apiKeyHeader: config.apiKeyHeader,
-        authScheme: config.authScheme,
-        orgId: config.orgId || "mock-org",
-        orgIdPlacement: config.orgIdPlacement,
-        timeoutMs: config.requestTimeoutMs,
-        maxBatchSize: config.maxBatchSize,
-      });
-      // Mock 서버용 acknowledgeItem 래퍼: externalId에 "REF" 포함 시 referral, "ASM" 포함 시 assessment로 판단
-      const originalAcknowledgeItem = baseClient.acknowledgeItem.bind(baseClient);
-      baseClient.acknowledgeItem = async function (externalId, { requestId }) {
-        const kind = externalId.includes("REF") ? "referral" : "assessment";
-        const safeId = baseClient._sanitizeId(externalId);
-        const ackPath =
-          kind === "referral"
-            ? ENDPOINT_PATHS.ACK_REFERRAL(safeId)
-            : ENDPOINT_PATHS.ACK_ASSESSMENT(safeId);
-        return baseClient._request(ackPath, {
-          method: "POST",
-          body: { requestId },
-          externalId,
+      if (config.mode === "mock") {
+        // Mock 모드에서는 환경변수 키로 진짜 HomepageClient 사용 (HTTP Mock 서버 호출)
+        // 테스트에서 잘못된 키를 주면 401이 발생하도록 함
+        const mockApiKey =
+          process.env.HOMEPAGE_API_KEY || (keyInfo ? keyInfo.key : MOCK_API_KEY);
+        const baseClient = new HomepageClient({
+          baseUrl: config.baseUrl || "http://localhost:9999",
+          apiKey: mockApiKey,
+          apiKeyHeader: config.apiKeyHeader,
+          authScheme: config.authScheme,
+          orgId: config.orgId || "mock-org",
+          orgIdPlacement: config.orgIdPlacement,
+          timeoutMs: config.requestTimeoutMs,
+          maxBatchSize: config.maxBatchSize,
         });
-      };
-      client = baseClient;
-      keyFingerprint = keyInfo
-        ? computeAuthFingerprint(keyInfo.key)
-        : process.env.HOMEPAGE_API_KEY
-          ? computeAuthFingerprint(process.env.HOMEPAGE_API_KEY)
-          : null;
-    } else if (keyInfo) {
-      // Production/Staging: 실제 키 사용
-      client = new HomepageClient({
-        baseUrl: config.baseUrl,
-        apiKey: keyInfo.key,
-        apiKeyHeader: config.apiKeyHeader,
-        authScheme: config.authScheme,
-        orgId: config.orgId,
-        orgIdPlacement: config.orgIdPlacement,
-        timeoutMs: config.requestTimeoutMs,
-        maxBatchSize: config.maxBatchSize,
-      });
-      keyFingerprint = computeAuthFingerprint(keyInfo.key);
-    } else {
-      // 키가 없으면 클라이언트 없이 disabled 상태로
-      config.enabled = false;
-      disabledReason =
-        "API 키가 설정되지 않음 (Docker Secrets 파일 또는 환경변수 필요)";
-      client = null;
+        // Mock 서버용 acknowledgeItem 래퍼: externalId에 "REF" 포함 시 referral, "ASM" 포함 시 assessment로 판단
+        const originalAcknowledgeItem = baseClient.acknowledgeItem.bind(baseClient);
+        baseClient.acknowledgeItem = async function (externalId, { requestId }) {
+          const kind = externalId.includes("REF") ? "referral" : "assessment";
+          const safeId = baseClient._sanitizeId(externalId);
+          const ackPath =
+            kind === "referral"
+              ? ENDPOINT_PATHS.ACK_REFERRAL(safeId)
+              : ENDPOINT_PATHS.ACK_ASSESSMENT(safeId);
+          return baseClient._request(ackPath, {
+            method: "POST",
+            body: { requestId },
+            externalId,
+          });
+        };
+        client = baseClient;
+        keyFingerprint = keyInfo
+          ? computeAuthFingerprint(keyInfo.key)
+          : process.env.HOMEPAGE_API_KEY
+            ? computeAuthFingerprint(process.env.HOMEPAGE_API_KEY)
+            : null;
+      } else if (keyInfo) {
+        // Production/Staging: 실제 키 사용
+        client = new HomepageClient({
+          baseUrl: config.baseUrl,
+          apiKey: keyInfo.key,
+          apiKeyHeader: config.apiKeyHeader,
+          authScheme: config.authScheme,
+          orgId: config.orgId,
+          orgIdPlacement: config.orgIdPlacement,
+          timeoutMs: config.requestTimeoutMs,
+          maxBatchSize: config.maxBatchSize,
+        });
+        keyFingerprint = computeAuthFingerprint(keyInfo.key);
+      } else {
+        // 키가 없으면 클라이언트 없이 disabled 상태로
+        config.enabled = false;
+        disabledReason =
+          "API 키가 설정되지 않음 (Docker Secrets 파일 또는 환경변수 필요)";
+        client = null;
+      }
     }
+
+  } catch (err) {
+    console.error("[EXTERNAL_API] 클라이언트 생성 실패 — 연동 엔진을 비활성화합니다:", err.message);
+    config = { ...config, enabled: false };
+    disabledReason = `클라이언트 생성 실패: ${err.message}`;
+    client = null;
+    keyFingerprint = null;
   }
 
   // 설정 요약에 키 지문 포함

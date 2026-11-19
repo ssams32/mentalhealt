@@ -27,6 +27,9 @@ import { CallAutomationPage } from './components/calls/CallAutomationPage';
 import { SurveyManagementPage } from './components/survey/SurveyManagementPage';
 import ExternalApiAdminPage from './components/externalApi/ExternalApiAdminPage';
 import AssetListPage from './components/assets/AssetListPage';
+import { PASSWORD_RECOMMENDATION_TEXT } from './utils/passwordPolicy';
+
+const PW_RECOMMEND_KEY = 'pwChangeRecommended';
 // import OfficialDocumentPage from './components/officialDocuments/OfficialDocumentPage';
 
 declare var _: any;
@@ -490,9 +493,33 @@ function App() {
         });
     }, [showToast]);
 
-    const handleLogin = async (user: User) => {
+    // 비밀번호 변경 권장 안내 (새로고침해도 같은 탭 세션 동안 유지, 로그아웃 시 제거)
+    const [passwordChangeRecommended, setPasswordChangeRecommended] = useState<boolean>(
+        () => safeSessionStorage.getItem(PW_RECOMMEND_KEY) === '1'
+    );
+    const [openChangePasswordOnAccounts, setOpenChangePasswordOnAccounts] = useState(false);
+    useEffect(() => {
+        if (!currentUser) {
+            safeSessionStorage.removeItem(PW_RECOMMEND_KEY);
+            setPasswordChangeRecommended(false);
+        }
+    }, [currentUser]);
+    const dismissPasswordRecommendation = useCallback(() => {
+        safeSessionStorage.removeItem(PW_RECOMMEND_KEY);
+        setPasswordChangeRecommended(false);
+    }, []);
+
+    const handleLogin = async (user: User, options?: { passwordChangeRecommended?: boolean }) => {
         resetSessionExpiredGuard();
         safeSessionStorage.setItem('currentUser', JSON.stringify(user));
+        // 단순한 비밀번호(숫자만·8자 미만 등)로 로그인한 경우 변경 권장 안내를 띄운다 (강제 아님)
+        if (options?.passwordChangeRecommended) {
+            safeSessionStorage.setItem(PW_RECOMMEND_KEY, '1');
+            setPasswordChangeRecommended(true);
+        } else {
+            safeSessionStorage.removeItem(PW_RECOMMEND_KEY);
+            setPasswordChangeRecommended(false);
+        }
         // 🏢 로그인 후 기관 설정을 인증 컨텍스트로 다시 로드 (신규 설치에서 setup 후 설정 반영)
         await refreshOrgConfig();
         setCurrentUser(user);
@@ -1108,6 +1135,8 @@ function App() {
                     currentUser={currentUser}
                     onForceLogout={handleAutoLogout}
                     showToast={showToast}
+                    autoOpenChangePassword={openChangePasswordOnAccounts}
+                    onAutoOpenChangePasswordHandled={() => setOpenChangePasswordOnAccounts(false)}
                 />;
             case 'antiGravity':
                 return <AntiGravityDashboard />;
@@ -1186,6 +1215,31 @@ function App() {
                             >
                                 서버 재연결 시도
                             </button>
+                        </div>
+                    )}
+                    {passwordChangeRecommended && (
+                        <div className="bg-indigo-600 text-white px-4 py-2 text-xs font-bold flex flex-wrap items-center justify-between gap-2 shadow-md z-40">
+                            <span className="flex items-center gap-2">
+                                <span>🔒</span>
+                                <span>현재 비밀번호가 단순합니다(숫자만 사용 또는 8자 미만). 개인정보 보호를 위해 {PASSWORD_RECOMMENDATION_TEXT}</span>
+                            </span>
+                            <span className="flex items-center gap-2">
+                                <button
+                                    onClick={() => {
+                                        setOpenChangePasswordOnAccounts(true);
+                                        setActivePage('accounts');
+                                    }}
+                                    className="bg-white text-indigo-700 hover:bg-indigo-50 px-3 py-1 rounded-lg text-[11px] transition-colors"
+                                >
+                                    지금 변경하기
+                                </button>
+                                <button
+                                    onClick={dismissPasswordRecommendation}
+                                    className="bg-indigo-700 hover:bg-indigo-800 px-3 py-1 rounded-lg text-[11px] transition-colors"
+                                >
+                                    나중에
+                                </button>
+                            </span>
                         </div>
                     )}
                     {renderPage()}

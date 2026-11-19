@@ -6,7 +6,7 @@ import { apiClient } from '../../services/apiClient';
 import { getOrgShortName, getOrgName } from '../../services/orgConfig';
 
 interface LoginScreenProps {
-    onLogin: (user: User) => void;
+    onLogin: (user: User, options?: { passwordChangeRecommended?: boolean }) => void;
     users?: User[]; // Optional for backward compatibility
 }
 
@@ -34,7 +34,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, users }) => {
             // [Track A1] Server-side Authentication with HttpOnly Session Cookie
             const res = await apiClient.login(usernameInput, password);
             if (res && res.success && res.user) {
-                onLogin(res.user);
+                onLogin(res.user, { passwordChangeRecommended: !!res.passwordChangeRecommended });
             } else {
                 setLoginError('아이디 또는 비밀번호를 확인해 주세요.');
             }

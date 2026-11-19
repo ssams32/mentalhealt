@@ -1,6 +1,7 @@
 import { User, Log, Referral, SuicideAttempterReferral, ToDo, CalendarEvent, Note, ActivityLog, WebsiteReferralSummary,
     ExternalApiConfig, ExternalApiStatus, ExternalApiHistoryItem, ExternalApiTestResult, ExternalApiSyncJob
 } from '../types';
+import { classifyIncomingReferral, ReferralMatchKind } from '../utils/clientIdentity';
 
 import {
     IspAchievementYearlyResponse,
@@ -425,62 +426,27 @@ class ApiClient {
      * Stage 2: Data Synchronization & Comparison Logic
      * 홈페이지 인입 데이터와 기존 의뢰대장을 비교하여 동기화합니다.
      */
-    async syncRequest(incoming: any, existingReferrals: Referral[]): Promise<{ updated: boolean; alert: boolean; error?: string }> {
+    async syncRequest(incoming: any, existingReferrals: Referral[]): Promise<{ updated: boolean; alert: boolean; matchKind?: ReferralMatchKind; matchedRefNo?: string; error?: string }> {
+        // [버그 수정] 예전에는 이름+연령만 같으면 기존 대장 기록을 홈페이지 값으로 덮어썼다(다른 사람 기록 훼손 가능).
+        // 이제 서버에 아무것도 쓰지 않고 비교만 한다.
+        // - 복합키[이름·연령·연락처] + 의뢰날짜가 모두 같은 기록이 있으면: 이미 등록된 건 → 알림 목록에서 제외
+        // - 복합키는 같은데 의뢰날짜가 다르면: 재의뢰 → 알림
+        // - 같은 대상자를 못 찾으면: 신규 접수 → 접수 대기 목록에 표시
         try {
-            // 이름조차 없는 완전 유효하지 않은 데이터만 필터링하도록 완화
             if (!incoming || !incoming.name) {
-                console.warn('[Sync] 필수 데이터(이름)가 누락되어 동기화를 건너뜁니다:', incoming);
+                console.warn('[Sync] 필수 데이터(이름)가 누락되어 비교를 건너뜁니다.');
                 return { updated: false, alert: false };
             }
-
-            const incomingName = incoming.name.trim();
-            const incomingAge = Number(incoming.age) || 0;
-            const incomingPhone = (incoming.phone || '').replace(/[^0-9]/g, '');
-            const incomingDate = incoming.requestDate || incoming.registrationDate;
-
-            // 1. 이름과 나이가 일치하는 기존 의뢰대장 기록 찾기 (나이/이름 대조)
-            // 나이가 0인 유효하지 않은 항목은 대조군에서 제외하여 중복 스킵 버그 방지
-            const samePersonMatches = existingReferrals.filter(r =>
-                r.name.trim() === incomingName &&
-                (incomingAge > 0 ? Number(r.age) === incomingAge : true)
-            );
-
-            if (samePersonMatches.length > 0 && incomingAge > 0) {
-                // 2. 이미 등록되어 있는 사람 중, 연락처가 같거나 30일(약 한 달) 이내에 이중 의뢰된 건이 있는지 체크
-                const isDuplicateOrRecent = samePersonMatches.some(r => {
-                    const existingPhone = (r.phone || '').replace(/[^0-9]/g, '');
-                    if (incomingPhone && existingPhone && incomingPhone === existingPhone) {
-                        return true;
-                    }
-
-                    if (r.requestDate && incomingDate) {
-                        const d1 = new Date(r.requestDate);
-                        const d2 = new Date(incomingDate);
-                        if (!isNaN(d1.getTime()) && !isNaN(d2.getTime())) {
-                            const diffTime = Math.abs(d2.getTime() - d1.getTime());
-                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                            if (diffDays <= 30) {
-                                return true;
-                            }
-                        }
-                    }
-                    return false;
-                });
-
-                if (isDuplicateOrRecent) {
-                    console.log(`[Sync] Skip alert for duplicate or recent referral within 30 days: ${incomingName}`);
-                    const match = samePersonMatches[0];
-                    await this.updateReferral({ ...match, ...incoming, refNo: match.refNo });
-                    return { updated: true, alert: false };
-                }
-            }
-
-            // 3. 신규 기록 또는 검증에 안 걸린 항목: 알림 생성 허용
-            console.log(`[Sync] Triggering alert for: ${incomingName}`);
-            return { updated: false, alert: true };
+            const result = classifyIncomingReferral(incoming, existingReferrals || []);
+            return {
+                updated: false,
+                alert: result.kind !== 'duplicate',
+                matchKind: result.kind,
+                matchedRefNo: result.match?.refNo,
+            };
         } catch (error) {
             console.error('[Sync] Error during syncRequest:', error);
-            // 에러 시 동기화를 차단하지 않고 무조건 알림창에 렌더링되도록 true 반환
+            // 비교에 실패하면 접수 누락이 없도록 목록에 남긴다
             return { updated: false, alert: true, error: String(error) };
         }
     }
@@ -488,8 +454,8 @@ class ApiClient {
     // ──────────────────────────────────────────────────────────
     // [Track A1 & A2] Authentication & Capability API
     // ──────────────────────────────────────────────────────────
-    async login(username: string, password: string): Promise<{ success: boolean; user: User }> {
-        return this.request<{ success: boolean; user: User }>('/auth/login', {
+    async login(username: string, password: string): Promise<{ success: boolean; user: User; passwordChangeRecommended?: boolean }> {
+        return this.request<{ success: boolean; user: User; passwordChangeRecommended?: boolean }>('/auth/login', {
             method: 'POST',
             body: JSON.stringify({ username, password })
         });

@@ -28,28 +28,37 @@ function getSettingsPath(dataDir) {
  * @returns {object} 환경변수 설정 객체
  */
 export function loadEnvConfig() {
+  // [버그 수정] 예전에는 환경변수가 없어도 기본값(mock, 폴링 꺼짐, 60초 등)을 돌려주었고,
+  // 병합 시 환경변수가 우선하므로 관리자 화면에서 저장한 설정이 재시작할 때마다 기본값으로 되돌아갔다.
+  // 이제 실제로 설정된 환경변수만 돌려주고, 기본값은 validateConfig에서 병합 뒤에 적용한다.
+  const str = (name) => {
+    const v = process.env[name];
+    return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
+  };
+  const int = (name) => {
+    const v = str(name);
+    if (v === undefined) return undefined;
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const bool = (name) => {
+    const v = str(name);
+    if (v === undefined) return undefined;
+    return v.toLowerCase() === "true";
+  };
   return {
-    baseUrl: process.env.HOMEPAGE_API_BASE_URL?.trim(),
-    orgId: process.env.HOMEPAGE_ORG_ID?.trim(),
-    apiKeyHeader: process.env.HOMEPAGE_API_KEY_HEADER?.trim() || "X-Api-Key",
-    authScheme: process.env.HOMEPAGE_API_AUTH_SCHEME?.trim() || "api-key",
-    orgIdPlacement: process.env.HOMEPAGE_ORG_ID_PLACEMENT?.trim() || "header",
-    mode: (process.env.HOMEPAGE_API_MODE?.trim() || "mock").toLowerCase(),
-    pollEnabled: process.env.HOMEPAGE_POLL_ENABLED === "true",
-    pollIntervalSeconds: parseInt(
-      process.env.HOMEPAGE_POLL_INTERVAL_SECONDS || "60",
-      10,
-    ),
-    pollInitialDelaySeconds: parseInt(
-      process.env.HOMEPAGE_POLL_INITIAL_DELAY_SECONDS || "60",
-      10,
-    ),
-    requestTimeoutMs: parseInt(
-      process.env.HOMEPAGE_REQUEST_TIMEOUT_MS || "10000",
-      10,
-    ),
-    maxBatchSize: parseInt(process.env.HOMEPAGE_MAX_BATCH_SIZE || "50", 10),
-    keyFilePath: process.env.HOMEPAGE_API_KEY_FILE?.trim(),
+    baseUrl: str("HOMEPAGE_API_BASE_URL"),
+    orgId: str("HOMEPAGE_ORG_ID"),
+    apiKeyHeader: str("HOMEPAGE_API_KEY_HEADER"),
+    authScheme: str("HOMEPAGE_API_AUTH_SCHEME"),
+    orgIdPlacement: str("HOMEPAGE_ORG_ID_PLACEMENT"),
+    mode: str("HOMEPAGE_API_MODE")?.toLowerCase(),
+    pollEnabled: bool("HOMEPAGE_POLL_ENABLED"),
+    pollIntervalSeconds: int("HOMEPAGE_POLL_INTERVAL_SECONDS"),
+    pollInitialDelaySeconds: int("HOMEPAGE_POLL_INITIAL_DELAY_SECONDS"),
+    requestTimeoutMs: int("HOMEPAGE_REQUEST_TIMEOUT_MS"),
+    maxBatchSize: int("HOMEPAGE_MAX_BATCH_SIZE"),
+    keyFilePath: str("HOMEPAGE_API_KEY_FILE"),
   };
 }
 

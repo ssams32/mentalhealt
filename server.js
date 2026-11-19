@@ -82,6 +82,36 @@ try {
 } catch (ignore) {}
 
 const app = express();
+
+// [안정성] async 라우트 핸들러에서 발생한 예외가 처리되지 않으면 Node가 프로세스를 종료한다.
+// 라우트 핸들러가 돌려준 Promise의 reject를 Express 오류 처리(next)로 넘겨 500 응답으로 끝내도록 감싼다.
+// (오류 처리 미들웨어처럼 인자가 4개인 함수와 app.get('설정이름') 형태의 설정 조회는 그대로 둔다)
+for (const method of ['get', 'post', 'put', 'patch', 'delete', 'all']) {
+    const original = app[method].bind(app);
+    app[method] = (...args) => {
+        if (method === 'get' && args.length === 1 && typeof args[0] === 'string') {
+            return original(...args);
+        }
+        const wrapped = args.map(arg => {
+            if (typeof arg !== 'function' || arg.length >= 4) return arg;
+            return function asyncSafeHandler(req, res, next) {
+                try {
+                    const result = arg(req, res, next);
+                    if (result && typeof result.catch === 'function') result.catch(next);
+                    return result;
+                } catch (err) {
+                    next(err);
+                }
+            };
+        });
+        return original(...wrapped);
+    };
+}
+
+// [안정성] 위에서 감싸지 못한 경로(별도 Router 등)의 Promise 거부로 서버가 종료되지 않도록 기록만 남긴다.
+process.on('unhandledRejection', (reason) => {
+    console.error('❌ [UNHANDLED_REJECTION]:', reason && reason.stack ? reason.stack : reason);
+});
 // [포트 설정] 프론트엔드 8888, 백엔드 8889 체계 확정
 const PORT = process.env.PORT || 8889;
 const SERVER_VERSION = '3.1.2';
@@ -1239,13 +1269,19 @@ app.post('/api/users', requireAdmin, (req, res) => {
 
 app.put('/api/users', requireAdmin, async (req, res) => {
     try {
-        const updatedUser = req.body;
+        const updatedUser = req.body || {};
         const users = getData('Users', []);
         const index = users.findIndex(u => u.id === updatedUser.id);
         if (index !== -1) {
-            users[index] = updatedUser;
+            // [버그 수정] 목록 조회(GET /api/users)는 비밀번호를 내려주지 않으므로, 화면이 보낸 객체로
+            // 통째로 교체하면 저장된 비밀번호가 지워져 해당 사용자가 로그인할 수 없게 된다.
+            // 기존 레코드 위에 덮어쓰되 비밀번호는 이 경로에서 절대 바꾸지 않는다(변경은 전용 API 사용).
+            const { password: _ignoredPassword, ...changes } = updatedUser;
+            const merged = { ...users[index], ...changes, id: users[index].id };
+            users[index] = merged;
             await persistData('Users', users);
-            return res.json({ success: true, user: updatedUser });
+            const { password: _omit, ...safeUser } = merged;
+            return res.json({ success: true, user: safeUser });
         }
         res.status(404).json({ success: false, error: "User not found" });
     } catch (err) {
@@ -3174,8 +3210,10 @@ app.get('/api/pending-referrals', requireAuth, (req, res) => {
         return !isRegistered;
     });
 
+    // [데이터 보존] 예전에는 조회(GET) 때마다 등록된 것으로 보이는 대기 항목을 파일에서 영구 삭제했다.
+    // 조회가 데이터를 지우지 않도록 응답에서만 걸러내고 원본 PendingReferrals는 그대로 둔다.
     if (allPending.length !== beforeCount) {
-        saveData('PendingReferrals', allPending);
+        console.log(`[pending-referrals] 등록된 것으로 보이는 대기 항목 ${beforeCount - allPending.length}건을 응답에서 제외 (원본 보존)`);
     }
 
     // Return ONLY website referrals to caller (0 surveys, 0 voice calls)
@@ -3303,6 +3341,10 @@ app.post('/api/users/import', requireAdmin, (req, res) => {
 // FE가 adminId를 계속 보내도 무시된다 (회귀 없음).
 app.post('/api/users/reset-password', requireAdmin, (req, res) => {
     const { targetId, newPassword } = req.body || {};
+    // 빈 값/비문자열로 비밀번호가 지워지는 것을 막는다 (기존 최소 길이 4자 유지)
+    if (typeof newPassword !== 'string' || newPassword.length < 4) {
+        return res.status(400).json({ success: false, error: "새 비밀번호는 4자 이상이어야 합니다." });
+    }
     const users = getData('Users', []);
 
     const userIndex = users.findIndex(u => u.id === targetId);
@@ -3318,6 +3360,10 @@ app.post('/api/users/reset-password', requireAdmin, (req, res) => {
 // [P0-D4] 세션 바인딩: 본인 또는 관리자만 변경 가능. 비밀번호 평문 로그 제거됨.
 app.post('/api/users/change-password', requireAuth, (req, res) => {
     const { userId, oldPassword, newPassword } = req.body || {};
+    // 빈 값/비문자열로 비밀번호가 지워지는 것을 막는다 (기존 최소 길이 4자 유지)
+    if (typeof newPassword !== 'string' || newPassword.length < 4) {
+        return res.status(400).json({ success: false, error: "새 비밀번호는 4자 이상이어야 합니다." });
+    }
 
     const requester = req.auth || {};
     const isSelf = String(userId) === String(requester.id);
@@ -3912,11 +3958,11 @@ app.post('/api/activity', requireAuth, async (req, res) => {
 //         referralId?: string, referralName?: string, folderType?: string }
 // ───────────────────────────────────────────────────────────────────────────
 app.post('/api/upload', requireAuth, async (req, res) => {
-    const { base64, filename, mimeType, referralId, referralName, folderType } = req.body;
+    const { base64, filename, mimeType, referralId, referralName, folderType } = req.body || {};
     const requestId = `UPLOAD_${Date.now()}`;
 
-    // 1. 필수 필드 검증
-    if (!base64 || !filename) {
+    // 1. 필수 필드 검증 (문자열이 아니면 path.extname 등에서 예외가 나므로 함께 거른다)
+    if (!base64 || !filename || typeof base64 !== 'string' || typeof filename !== 'string') {
         console.warn(`⚠️ [${requestId}] ATTACH_400: base64 또는 filename 누락`);
         return res.status(400).json({
             success: false, status: 'error',
@@ -3967,7 +4013,7 @@ app.post('/api/upload', requireAuth, async (req, res) => {
     }
 
     // 4. 폴더 결정 (Path Traversal 방지)
-    const rawFolder = referralId || folderType || 'unsorted';
+    const rawFolder = String(referralId || folderType || 'unsorted');
     const safeFolder = rawFolder.replace(/[^a-z0-9가-힣_\-]/gi, '_').substring(0, 100);
     const folderPath = path.join(ATTACHMENTS_DIR, safeFolder);
     if (!fs.existsSync(folderPath)) {
@@ -5319,4 +5365,11 @@ app.all('/api/*', (req, res) => {
 // Catch-all for Frontend
 app.get('*', (req, res) => {
     res.sendFile(path.join(FRONTEND_DIST, 'index.html'));
+});
+
+// [안정성] 라우트 처리 중 발생한 오류의 최종 처리. 내부 오류 내용은 서버 로그에만 남긴다.
+app.use((err, req, res, next) => {
+    console.error('❌ [ROUTE ERROR]:', req.method, req.originalUrl, err && err.stack ? err.stack : err);
+    if (res.headersSent) return next(err);
+    res.status(500).json({ success: false, error: '서버 내부 오류가 발생했습니다.' });
 });
