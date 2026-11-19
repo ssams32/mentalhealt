@@ -15,6 +15,7 @@ export type ProposalMatchStatus =
     | 'other-item'  // 다른 과목 (주황)
     | 'date-only'   // 날짜만 맞음 (노랑)
     | 'amount-only' // 금액만 맞음 (노랑)
+    | 'duplicate'
     | 'no-match';   // 품의 없음 (회색)
 
 export interface ProposalMatchResult {
@@ -30,13 +31,18 @@ export interface ProposalMatchResult {
  */
 export function normalizeBudgetItem(name?: string): string {
     if (!name) return '';
-    let normalized = name.trim();
-    if (normalized.includes(' 외 ')) {
-        normalized = normalized.split(' 외 ')[0].trim();
-    } else {
-        normalized = normalized.replace(/[\s\u00A0]*외[\s\u00A0]*\d+[\s\u00A0]*건\s*$/, '').trim();
-    }
-    return normalized;
+    return name.trim().replace(/[\s\u00A0]*외[\s\u00A0]*\d+[\s\u00A0]*건.*$/, '').trim();
+}
+
+function normalizeDepartmentName(name?: string): string {
+    const text = (name || '').trim();
+    if (!text) return '';
+    if (text.includes('증진')) return '증진';
+    if (text.includes('회복')) return '회복';
+    if (text.includes('자살')) return '자살';
+    if (text.includes('남부')) return '남부';
+    if (text.includes('아동')) return '아동청소년';
+    return text.replace(/팀$/, '').trim();
 }
 
 /**
@@ -69,7 +75,9 @@ export function isSameBudgetItem(a?: string, b?: string): boolean {
 export function matchManualEntryToProposal(
     entry: ManualEntryLike | null | undefined,
     transactions: BudgetTransaction[] = [],
-    budgetItem?: string
+    budgetItem?: string,
+    department?: string,
+    usedProposals?: Set<BudgetTransaction>
 ): ProposalMatchResult {
     if (!entry) {
         return {
@@ -96,7 +104,9 @@ export function matchManualEntryToProposal(
     }
 
     const entryDate = typeof entry.date === 'string' ? entry.date.trim() : '';
-    const safeTransactions = Array.isArray(transactions) ? transactions : [];
+    const entryDepartment = normalizeDepartmentName(department);
+    const safeTransactions = (Array.isArray(transactions) ? transactions : [])
+        .filter(t => !entryDepartment || normalizeDepartmentName(t.department) === entryDepartment);
 
     // 2. 정확 일치 (날짜 + 금액 동시 일치)
     const exactMatches = safeTransactions.filter(t => {
@@ -110,9 +120,23 @@ export function matchManualEntryToProposal(
             ? exactMatches.filter(t => isSameBudgetItem(t.budgetItem, budgetItem))
             : exactMatches;
 
-        if (sameItemMatches.length > 0) {
+        const freeItemMatches = sameItemMatches.filter(t => !usedProposals || !usedProposals.has(t));
+
+        if (sameItemMatches.length > 0 && freeItemMatches.length === 0) {
             const primary = sameItemMatches[0];
-            const extra = sameItemMatches.length - 1;
+            const appNo = primary.approvalNo ? primary.approvalNo.trim() : '';
+            return {
+                status: 'duplicate',
+                badgeText: '중복 의심',
+                detailText: appNo ? `${appNo} 이미 다른 행과 일치` : '이미 다른 행과 일치',
+                matchedProposal: primary,
+                matchedCount: 0
+            };
+        }
+
+        if (freeItemMatches.length > 0) {
+            const primary = freeItemMatches[0];
+            const extra = freeItemMatches.length - 1;
             const appNo = primary.approvalNo ? primary.approvalNo.trim() : '';
             const desc = primary.description ? primary.description.trim() : '';
 
@@ -126,7 +150,7 @@ export function matchManualEntryToProposal(
                 badgeText: '일치',
                 detailText: detail,
                 matchedProposal: primary,
-                matchedCount: sameItemMatches.length
+                matchedCount: freeItemMatches.length
             };
         }
 
@@ -263,4 +287,50 @@ export function findManualEntryForProposal(
         if (eDate === tDate && eAmount === tAmount) return e;
     }
     return null;
+}
+
+/**
+ * Cross-checks all manual rows at once so that one proposal is matched by at most one row.
+ * Rows are paired earliest date first; a row whose proposals are all taken gets status 'duplicate'.
+ * Results are returned in the order of `entries`.
+ */
+export function matchManualEntriesToProposals(
+    entries: ManualEntryLike[],
+    transactions: BudgetTransaction[],
+    budgetItem?: string,
+    department?: string
+): ProposalMatchResult[] {
+    const usedProposals = new Set<BudgetTransaction>();
+    const results: ProposalMatchResult[] = [];
+    entries
+        .map((entry, index) => ({ entry, index }))
+        .sort((a, b) => a.entry.date.localeCompare(b.entry.date) || a.index - b.index)
+        .forEach(({ entry, index }) => {
+            const result = matchManualEntryToProposal(entry, transactions, budgetItem, department, usedProposals);
+            if (result.status === 'matched' && result.matchedProposal) usedProposals.add(result.matchedProposal);
+            results[index] = result;
+        });
+    return results;
+}
+
+/**
+ * Whether proposal `t` already has its own manual row, given the proposals sharing its plan, date and amount.
+ * A row tagged `[approvalNo]` belongs to that proposal; untagged rows are assigned to the remaining proposals in order.
+ */
+export function isProposalEntered(
+    t: BudgetTransaction,
+    manualEntries: ManualEntryLike[],
+    sameCellProposals: BudgetTransaction[]
+): boolean {
+    const isTaggedWith = (e: ManualEntryLike, p: BudgetTransaction) =>
+        p.approvalNo.trim() !== '' && (e.description || '').includes(`[${p.approvalNo.trim()}]`);
+    const matchingEntries = manualEntries.filter(e => findManualEntryForProposal(t, [e]) !== null);
+    if (matchingEntries.some(e => isTaggedWith(e, t))) return true;
+
+    const otherProposals = sameCellProposals.filter(p => p !== t);
+    const untaggedEntries = matchingEntries.filter(e => !otherProposals.some(p => isTaggedWith(e, p)));
+    const proposalsAheadOfThis = otherProposals
+        .slice(0, Math.max(sameCellProposals.indexOf(t), 0))
+        .filter(p => !matchingEntries.some(e => isTaggedWith(e, p)));
+    return proposalsAheadOfThis.length < untaggedEntries.length;
 }

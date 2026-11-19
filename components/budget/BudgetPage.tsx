@@ -9,7 +9,17 @@ import { apiClient } from '../../services/apiClient';
 import { getOrgShortName } from '../../services/orgConfig';
 import { safeLocalStorage } from '../../utils/safeLocalStorage';
 import sampleBudgetHierarchy from './sampleBudgetHierarchy.json';
-import { matchManualEntryToProposal, buildManualEntryFromProposal, findManualEntryForProposal } from './proposalMatch';
+import { matchManualEntriesToProposals, buildManualEntryFromProposal, isProposalEntered } from './proposalMatch';
+import { moveNode, rollupAmount, balanceAndRatio, resolveOwnAmount } from './budgetTree';
+import type { DropPosition } from './budgetTree';
+import {
+    parseAmount,
+    parseApprovalDate,
+    mergeTransactionsByYear,
+    firstFilledEntry,
+    pasteIntoGrid
+} from './budgetImport';
+import type { GridField } from './budgetImport';
 import {
     normalizeBudgetItem,
     normalizeDepartmentName,
@@ -25,7 +35,9 @@ import {
     migrateBudgetPlansMap,
     normalizeHiddenItemKeys,
     findLatestYearWithPlans,
-    countPlansForYear
+    countPlansForYear,
+    resolvePlanKey,
+    LEGACY_PLAN_YEAR
 } from './budgetYear';
 
 declare var XLSX: any;
@@ -260,6 +272,36 @@ const BudgetGroupNameInput = ({ initialValue, onSave, placeholder = '미지정' 
 
 };
 
+const BudgetAmountInput = ({ value, onCommit, disabled, title }: { value: number, onCommit: (val: number) => void, disabled: boolean, title: string }) => {
+    const [localValue, setLocalValue] = useState(String(value));
+
+    useEffect(() => {
+        setLocalValue(String(value));
+    }, [value]);
+
+    const commit = () => {
+        const parsed = parseAmount(localValue);
+        setLocalValue(String(parsed));
+        if (parsed !== value) onCommit(parsed);
+    };
+
+    return (
+        <input
+            type="text"
+            inputMode="numeric"
+            disabled={disabled}
+            title={title}
+            className={`border border-gray-300 rounded px-1 py-0.5 text-right text-xs w-24 ${disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white'}`}
+            value={localValue}
+            onChange={(e) => setLocalValue(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            }}
+        />
+    );
+};
+
 // -------------------------------------
 
 
@@ -271,7 +313,9 @@ function ManualEntryModal({
     onSave,
     currentUser,
     transactions = [],
-    budgetItem
+    budgetItem,
+    department,
+    singleEntryMode = false
 }: {
     isOpen: boolean;
     onClose: () => void;
@@ -281,6 +325,8 @@ function ManualEntryModal({
     currentUser: User;
     transactions?: BudgetTransaction[];
     budgetItem?: string;
+    department?: string;
+    singleEntryMode?: boolean;
 }) {
     const [localEntries, setLocalEntries] = useState<ManualEntry[]>([]);
     const [isSavingLocal, setIsSavingLocal] = useState(false);
@@ -323,59 +369,45 @@ function ManualEntryModal({
         const lines = text.split(/\r?\n/).filter(line => line.trim());
         if (lines.length === 0) return;
 
-        // In-place paste logic
         if (focusedCell) {
-            e.preventDefault();
-            const startRowIndex = localEntries.findIndex(ent => ent.id === focusedCell.id);
-            if (startRowIndex === -1) return;
-
-            const updatedEntries = [...localEntries];
-            const fields: (keyof ManualEntry)[] = ['date', 'writer', 'amount', 'description'];
-            const startFieldIndex = fields.indexOf(focusedCell.field);
-
-            lines.forEach((line, rowOffset) => {
-                const rowIndex = startRowIndex + rowOffset;
-                if (rowIndex >= updatedEntries.length) {
-                    // Create new row if we exceed current grid
-                    updatedEntries.push({
-                        id: `pasted_${Date.now()}_${rowIndex}`,
-                        date: new Date().toISOString().split('T')[0],
-                        writer: currentUser.name,
-                        amount: 0,
-                        description: ''
-                    });
+            const isSingleCell = lines.length === 1 && !lines[0].includes('\t');
+            if (isSingleCell) {
+                if (focusedCell.field === 'amount') {
+                    e.preventDefault();
+                    handleChange(focusedCell.id, 'amount', parseAmount(lines[0]));
+                } else if (focusedCell.field === 'date') {
+                    e.preventDefault();
+                    handleChange(focusedCell.id, 'date', lines[0].trim());
                 }
+                return;
+            }
 
-                const parts = line.split('\t');
-                parts.forEach((val, colOffset) => {
-                    const fieldIndex = startFieldIndex + colOffset;
-                    if (fieldIndex < fields.length) {
-                        const field = fields[fieldIndex];
-                        let finalVal: any = val.trim();
-                        if (field === 'amount') {
-                            finalVal = Number(finalVal.replace(/[^0-9.-]+/g, '')) || 0;
-                        }
-                        updatedEntries[rowIndex] = {
-                            ...updatedEntries[rowIndex],
-                            [field]: finalVal,
-                            isPlaceholder: false // Mark as real data if it was a placeholder
-                        };
-                    }
-                });
-            });
-
+            e.preventDefault();
+            const pastedAt = Date.now();
+            const updatedEntries = pasteIntoGrid(
+                localEntries,
+                focusedCell.id,
+                focusedCell.field as GridField,
+                lines,
+                (lineIndex) => ({
+                    id: `pasted_${pastedAt}_${lineIndex}`,
+                    date: new Date().toISOString().split('T')[0],
+                    writer: currentUser.name,
+                    amount: 0,
+                    description: ''
+                })
+            );
             setLocalEntries(padEntries(updatedEntries));
             return;
         }
 
-        // Fallback: Default bulk append paste (if no cell focused)
         const newEntries: ManualEntry[] = lines.map(line => {
             const parts = line.split('\t');
             return {
                 id: (Date.now() + Math.random()).toString(),
                 date: parts[0]?.trim() || new Date().toISOString().split('T')[0],
                 writer: parts[1]?.trim() || currentUser.name,
-                amount: Number(parts[2]?.replace(/[^0-9.-]+/g, '')) || 0,
+                amount: parseAmount(parts[2]),
                 description: parts[3]?.trim() || '',
                 isPlaceholder: false
             };
@@ -480,7 +512,13 @@ function ManualEntryModal({
         }
     };
 
-    const handleSave = () => performSave(false);
+    const handleSave = () => {
+        if (singleEntryMode && !firstFilledEntry(localEntries)) {
+            alert('금액 또는 적요를 입력해 주세요.');
+            return;
+        }
+        return performSave(false);
+    };
 
     const handleCloseWithSave = async () => {
         if (autoSaveTimerRef.current) {
@@ -492,6 +530,7 @@ function ManualEntryModal({
 
     // Auto-save logic
     useEffect(() => {
+        if (singleEntryMode) return;
         if (!isOpen || localEntries.length === 0) return;
 
         // Skip initial load save
@@ -553,6 +592,11 @@ function ManualEntryModal({
                 return b.date.localeCompare(a.date);
             });
     }, [localEntries, startDate, endDate, searchTerm]);
+
+    const proposalMatchByEntryId = useMemo(() => {
+        const results = matchManualEntriesToProposals(localEntries, transactions, budgetItem, department);
+        return new Map(localEntries.map((entry, i) => [entry.id, results[i]]));
+    }, [localEntries, transactions, budgetItem, department]);
 
     // Dynamic Sum based on FILTERED entries
     const totalAmount = filteredEntries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
@@ -644,11 +688,11 @@ function ManualEntryModal({
                                 </thead>
                                 <tbody className="divide-y divide-gray-200">
                                     {filteredEntries.map(entry => {
-                                        const match = matchManualEntryToProposal(entry, transactions, budgetItem);
+                                        const match = proposalMatchByEntryId.get(entry.id)!;
                                         const badgeClass =
                                             match.status === 'matched'
                                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                                : match.status === 'other-item'
+                                                : match.status === 'other-item' || match.status === 'duplicate'
                                                     ? 'bg-orange-50 text-orange-700 border-orange-200'
                                                     : match.status === 'date-only' || match.status === 'amount-only'
                                                         ? 'bg-amber-50 text-amber-700 border-amber-200'
@@ -679,8 +723,7 @@ function ManualEntryModal({
                                                     type="text"
                                                     value={entry.amount === 0 ? '' : entry.amount.toLocaleString()}
                                                     onChange={(e) => {
-                                                        const val = e.target.value.replace(/[^0-9.-]+/g, '');
-                                                        handleChange(entry.id, 'amount', Number(val) || 0);
+                                                        handleChange(entry.id, 'amount', parseAmount(e.target.value));
                                                     }}
                                                     onFocus={() => setFocusedCell({ id: entry.id, field: 'amount' })}
                                                     placeholder="0"
@@ -793,7 +836,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
     const [editingCell, setEditingCell] = useState<{ id: string, field: keyof BudgetPlan } | null>(null);
     const [editValue, setEditValue] = useState('');
 
-    const [modalState, setModalState] = useState<{ isOpen: boolean; department: string; budgetItem: string } | null>(null);
+    const [modalState, setModalState] = useState<{ isOpen: boolean; department: string; budgetItem: string; seedAmount: number } | null>(null);
     const [uploadDate, setUploadDate] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'status' | 'history' | 'manual'>('status');
     // 선택 연도 (2026/2027 분리). 저장된 연도가 있으면 그 연도, 없으면 올해.
@@ -1046,13 +1089,13 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                         id: `mok-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                         name: itemName,
                         type: 'mok',
-                        amount: plan.budgetAmount || 0,
+                        amount: getPlanYear(plan) === LEGACY_PLAN_YEAR ? (plan.budgetAmount || 0) : 0,
                         children: []
                     };
                     root.children.push(mok);
                     changed = true;
                 } else {
-                    if (plan.budgetAmount !== undefined && (!mok.children || mok.children.length === 0)) {
+                    if (getPlanYear(plan) === LEGACY_PLAN_YEAR && plan.budgetAmount && (!mok.children || mok.children.length === 0)) {
                         if (mok.amount !== plan.budgetAmount) {
                             mok.amount = plan.budgetAmount;
                             changed = true;
@@ -1157,13 +1200,13 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
         }
     }, [hierarchyData]);
 
-    const saveBudgetPlan = async (year: number, department: string, budgetItem: string, field: keyof BudgetPlan, value: any) => {
+    const saveBudgetPlan = async (year: number, department: string, budgetItem: string, field: keyof BudgetPlan, value: any, seedAmount: number = 0) => {
         setIsSaving(true);
         const retryLimit = 3;
         let attempt = 0;
         
         try {
-            const key = toBudgetKey(year, department, budgetItem);
+            const key = resolvePlanKey(budgetPlans, year, department, budgetItem);
             const currentPlan = budgetPlans[key] || {
                 department,
                 budgetItem,
@@ -1172,7 +1215,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                 category1: '',
                 projectName: '',
                 category2: budgetItem,
-                budgetAmount: 0,
+                budgetAmount: seedAmount,
                 manualEntries: [],
                 order: 0,
                 year
@@ -1185,12 +1228,6 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                 const updated = { ...prev, [key]: newPlan };
                 safeLocalStorage.setItem('budget_plans', JSON.stringify(updated));
                 budgetPlansRef.current = updated;
-                
-                // Sync with hierarchy if amount was changed
-                if (field === 'budgetAmount') {
-                    syncHierarchyWithPlans(updated);
-                }
-                
                 return updated;
             });
 
@@ -1497,9 +1534,14 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
     };
 
     
-    const handleHierarchyDragOver = (e: React.DragEvent, id: string) => {
+    const handleHierarchyDragOver = (e: React.DragEvent, id: string, isGroupHeader: boolean) => {
         e.preventDefault();
         if (draggedHierarchyId && draggedHierarchyId !== id) {
+            if (isGroupHeader) {
+                setDragPosition('inside');
+                setDragOverHierarchyId(id);
+                return;
+            }
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
             const y = e.clientY - rect.top;
             const threshold = rect.height / 4;
@@ -1518,154 +1560,36 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
 
     const handleHierarchyDrop = (e: React.DragEvent, targetId: string) => {
         e.preventDefault();
-        const currentPosition = dragPosition;
+        const position: DropPosition = dragPosition || 'inside';
         setDragOverHierarchyId(null);
         setDragPosition(null);
-        
-        const sourceId = e.dataTransfer.getData('text/plain');
-        if (!sourceId || sourceId === targetId) {
-            setDraggedHierarchyId(null);
-            return;
-        }
-
-        setHierarchyData(prev => {
-            const next = JSON.parse(JSON.stringify(prev));
-            let sourceItem: BudgetItem | null = null;
-            let sourceParent: BudgetItem[] | null = null;
-            let sourceIndex: number = -1;
-
-            let targetItem: BudgetItem | null = null;
-            let targetParent: BudgetItem[] | null = null;
-            let targetIndex: number = -1;
-
-            const findAndRemove = (items: BudgetItem[]): boolean => {
-                for (let i = 0; i < items.length; i++) {
-                    if (items[i].id === sourceId) {
-                        sourceItem = items[i];
-                        sourceParent = items;
-                        sourceIndex = i;
-                        return true;
-                    }
-                    if (items[i].children && findAndRemove(items[i].children)) return true;
-                }
-                return false;
-            };
-
-            const findTarget = (items: BudgetItem[]): boolean => {
-                for (let i = 0; i < items.length; i++) {
-                    if (items[i].id === targetId) {
-                        targetItem = items[i];
-                        targetParent = items;
-                        targetIndex = i;
-                        return true;
-                    }
-                    if (items[i].children && findTarget(items[i].children)) return true;
-                }
-                return false;
-            };
-
-            // Check for circular reference
-            const isDescendant = (parent: BudgetItem, childId: string): boolean => {
-                if (!parent.children) return false;
-                for (const child of parent.children) {
-                    if (child.id === childId) return true;
-                    if (isDescendant(child, childId)) return true;
-                }
-                return false;
-            };
-
-            findAndRemove(next);
-            
-            // Handle loose group targets (Unassigned groups)
-            if (targetId.startsWith('loose-')) {
-                const deptId = targetId.replace('loose-', '');
-                for (const node of next) {
-                    if (node.id === deptId) {
-                        targetItem = node;
-                        targetParent = next;
-                        targetIndex = next.indexOf(node);
-                        break;
-                    }
-                }
-            } else {
-                findTarget(next);
-            }
-
-            if (sourceItem && sourceParent && targetItem) {
-                if (isDescendant(sourceItem, targetId)) {
-                    showToast('자신의 하위 항목으로 이동할 수 없습니다.');
-                    return prev;
-                }
-
-                // --- Guardrails & Logic Branching ---
-                const isSourceL2 = sourceItem.type === 'mok';
-                const isSourceL3 = ['semok', 'detail'].includes(sourceItem.type);
-                const isTargetL1 = ['root', 'hang'].includes(targetItem.type);
-                const isTargetL2 = targetItem.type === 'mok';
-                const isTargetL3 = ['semok', 'detail'].includes(targetItem.type);
-
-                // L2 -> L2 Nesting 차단 (강제 reorder)
-                let effectivePosition = currentPosition;
-                if (isSourceL2 && isTargetL2 && effectivePosition === 'inside') {
-                    effectivePosition = 'after'; // L2끼리는 내부 귀속 대신 아래로 이동
-                }
-                
-                // L3 -> L3 Nesting 차단 (강제 reorder)
-                if (isSourceL3 && isTargetL3 && effectivePosition === 'inside') {
-                    effectivePosition = 'after';
-                }
-
-                // Remove from original
-                sourceParent.splice(sourceIndex, 1);
-
-                if (effectivePosition === 'inside') {
-                    // [Nesting Logic]
-                    if (isTargetL1) {
-                        // L3 -> L1 이동 시 L2로 승격
-                        if (isSourceL3) sourceItem.type = 'mok';
-                        if (!targetItem.children) targetItem.children = [];
-                        targetItem.children.push(sourceItem);
-                        showToast(`'${sourceItem.name}' 항목이 대분류 '${targetItem.name}'의 어미 항목으로 이동되었습니다.`);
-                    } else if (isTargetL2) {
-                        // L2 -> L2는 이미 reorder로 변환됨. 여기는 L3 -> L2 경우만 해당
-                        if (isSourceL2) sourceItem.type = 'semok'; // 만약 로직을 뚫고 들어온다면 강등 (안전장치)
-                        if (!targetItem.children) targetItem.children = [];
-                        targetItem.children.push(sourceItem);
-                        showToast(`'${sourceItem.name}' 항목이 어미 항목 '${targetItem.name}'의 새끼 항목으로 이동되었습니다.`);
-                    } else {
-                        // 기본 fallback: 순서 변경
-                        if (targetParent) targetParent.splice(targetIndex + 1, 0, sourceItem);
-                    }
-                } else {
-                    // [Reordering Logic]
-                    const insertIndex = effectivePosition === 'before' ? targetIndex : targetIndex + 1;
-                    if (targetParent) {
-                        targetParent.splice(insertIndex, 0, sourceItem);
-                        
-                        // 부모 레벨에 따라 타입 보정
-                        // targetParent가 root의 자식들이라면 L2여야 함
-                        const isTargetParentRoot = next.some((r: any) => r.children === targetParent);
-                        if (isTargetParentRoot && isSourceL3) {
-                            sourceItem.type = 'mok';
-                        }
-                    }
-                }
-
-                setUndoStack(ps => [{ action: 'Move Item', data: prev, timestamp: Date.now() }, ...ps].slice(0, 20));
-                safeLocalStorage.setItem('budget_hierarchy', JSON.stringify(next));
-                
-                if (apiClient.isAvailable()) {
-                    apiClient.saveBudgetHierarchy(next).catch(err => {
-                        console.error('Sync failed:', err);
-                        showToast('서버 저장 중 오류가 발생했습니다.');
-                    });
-                }
-            }
-
-            return next;
-        });
-
         setDraggedHierarchyId(null);
+
+        const sourceId = e.dataTransfer.getData('text/plain');
+        if (!sourceId || sourceId === targetId) return;
+
+        const result = moveNode(hierarchyData, sourceId, targetId, position);
+        showToast(result.message);
+        if (!result.ok) return;
+
+        setHierarchyData(result.tree);
+        setUndoStack(ps => [{ action: 'Move Item', data: hierarchyData, timestamp: Date.now() }, ...ps].slice(0, 20));
+        safeLocalStorage.setItem('budget_hierarchy', JSON.stringify(result.tree));
+
+        if (apiClient.isAvailable()) {
+            apiClient.saveBudgetHierarchy(result.tree).catch(err => {
+                console.error('Sync failed:', err);
+                showToast('서버 저장 중 오류가 발생했습니다.');
+            });
+        }
+    };
+
+    const handleAmountCommit = (row: { id: string, dept: string, originalName: string, hasPlan: boolean }, amount: number) => {
+        const isLegacyYear = selectedYear === LEGACY_PLAN_YEAR;
+        if (isLegacyYear) handleUpdateHierarchyItem(row.id, 'amount', amount);
+        if (row.hasPlan || !isLegacyYear) {
+            saveBudgetPlan(selectedYear, row.dept, row.originalName, 'budgetAmount', amount).catch(() => {});
+        }
     };
 
 
@@ -1829,29 +1753,38 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
         if (!modalState) return;
         // MUST strip placeholders before saving to prevent row bloat and preserve correct count
         const cleanEntries = entries.filter(e => !e.isPlaceholder || (e.amount !== 0 || e.description.trim() !== ''));
-        await saveBudgetPlan(selectedYear, modalState.department, modalState.budgetItem, 'manualEntries', cleanEntries);
+        await saveBudgetPlan(selectedYear, modalState.department, modalState.budgetItem, 'manualEntries', cleanEntries, modalState.seedAmount);
     };
 
-    // 품의 1클릭 수기 입력 버튼 상태 (데스크톱 표·모바일 카드 공용)
+    const sameCellProposalKey = (t: BudgetTransaction) =>
+        `${toBudgetKey(getTransactionYear(t), t.department, t.budgetItem)}|${t.date}|${t.amount}`;
+
+    const proposalsBySameCell = useMemo(() => {
+        const map = new Map<string, BudgetTransaction[]>();
+        transactions.forEach(t => {
+            const key = sameCellProposalKey(t);
+            map.set(key, [...(map.get(key) || []), t]);
+        });
+        return map;
+    }, [transactions]);
+
+    const isEnteredInPlan = (t: BudgetTransaction, plan: BudgetPlan) =>
+        isProposalEntered(t, plan.manualEntries || [], proposalsBySameCell.get(sameCellProposalKey(t)) || []);
+
     const getOneClickEntryState = (t: BudgetTransaction): 'ready' | 'entered' | 'no-plan' => {
-        // 품의 자체의 연도 계획에서 찾는다 (보는 연도와 품의 연도가 다를 때를 대비)
-        const key = toBudgetKey(getTransactionYear(t), t.department, t.budgetItem);
+        const key = resolvePlanKey(budgetPlans, getTransactionYear(t), t.department, t.budgetItem);
         const plan = key ? budgetPlans[key] : undefined;
         if (!plan) return 'no-plan';
-        const existing = findManualEntryForProposal(t, plan.manualEntries || []);
-        return existing ? 'entered' : 'ready';
+        return isEnteredInPlan(t, plan) ? 'entered' : 'ready';
     };
 
-    // 품의 1건을 클릭 1번으로 해당 과목의 수기 내역에 입력한다.
     const handleOneClickManualEntry = async (t: BudgetTransaction) => {
         const entryYear = getTransactionYear(t);
-        const key = toBudgetKey(entryYear, t.department, t.budgetItem);
+        const key = resolvePlanKey(budgetPlans, entryYear, t.department, t.budgetItem);
         if (!key) return;
         const plan = budgetPlans[key];
-        // 과목 계획이 없으면 새 계획을 만들지 않고 아무것도 안 한다 (버튼이 비활성이라 올 일은 거의 없지만 방어).
         if (!plan) return;
-        // 이미 같은 날짜+금액 행이 있으면 이중 입력하지 않는다.
-        if (findManualEntryForProposal(t, plan.manualEntries || [])) return;
+        if (isEnteredInPlan(t, plan)) return;
         const prevEntries = plan.manualEntries || [];
         const newEntry = buildManualEntryFromProposal(t);
         setOneClickSavingId(t.id);
@@ -1859,8 +1792,6 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
             await saveBudgetPlan(entryYear, t.department, t.budgetItem, 'manualEntries', [...prevEntries, newEntry]);
             showToast('수기 내역에 입력했습니다.');
         } catch (e) {
-            // saveBudgetPlan은 로컬 state를 먼저 바꾸므로, 서버 저장 실패 시 로컬에 들어간 행을
-            // 되돌려 버튼이 '입력됨'으로 잘못 바뀌지 않게 한다.
             const rollbackPlan = { ...plan, manualEntries: prevEntries };
             setBudgetPlans(prev => {
                 const updated = { ...prev, [key]: rollbackPlan };
@@ -1874,7 +1805,6 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
         }
     };
 
-    // 1클릭 수기 입력 버튼 (데스크톱 표·모바일 카드 공용)
     const renderOneClickEntryButton = (t: BudgetTransaction, fullWidth = false) => {
         const state = getOneClickEntryState(t);
         const saving = oneClickSavingId === t.id;
@@ -1955,6 +1885,14 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                 department: getColIndex(['부서', '부서명'])
             };
 
+            const missingColumns = Object.entries({ '품의번호': idx.approvalNo, '품의금액': idx.amount, '예산과목': idx.budgetItem })
+                .filter(([, columnIndex]) => columnIndex === -1)
+                .map(([label]) => label);
+            if (missingColumns.length > 0) {
+                showToast(`업로드를 멈췄습니다. 필수 열(${missingColumns.join(', ')})을 찾지 못했습니다. 기존 데이터는 그대로입니다.`);
+                return;
+            }
+
             const newTransactions: BudgetTransaction[] = [];
 
             for (let i = 1; i < jsonData.length; i++) {
@@ -1964,15 +1902,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                 const approvalNo = String(row[idx.approvalNo] || '').trim();
                 if (!approvalNo) continue;
 
-                let dateStr = '';
-                if (approvalNo.length >= 8) {
-                    const yyyy = approvalNo.substring(0, 4);
-                    const mm = approvalNo.substring(4, 6);
-                    const dd = approvalNo.substring(6, 8);
-                    if (!isNaN(Number(yyyy)) && !isNaN(Number(mm)) && !isNaN(Number(dd))) {
-                        dateStr = `${yyyy}-${mm}-${dd}`;
-                    }
-                }
+                const dateStr = parseApprovalDate(approvalNo);
                 const dateObj = dateStr ? new Date(dateStr) : new Date();
                 const year = dateObj.getFullYear();
                 const month = dateObj.getMonth() + 1;
@@ -2005,8 +1935,8 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                     approvalNo,
                     type: String(row[idx.type] || ''),
                     description: desc,
-                    amount: Number(String(row[idx.amount] || '0').replace(/,/g, '')),
-                    balance: Number(String(row[idx.balance] || '0').replace(/,/g, '')),
+                    amount: parseAmount(row[idx.amount]),
+                    balance: parseAmount(row[idx.balance]),
                     resolutionLink: String(row[idx.resolutionLink] || ''),
                     projectCode: String(row[idx.projectCode] || ''),
                     projectName: String(row[idx.projectName] || ''),
@@ -2023,22 +1953,29 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                 });
             }
 
-            setTransactions(newTransactions);
+            if (newTransactions.length === 0) {
+                showToast('업로드를 멈췄습니다. 읽을 수 있는 품의가 0건입니다. 기존 데이터는 그대로입니다.');
+                return;
+            }
+
+            const { merged, replacedYears, keptCount } = mergeTransactionsByYear(transactions, newTransactions, getTransactionYear);
+
+            setTransactions(merged);
             const uploadDate = new Date().toLocaleString('ko-KR');
             setUploadDate(`${uploadDate} (업로더: ${currentUser.name})`);
 
             if (apiClient.isAvailable()) {
                 await Promise.all([
-                    apiClient.saveBudgetTransactions(newTransactions),
+                    apiClient.saveBudgetTransactions(merged),
                     apiClient.saveBudgetMetadata({
                         uploadDate: uploadDate,
                         uploader: currentUser.name,
-                        recordCount: newTransactions.length
+                        recordCount: merged.length
                     })
                 ]);
             }
 
-            showToast(`${newTransactions.length}건의 데이터를 불러왔습니다.`);
+            showToast(`${newTransactions.length}건을 불러왔습니다 (${replacedYears.join(', ')}년 교체, 기존 ${keptCount}건 유지).`);
 
         } catch (error) {
             console.error('Excel parsing error:', error);
@@ -2182,13 +2119,10 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
             );
 
             const originalItemName = item.originalName || item.name;
-            const planKey = toBudgetKey(selectedYear, dept, originalItemName);
+            const planKey = resolvePlanKey(budgetPlans, selectedYear, dept, originalItemName);
             const plan = budgetPlans[planKey];
             const manualEntries = plan?.manualEntries || [];
-            // 잎 항목의 예산액은 선택 연도 계획의 금액을 쓴다 (계층 트리는 연도 공용이라
-            // 다른 해 금액이 섞여 보일 수 있기 때문). 계획이 없으면 계층 금액을 쓴다.
-            const isLeafItem = !item.children || item.children.length === 0;
-            const effectiveAmount = isLeafItem && plan ? (plan.budgetAmount ?? item.amount ?? 0) : (item.amount || 0);
+            const ownAmount = resolveOwnAmount(plan, item.amount || 0, selectedYear === LEGACY_PLAN_YEAR);
 
             const getQuarter = (dateStr: string) => {
                 if (!dateStr || dateStr.length < 5) return 0;
@@ -2223,9 +2157,16 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                 q4 += processedChildren.reduce((sum: number, c: any) => sum + (c.q4 || 0), 0);
             }
 
+            const childAmounts: number[] = (processedChildren || []).map((c: any) => c.amount);
+            const rolledAmount = rollupAmount(ownAmount, childAmounts);
+            const isAmountDerivedFromChildren = rolledAmount !== ownAmount || childAmounts.some(amount => amount !== 0);
+
             return {
                 ...item,
-                amount: effectiveAmount,
+                amount: rolledAmount,
+                ownAmount,
+                hasPlan: !!plan,
+                isAmountDerivedFromChildren,
                 key: item.id,
                 level,
                 dept,
@@ -2235,24 +2176,22 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                 pumiSum,
                 q1, q2, q3, q4,
                 children: processedChildren,
-                manualTotal: manualExec, // For display in leaf nodes if needed
-                balance: effectiveAmount - manualExec,
-                ratio: effectiveAmount > 0 ? (manualExec / effectiveAmount) * 100 : 0
+                manualTotal: manualExec,
+                ...balanceAndRatio(rolledAmount, execution)
             };
         };
 
-        const getDeepAmount = (item: any): number => {
-            if (item.type === 'root' || item.type === 'hang' || item.isFolder) {
-                if (item.children && item.children.length > 0) {
-                    return item.children.reduce((sum: number, c: any) => sum + getDeepAmount(c), 0);
-                }
-                return 0;
-            }
-            let total = item.amount || 0;
-            if (item.children && item.children.length > 0) {
-                total += item.children.reduce((sum: number, c: any) => sum + getDeepAmount(c), 0);
-            }
-            return total;
+        const summarizeGroup = (items: any[]) => {
+            const sumOf = (field: string) => items.reduce((sum: number, item: any) => sum + (item[field] || 0), 0);
+            const amount = sumOf('amount');
+            const execution = sumOf('execution');
+            return {
+                amount,
+                execution,
+                pumiSum: sumOf('pumiSum'),
+                q1: sumOf('q1'), q2: sumOf('q2'), q3: sumOf('q3'), q4: sumOf('q4'),
+                ...balanceAndRatio(amount, execution)
+            };
         };
 
         filteredHierarchy.forEach(deptNode => {
@@ -2262,14 +2201,6 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                 const groupItems = (group.children || []).filter(c => c.type === 'mok');
                 const processedItems = groupItems.map(item => processItem(item, deptNode.name, group.name, 1));
 
-                const groupTotal = processedItems.reduce((sum, item) => sum + getDeepAmount(item), 0);
-                const groupExecution = processedItems.reduce((sum, item) => sum + (item.execution || 0), 0);
-                const groupPumiSum = processedItems.reduce((sum, item) => sum + (item.pumiSum || 0), 0);
-                const groupQ1 = processedItems.reduce((sum, item) => sum + (item.q1 || 0), 0);
-                const groupQ2 = processedItems.reduce((sum, item) => sum + (item.q2 || 0), 0);
-                const groupQ3 = processedItems.reduce((sum, item) => sum + (item.q3 || 0), 0);
-                const groupQ4 = processedItems.reduce((sum, item) => sum + (item.q4 || 0), 0);
-
                 flatList.push({
                     id: group.id,
                     key: `group-${group.id}`,
@@ -2277,10 +2208,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                     name: group.name,
                     dept: deptNode.name,
                     itemCount: groupItems.length,
-                    amount: groupTotal,
-                    execution: groupExecution,
-                    pumiSum: groupPumiSum,
-                    q1: groupQ1, q2: groupQ2, q3: groupQ3, q4: groupQ4,
+                    ...summarizeGroup(processedItems),
                     level: 0
                 });
 
@@ -2308,13 +2236,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                     name: customGroupNames[deptNode.id] ?? '미지정',
                     dept: deptNode.name,
                     itemCount: looseMoks.length,
-                    amount: processedLoose.reduce((sum, item) => sum + getDeepAmount(item), 0),
-                    execution: processedLoose.reduce((sum, item) => sum + (item.execution || 0), 0),
-                    pumiSum: processedLoose.reduce((sum, item) => sum + (item.pumiSum || 0), 0),
-                    q1: processedLoose.reduce((sum, item) => sum + (item.q1 || 0), 0),
-                    q2: processedLoose.reduce((sum, item) => sum + (item.q2 || 0), 0),
-                    q3: processedLoose.reduce((sum, item) => sum + (item.q3 || 0), 0),
-                    q4: processedLoose.reduce((sum, item) => sum + (item.q4 || 0), 0),
+                    ...summarizeGroup(processedLoose),
                     isLoose: true,
                     parentId: deptNode.id,
                     level: 0
@@ -2400,7 +2322,9 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
         return filteredData.reduce((sum, t) => sum + t.amount, 0);
     }, [filteredData]);
 
-    const handleManualTransactionSave = async (entry: ManualEntry) => {
+    const handleManualTransactionSave = async (entries: ManualEntry[]) => {
+        const entry = firstFilledEntry(entries);
+        if (!entry) return;
         const newTransaction: BudgetTransaction = {
             id: `manual_${Date.now()}`,
             approvalNo: `MANUAL-${Date.now()}`, // Temporary ID
@@ -2765,7 +2689,10 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                             {/* Main Budget Table */}
                             <div className="flex-1 flex flex-col budget-management-wrapper custom-scrollbar min-h-0">
                                 <HCard className="flex-1 flex flex-col border-none shadow-sm bg-white overflow-hidden mb-6">
-                                    <div className="flex-1 min-h-0 overflow-auto custom-scrollbar pb-6">
+                                    <div
+                                        className="flex-1 min-h-0 overflow-x-auto custom-scrollbar pb-6"
+                                        style={{ maxHeight: 'calc(100vh - 160px)', overflowY: 'auto' }}
+                                    >
                                         <table className="w-full text-sm border-collapse min-w-[1000px]">
                                             <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
                                                 <tr>
@@ -2821,7 +2748,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                                             key={row.key} 
                                                             draggable={isHierarchyEditMode && !isGroup} 
                                                             onDragStart={(e) => handleHierarchyDragStart(e, row.id)} 
-                                                            onDragOver={(e) => handleHierarchyDragOver(e, row.id)}
+                                                            onDragOver={(e) => handleHierarchyDragOver(e, row.id, isGroup)}
                                                             onDragLeave={() => { setDragOverHierarchyId(null); setDragPosition(null); }}
                                                             onDrop={(e) => handleHierarchyDrop(e, row.id)} 
                                                             className={`
@@ -2882,11 +2809,11 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                                             </td>
                                                             <td className="px-4 py-3 text-right font-mono font-bold">
                                                                 {!isGroup && isHierarchyEditMode ? (
-                                                                    <input 
-                                                                        type="number" 
-                                                                        className="bg-white border border-gray-300 rounded px-1 py-0.5 text-right text-xs w-24"
+                                                                    <BudgetAmountInput
                                                                         value={row.amount}
-                                                                        onChange={(e) => handleUpdateHierarchyItem(row.id, 'amount', Number(e.target.value))}
+                                                                        disabled={row.isAmountDerivedFromChildren}
+                                                                        title={row.isAmountDerivedFromChildren ? '새끼 항목 금액의 합계입니다. 새끼 항목에서 고쳐 주세요.' : `${selectedYear}년 예산액`}
+                                                                        onCommit={(val) => handleAmountCommit(row, val)}
                                                                     />
                                                                 ) : (
                                                                     (row.amount || 0).toLocaleString()
@@ -2906,7 +2833,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                                             <td className="px-4 py-3 text-center">
                                                                 {!isGroup && !isHierarchyEditMode && (
                                                                     <button 
-                                                                        onClick={() => setModalState({ isOpen: true, department: row.dept, budgetItem: row.originalName })}
+                                                                        onClick={() => setModalState({ isOpen: true, department: row.dept, budgetItem: row.originalName, seedAmount: row.ownAmount })}
                                                                         className="p-1.5 rounded-md text-red-500 hover:bg-red-50 active:scale-95 transition-all shadow-sm border border-red-100 bg-white mx-auto flex items-center justify-center"
                                                                         title="품의내역 작성/수정"
                                                                     >
@@ -3162,10 +3089,11 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                     title="지출 내역 추가"
                                     entries={[{ id: 'new', date: new Date().toISOString().split('T')[0], writer: currentUser.name, amount: 0, description: '' }]}
                                     onSave={async (entries) => {
-                                        if (entries.length > 0) await handleManualTransactionSave(entries[0]);
+                                        await handleManualTransactionSave(entries);
                                     }}
                                     currentUser={currentUser}
                                     transactions={yearTransactions}
+                                    singleEntryMode
                                 />
                             )}
                         </div>
@@ -3180,12 +3108,13 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                                 onClose={() => setModalState(null)}
                                 title={`${modalState.department} - ${modalState.budgetItem}`}
                                 entries={
-                                    budgetPlans[toBudgetKey(selectedYear, modalState.department, modalState.budgetItem)]?.manualEntries || []
+                                    budgetPlans[resolvePlanKey(budgetPlans, selectedYear, modalState.department, modalState.budgetItem)]?.manualEntries || []
                                 }
                                 onSave={handleManualEntrySave}
                                 currentUser={currentUser}
                                 transactions={yearTransactions}
                                 budgetItem={modalState.budgetItem}
+                                department={modalState.department}
                             />
                         )
                     }

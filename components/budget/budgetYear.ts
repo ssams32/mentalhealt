@@ -46,6 +46,10 @@ export interface BudgetPlanLike {
  */
 export function normalizeBudgetItem(name?: string): string {
     if (!name) return '';
+    return name.trim().replace(/[\s\u00A0]*외[\s\u00A0]*\d+[\s\u00A0]*건.*$/, '').trim();
+}
+
+function normalizeBudgetItemBeforeSuffixOnlyRule(name: string): string {
     let normalized = name.trim();
     if (normalized.includes(' 외 ')) {
         normalized = normalized.split(' 외 ')[0].trim();
@@ -80,6 +84,21 @@ export function toBudgetKey(year: number | string, department: string, item: str
     const dept = normalizeDepartmentName(department);
     const normalizedItem = normalizeBudgetItem(item);
     return dept && normalizedItem ? `${y}_${dept}_${normalizedItem}` : '';
+}
+
+/**
+ * Key under which the plan for (year, department, item) is stored.
+ * Plans saved before item names stopped being cut at ' 외 ' keep their old key, so that key wins when it holds a plan.
+ */
+export function resolvePlanKey(
+    plans: Record<string, unknown>,
+    year: number,
+    department: string,
+    item: string
+): string {
+    const key = toBudgetKey(year, department, item);
+    const keyBeforeSuffixOnlyRule = toBudgetKey(year, department, normalizeBudgetItemBeforeSuffixOnlyRule(item.trim()));
+    return !plans[key] && plans[keyBeforeSuffixOnlyRule] ? keyBeforeSuffixOnlyRule : key;
 }
 
 /** 연도 없는 옛 키: `증진_차량운영비` (숨김 항목 등 연도와 무관한 키에 쓴다). */
@@ -273,7 +292,7 @@ export function migrateBudgetPlansMap<T extends BudgetPlanLike>(
         if (newKey !== key) changed = true;
         if (!isValidYear(plan.year)) changed = true;
         const parsed = parseBudgetKey(newKey);
-        map[newKey] = {
+        const normalizedPlan = {
             ...plan,
             year,
             department: parsed.department,
@@ -283,6 +302,16 @@ export function migrateBudgetPlansMap<T extends BudgetPlanLike>(
             budgetAmount: Number(plan.budgetAmount) || 0,
             manualEntries: Array.isArray(plan.manualEntries) ? plan.manualEntries : []
         };
+        const collidingPlan = map[newKey];
+        if (collidingPlan) changed = true;
+        map[newKey] = collidingPlan
+            ? {
+                ...normalizedPlan,
+                ...collidingPlan,
+                budgetAmount: collidingPlan.budgetAmount || normalizedPlan.budgetAmount,
+                manualEntries: [...(collidingPlan.manualEntries || []), ...normalizedPlan.manualEntries]
+            }
+            : normalizedPlan;
     });
     return { map, changed };
 }
