@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { User, Page } from '../../types';
-import { PAGES_CONFIG } from '../../constants';
+import { PAGES_CONFIG, VOICE_CALLS_VISIBLE } from '../../constants';
 import { getOrgShortName } from '../../services/orgConfig';
 import {
     Users,
@@ -24,7 +24,6 @@ import {
     ClipboardList, // [Track B] Icon for Survey Management
     GitBranch, // Genogram icon
     PenLine, // MSE 보조도구 icon
-    Webhook // [New] Icon for External API Engine
 } from 'lucide-react';
 
 import { NotificationBell } from '../notifications/NotificationBell';
@@ -58,7 +57,6 @@ const PAGE_ICONS: Record<Page, React.ElementType> = {
     suicideAttempters: HeartPulse,
     caseAnalysis: FileSearch,
     data: Database,
-    externalApi: Webhook,
     reports: PieChart,
     accounts: UserCog,
     aiNotepad: FileText,
@@ -113,10 +111,11 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
 
                     {/* Navigation */}
                     <nav className="flex-1 px-3 space-y-1 overflow-y-auto custom-scrollbar">
-                        {(['home', 'referrals', 'suicideAttempters', 'caseAnalysis', 'voiceCalls', 'surveyManagement', 'data', 'externalApi', 'reports', 'budget', 'assets', 'accounts'] as Page[]).filter(p => {
+                        {(['home', 'referrals', 'suicideAttempters', 'caseAnalysis', 'voiceCalls', 'surveyManagement', 'data', 'reports', 'budget', 'assets', 'accounts'] as Page[]).filter(p => {
                             if (p === 'accounts') return true;
                             if (p === 'caseAnalysis') return true; // 모든 실무 직원이 사례분석시스템 메뉴 접근 가능
                             if (p === 'voiceCalls') {
+                                if (!VOICE_CALLS_VISIBLE) return false;
                                 // 음성 녹음 분석(AI): 관리자 또는 VOICE_RECORDING_AI_ACCESS 명시적 권한 사용자에게만 노출
                                 if (!currentUser || currentUser.status !== 'active') return false;
                                 const isAdmin = currentUser.role === 'admin';
@@ -133,11 +132,11 @@ const Sidebar: React.FC<SidebarProps> = ({ currentUser, activePage, setActivePag
                                     ? currentUser.permissions.includes('ONLINE_SURVEY_ACCESS')
                                     : isPermissionFlagGranted((currentUser.permissions as any)?.ONLINE_SURVEY_ACCESS);
                             }
-                            if (p === 'data' || p === 'externalApi') return currentUser.role === 'admin';
+                            if (p === 'data') return currentUser.role === 'admin';
                             return true;
                         }).map((page) => {
                             const config = PAGES_CONFIG[page];
-                            const pageTitle = page === 'voiceCalls' ? '음성 녹음 분석(AI)' : (config?.title || '');
+                            const pageTitle = page === 'voiceCalls' ? '음성 녹음 분석(AI)' : page === 'accounts' && currentUser.role === 'admin' ? '관리자 페이지' : (config?.title || '');
                             const isActive = activePage === page;
                             const IconComponent = PAGE_ICONS[page];
 

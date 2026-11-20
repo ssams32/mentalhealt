@@ -4,6 +4,8 @@ import { User, Log, Permission, AnyLog, Team } from '../../types';
 import PageContainer from '../layout/PageContainer';
 import { getTeams, getTeamsConfig } from '../../services/orgConfig';
 import OrgSettingsPanel from '../setup/OrgSettingsPanel';
+import ExternalApiAdminPage from '../externalApi/ExternalApiAdminPage';
+import { VOICE_CALLS_VISIBLE } from '../../constants';
 import { apiClient } from '../../services/apiClient';
 import * as XLSX from 'xlsx';
 import { getPasswordWeaknesses, PASSWORD_RECOMMENDATION_TEXT } from '../../utils/passwordPolicy';
@@ -39,7 +41,7 @@ const USER_EXCEL_HEADERS: Record<string, string> = {
 };
 
 const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, currentUser, onForceLogout, showToast, autoOpenChangePassword, onAutoOpenChangePasswordHandled }) => {
-    const [activeTab, setActiveTab] = useState<'users' | 'activity' | 'org'>('users');
+    const [activeTab, setActiveTab] = useState<'users' | 'activity' | 'org' | 'externalApi'>('users');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -529,8 +531,8 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
 
     return (
         <PageContainer
-            title="계정 관리"
-            subtitle={currentUser.role === 'admin' ? "시스템 사용자 및 권한 설정" : "시스템 사용자 목록 (관리자만 수정 가능)"}
+            title={currentUser.role === 'admin' ? '관리자 페이지' : '계정 관리'}
+            subtitle={currentUser.role === 'admin' ? "사용자·권한, 기관 설정, 홈페이지 API 연동" : "시스템 사용자 목록 (관리자만 수정 가능)"}
             headerContent={
                 <div className="flex items-center gap-3">
                     <button onClick={handleOpenChangePasswordModal} className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 px-[13px] py-[8px] rounded-xl font-bold text-sm shadow-sm transition flex items-center gap-2">
@@ -588,6 +590,14 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                         기관 설정
                     </button>
                 )}
+                {currentUser.role === 'admin' && (
+                    <button
+                        onClick={() => setActiveTab('externalApi')}
+                        className={`px-[13px] py-[8px] rounded-xl text-sm font-bold transition-all ${activeTab === 'externalApi' ? 'bg-white text-indigo-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                        홈페이지 API 연동
+                    </button>
+                )}
             </div>
 
             {currentUser.role === 'user' ? (
@@ -618,10 +628,12 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                                 <i className="fas fa-clipboard-check text-teal-600"></i>
                                 <span>온라인 설문 <strong className="text-teal-900">{permissionSummary.surveyCount}</strong>명</span>
                             </div>
-                            <div className="flex items-center gap-2 px-[13px] py-[8px] rounded-xl bg-purple-50 border border-purple-200 text-xs font-bold text-purple-800">
-                                <i className="fas fa-microphone text-purple-600"></i>
-                                <span>음성 녹음 분석(AI) <strong className="text-purple-900">{permissionSummary.voiceCount}</strong>명</span>
-                            </div>
+                            {VOICE_CALLS_VISIBLE && (
+                                <div className="flex items-center gap-2 px-[13px] py-[8px] rounded-xl bg-purple-50 border border-purple-200 text-xs font-bold text-purple-800">
+                                    <i className="fas fa-microphone text-purple-600"></i>
+                                    <span>음성 녹음 분석(AI) <strong className="text-purple-900">{permissionSummary.voiceCount}</strong>명</span>
+                                </div>
+                            )}
                         </div>
 
                         {/* Search & Filter Dropdown */}
@@ -643,7 +655,7 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                             >
                                 <option value="all">전체 사용자 ({users.length}명)</option>
                                 <option value="survey">온라인 설문 허용 ({permissionSummary.surveyCount}명)</option>
-                                <option value="voice">음성 AI 허용 ({permissionSummary.voiceCount}명)</option>
+                                {VOICE_CALLS_VISIBLE && <option value="voice">음성 AI 허용 ({permissionSummary.voiceCount}명)</option>}
                                 <option value="unassigned">권한 미부여</option>
                                 <option value="inactive">비활성/정지 사용자</option>
                             </select>
@@ -655,7 +667,7 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                         <table className="w-full text-sm text-left text-slate-600">
                             <thead className="bg-slate-50 sticky top-0 z-10 text-xs text-slate-400 font-extrabold uppercase tracking-wider border-b border-slate-100">
                                 <tr>
-                                    {['ID', '이름', '소속팀', '역할', ...(currentUser.role === 'admin' ? ['온라인 설문', '음성 녹음 분석(AI)'] : []), '상태', '생성일', '관리'].map(h => (
+                                    {['ID', '이름', '소속팀', '역할', ...(currentUser.role === 'admin' ? ['온라인 설문', ...(VOICE_CALLS_VISIBLE ? ['음성 녹음 분석(AI)'] : [])] : []), '상태', '생성일', '관리'].map(h => (
                                         <th key={h} className="px-6 py-5 whitespace-nowrap">{h}</th>
                                     ))}
                                 </tr>
@@ -716,8 +728,7 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                                                 </td>
                                             )}
 
-                                            {/* Voice AI Permission Column */}
-                                            {currentUser.role === 'admin' && (
+                                            {currentUser.role === 'admin' && VOICE_CALLS_VISIBLE && (
                                                 <td className="px-6 py-4 whitespace-nowrap">
                                                     {u.role === 'admin' ? (
                                                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200" title="관리자는 전권한 자동 허용">
@@ -854,7 +865,7 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                                                     )}
                                                 </div>
 
-                                                {/* Voice AI Permission */}
+                                                {VOICE_CALLS_VISIBLE && (
                                                 <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/60">
                                                     <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                                                         <i className="fas fa-microphone text-purple-600"></i>
@@ -884,6 +895,7 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                                                         </button>
                                                     )}
                                                 </div>
+                                                )}
                                             </div>
                                         )}
 
@@ -965,8 +977,10 @@ const AccountsPage: React.FC<AccountsPageProps> = ({ users, setUsers, logs, curr
                         </tbody>
                     </table>
                 </div>
-            ) : (
+            ) : activeTab === 'org' ? (
                 <OrgSettingsPanel showToast={showToast} />
+            ) : (
+                <ExternalApiAdminPage currentUser={currentUser} showToast={showToast} />
             )}
 
             {isAddModalOpen && <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-[21px]"><div className="bg-white rounded-[24px] shadow-2xl p-[21px] space-y-6 w-full max-w-[448px] max-h-[calc(100vh-89px)] overflow-y-auto animate-scale-in"><h2 className="text-2xl font-extrabold text-slate-900">사용자 추가</h2><form onSubmit={handleAddNewUser} className="space-y-4">{addUserError && <p className="text-red-500 text-sm bg-red-50 p-3 rounded-xl font-bold">{addUserError}</p>}<div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">아이디</label><input type="text" value={newUser.id || ''} onChange={(e) => setNewUser({ ...newUser, id: e.target.value })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none" required /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">이름</label><input type="text" value={newUser.name || ''} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none" required /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">비밀번호</label><input type="password" value={newUser.password || ''} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none" required /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">소속팀</label><select value={newUser.team || getTeams()[0]} onChange={(e) => setNewUser({ ...newUser, team: e.target.value as any })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none appearance-none">{getTeams().map(team => <option key={team} value={team}>{getTeamsConfig()[team]?.title || team}</option>)}</select></div><div><label className="block text-xs font-bold text-slate-400 mb-1 ml-1">권한</label><select value={newUser.role || 'user'} onChange={(e) => setNewUser({ ...newUser, role: e.target.value as any })} className="w-full px-[13px] py-[8px] bg-slate-50 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none appearance-none"><option value="user">사용자</option><option value="manager">매니저</option><option value="admin">관리자</option></select></div><div className="flex justify-end gap-3 pt-4"><button type="button" onClick={handleCloseAddModal} className="px-6 py-3 bg-slate-100 rounded-xl font-bold text-slate-500 hover:bg-slate-200 transition" disabled={isSubmitting}>취소</button><button type="submit" className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed" disabled={isSubmitting}>{isSubmitting ? '생성 중...' : '생성'}</button></div></form></div></div>}

@@ -8,7 +8,6 @@ import {
     ExternalApiSyncJob
 } from '../../types';
 import { apiClient } from '../../services/apiClient';
-import PageContainer from '../layout/PageContainer';
 import {
     Activity,
     CheckCircle2,
@@ -550,11 +549,8 @@ export const ExternalApiAdminPage: React.FC<ExternalApiAdminPageProps> = ({ curr
     const scraperConflict = (status as any)?.lastSync?.scraperConflict;
 
     return (
-        <PageContainer
-            title="홈페이지 API 연동"
-            subtitle="외부 홈페이지 접수 데이터 자동 수신 엔진 관리"
-            headerContent={
-                <div className="flex items-center gap-3">
+        <div className="space-y-[var(--space-5)]">
+                <div className="flex items-center justify-end gap-3">
                     {lastCheckedAt && (
                         <span className="text-xs text-slate-400 hidden sm:inline">
                             마지막 확인: {formatDateTime(lastCheckedAt)}
@@ -572,8 +568,6 @@ export const ExternalApiAdminPage: React.FC<ExternalApiAdminPageProps> = ({ curr
                         새로고침
                     </button>
                 </div>
-            }
-        >
             {/* 오프라인 배너 */}
             {isOffline && (
                 <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
@@ -1339,7 +1333,7 @@ export const ExternalApiAdminPage: React.FC<ExternalApiAdminPageProps> = ({ curr
                     </section>
                 </div>
             )}
-        </PageContainer>
+        </div>
     );
 };
 
