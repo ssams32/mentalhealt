@@ -10,6 +10,8 @@ import DocumentAttachmentModal from '../common/document-modal/DocumentAttachment
 import FilePreviewModal from '../common/FilePreviewModal';
 import ReferralEditor from './ReferralEditor';
 import { compareReferralsByRequestDate } from './referralSort';
+import { matchesStatusFilter } from './referralStatusFilter';
+import { isDesktopViewport } from './referralViewport';
 
 // --- UI Helpers ---
 const getTeamColor = (team: string) => {
@@ -87,7 +89,13 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
     const [searchTerm, setSearchTerm] = useState('');
     const [assigneeSearch, setAssigneeSearch] = useState('');
     const [criFilter, setCriFilter] = useState<'all' | 'a' | 'b' | 'c' | 'd' | 'e'>('all');
-    const [statusFilter, setStatusFilter] = useState<'all' | 'ongoing' | 'closed'>('all');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'ongoing' | 'closed'>(() => {
+        try {
+            return localStorage.getItem('referral_hide_closed') === '1' ? 'ongoing' : 'all';
+        } catch {
+            return 'all';
+        }
+    });
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [referralPathFilter, setReferralPathFilter] = useState('all');
@@ -99,6 +107,15 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
 
     // [New] South Branch Filter Toggle
     const [showNambu, setShowNambu] = useState(true);
+
+    const handleToggleHideClosed = () => {
+        const next = statusFilter === 'ongoing' ? 'all' : 'ongoing';
+        setStatusFilter(next);
+        try {
+            localStorage.setItem('referral_hide_closed', next === 'ongoing' ? '1' : '0');
+        } catch {
+        }
+    };
 
     // --- State: Selection ---
     const [selectedReferralId, setSelectedReferralId] = useState<string | null>(null);
@@ -206,9 +223,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
 
                 // Filters
                 const criMatch = criFilter === 'all' || r.criLevel === criFilter;
-                const statusMatch = statusFilter === 'all'
-                    ? true
-                    : (statusFilter === 'ongoing' ? r.closureStatus === '미종결' : r.closureStatus !== '미종결');
+                const statusMatch = matchesStatusFilter(r, statusFilter);
 
                 const dateMatch = (!startDate || r.requestDate >= startDate) && (!endDate || r.requestDate <= endDate);
                 const pathMatch = referralPathFilter === 'all' || (r.referralPath && r.referralPath === referralPathFilter);
@@ -227,7 +242,7 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
     }, [allReferrals, selectedRefNos, getReferralKey]);
 
     useEffect(() => {
-        if (!selectedReferralId && filteredReferrals.length > 0) {
+        if (!selectedReferralId && filteredReferrals.length > 0 && isDesktopViewport(window.matchMedia?.bind(window))) {
             setSelectedReferralId(getReferralKey(filteredReferrals[0]));
         }
     }, [filteredReferrals, selectedReferralId, getReferralKey]);
@@ -682,7 +697,23 @@ const ReferralDashboardV2: React.FC<ReferralDashboardV2Props> = ({
                         남부
                     </button>
 
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={statusFilter === 'ongoing'}
+                        onClick={handleToggleHideClosed}
+                        className="flex items-center gap-1.5 px-1 py-1.5 whitespace-nowrap text-[length:var(--font-base)] font-bold text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#34C759]/50 rounded-lg"
+                    >
+                        개입중만 보기
+                        <span className={`relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full transition-colors duration-200 motion-reduce:transition-none ${statusFilter === 'ongoing' ? 'bg-[#34C759]' : 'bg-[#E9E9EA]'}`}>
+                            <span className={`inline-block h-[18px] w-[18px] transform rounded-full bg-white shadow transition-transform duration-200 motion-reduce:transition-none ${statusFilter === 'ongoing' ? 'translate-x-[18px]' : 'translate-x-[2px]'}`} />
+                        </span>
+                    </button>
+
                 </div>
+                {statusFilter === 'ongoing' && (
+                    <p className="px-1 text-[11px] font-bold text-emerald-600">개입중 {filteredReferrals.length}명만 보는 중</p>
+                )}
                 {/* [회신서 엑셀 다운로드: 선택한 대상자만 다운로드 가능하도록 제한] */}
                 {selectedRefNos.size > 0 && (
                     <div className="flex w-full mt-2 gap-2">
