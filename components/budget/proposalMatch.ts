@@ -7,6 +7,7 @@ export interface ManualEntryLike {
     amount: number | string;
     description?: string;
     isPlaceholder?: boolean;
+    approvalNo?: string;
 }
 
 export type ProposalMatchStatus =
@@ -238,6 +239,7 @@ export interface BuiltManualEntry {
     writer: string;
     amount: number;
     description: string;
+    approvalNo: string;
 }
 
 /**
@@ -257,7 +259,8 @@ export function buildManualEntryFromProposal(t: BudgetTransaction): BuiltManualE
         date: typeof t.date === 'string' ? t.date.trim() : '',
         writer: t.writer || '',
         amount: Number(t.amount) || 0,
-        description
+        description,
+        approvalNo: appNo
     };
 }
 

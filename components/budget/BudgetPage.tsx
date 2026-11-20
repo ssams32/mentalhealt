@@ -12,6 +12,9 @@ import sampleBudgetHierarchy from './sampleBudgetHierarchy.json';
 import { matchManualEntriesToProposals, buildManualEntryFromProposal, isProposalEntered } from './proposalMatch';
 import { moveNode, rollupAmount, balanceAndRatio, resolveOwnAmount } from './budgetTree';
 import type { DropPosition } from './budgetTree';
+import { reconcileBudget } from './reconcile';
+import type { ReconcilePlan } from './reconcile';
+import BudgetReconcileTab from './BudgetReconcileTab';
 import {
     parseAmount,
     parseApprovalDate,
@@ -70,6 +73,7 @@ interface ManualEntry {
     amount: number;
     description: string;
     isPlaceholder?: boolean;
+    approvalNo?: string;
 }
 
 interface BudgetPlan {
@@ -838,7 +842,7 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
 
     const [modalState, setModalState] = useState<{ isOpen: boolean; department: string; budgetItem: string; seedAmount: number } | null>(null);
     const [uploadDate, setUploadDate] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState<'status' | 'history' | 'manual'>('status');
+    const [activeTab, setActiveTab] = useState<'status' | 'history' | 'manual' | 'reconcile'>('status');
     // 선택 연도 (2026/2027 분리). 저장된 연도가 있으면 그 연도, 없으면 올해.
     const initialStoredYear = (() => {
         const stored = Number(safeLocalStorage.getItem('budget_selected_year'));
@@ -1998,6 +2002,18 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
     const yearOptions = useMemo(() => availableYears(transactions, budgetPlans), [transactions, budgetPlans]);
     const yearTransactions = useMemo(() => transactions.filter(t => getTransactionYear(t) === selectedYear), [transactions, selectedYear]);
     const selectedYearPlans = useMemo(() => (Object.values(budgetPlans) as BudgetPlan[]).filter(p => getPlanYear(p) === selectedYear), [budgetPlans, selectedYear]);
+    const reconcileResult = useMemo(() => reconcileBudget(selectedYear, transactions, selectedYearPlans), [selectedYear, transactions, selectedYearPlans]);
+    const reconcileIssueCount = reconcileResult.proposals.filter(r => r.status !== 'matched').length + reconcileResult.unlinkedSpendings.length;
+
+    const handleLinkSpending = async (plan: ReconcilePlan, entryId: string, approvalNo: string) => {
+        const entries = (plan.manualEntries || []).map(e => e.id === entryId ? { ...e, approvalNo } : e);
+        try {
+            await saveBudgetPlan(getPlanYear(plan), plan.department, plan.budgetItem, 'manualEntries', entries);
+            showToast(approvalNo ? `품의 ${approvalNo}에 연결했습니다.` : '품의 연결을 해제했습니다.');
+        } catch {
+            return;
+        }
+    };
     const copySourceYear = useMemo(() => findLatestYearWithPlans(budgetPlans, selectedYear), [budgetPlans, selectedYear]);
     const hasSelectedYearPlans = selectedYearPlans.length > 0;
 
@@ -2489,6 +2505,12 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
                         >
                             수기 내역 <span className="ml-1 opacity-50 text-[10px]">({selectedYearPlans.reduce((sum, p) => sum + (p.manualEntries?.length || 0), 0)})</span>
                         </button>
+                        <button
+                            onClick={() => setActiveTab('reconcile')}
+                            className={`flex-1 md:flex-none px-[13px] py-[8px] text-[13px] font-bold rounded-lg transition-all duration-300 ${activeTab === 'reconcile' ? 'bg-white text-black shadow-md scale-100 md:scale-105' : 'text-gray-500 hover:text-gray-900'}`}
+                        >
+                            품의 검수 {reconcileIssueCount > 0 && <span className="ml-1 px-1.5 rounded-full bg-rose-500 text-white text-[10px]">{reconcileIssueCount.toLocaleString()}</span>}
+                        </button>
                     </div>
 
                     <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0 no-scrollbar">
@@ -2542,6 +2564,16 @@ export function BudgetPage({ currentUser, showToast }: BudgetPageProps) {
 
                 {/* Content */}
                 <div className="flex-1 flex overflow-hidden p-[21px] gap-[21px] relative">
+                    {activeTab === 'reconcile' &&
+                        <BudgetReconcileTab
+                            year={selectedYear}
+                            result={reconcileResult}
+                            departments={filter.department}
+                            savingProposalId={oneClickSavingId}
+                            onEnterProposal={handleOneClickManualEntry}
+                            onLinkSpending={handleLinkSpending}
+                        />
+                    }
                     {activeTab === 'status' &&
                         <div className="flex-1 flex flex-col gap-4 overflow-hidden min-h-0">
                             {/* Hierarchy Control Bar */}
