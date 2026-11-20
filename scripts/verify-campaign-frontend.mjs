@@ -38,6 +38,13 @@ let moduleCode = transpileResult.outputText.replace(
     '(import.meta.env || { VITE_API_BASE_URL: "/api" })'
 );
 
+const clientIdentityJs = ts.transpileModule(fs.readFileSync(path.resolve('utils/clientIdentity.ts'), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
+}).outputText;
+const tempClientIdentityPath = path.resolve('scripts/.temp-clientIdentity.mjs');
+fs.writeFileSync(tempClientIdentityPath, clientIdentityJs, 'utf8');
+moduleCode = moduleCode.replace("'../utils/clientIdentity'", "'./.temp-clientIdentity.mjs'");
+
 const tempModulePath = path.resolve('scripts/.temp-apiClient.mjs');
 fs.writeFileSync(tempModulePath, moduleCode, 'utf8');
 
@@ -47,6 +54,9 @@ try {
 } finally {
     if (fs.existsSync(tempModulePath)) {
         fs.unlinkSync(tempModulePath);
+    }
+    if (fs.existsSync(tempClientIdentityPath)) {
+        fs.unlinkSync(tempClientIdentityPath);
     }
 }
 

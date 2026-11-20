@@ -1193,6 +1193,23 @@ app.put('/api/settings', requireAdmin, async (req, res) => {
                 }
             }
         }
+        if (body.surveyPublicUrl !== undefined) {
+            const raw = typeof body.surveyPublicUrl === 'string' ? body.surveyPublicUrl.trim() : null;
+            if (raw === null) {
+                return res.status(400).json({ success: false, error: '설문 배포 주소 형식이 올바르지 않습니다.' });
+            }
+            if (raw) {
+                let parsed;
+                try { parsed = new URL(raw); } catch {
+                    return res.status(400).json({ success: false, error: '설문 배포 주소는 https://로 시작하는 전체 주소여야 합니다.' });
+                }
+                const isLocal = ['localhost', '127.0.0.1'].includes(parsed.hostname);
+                if (parsed.protocol !== 'https:' && !(isLocal && parsed.protocol === 'http:')) {
+                    return res.status(400).json({ success: false, error: '설문 배포 주소는 https://로 시작해야 합니다.' });
+                }
+            }
+            body.surveyPublicUrl = raw;
+        }
         const merged = { ...current, ...body, setupCompleted: true };
         await persistData('Settings', merged);
         res.json({ success: true, settings: merged });

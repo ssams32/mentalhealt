@@ -32,6 +32,7 @@ export interface OrgSettings {
     subTeamParent: string;
     regions: string[];
     referralPaths: string[];
+    surveyPublicUrl: string;
 }
 
 // 폴백 기본값: constants.ts의 현재 값과 100% 동일 (서버 시드와 일치)
@@ -48,6 +49,7 @@ const DEFAULT_SETTINGS: OrgSettings = {
     subTeamParent: '남부분소',
     regions: [...ICHEON_REGIONS],
     referralPaths: [...REFERRAL_PATH_OPTIONS],
+    surveyPublicUrl: '',
 };
 
 let cache: OrgSettings | null = null;
@@ -87,6 +89,7 @@ function sanitize(raw: any): OrgSettings | null {
         subTeamParent: typeof raw.subTeamParent === 'string' && raw.subTeamParent ? raw.subTeamParent : DEFAULT_SETTINGS.subTeamParent,
         regions: Array.isArray(raw.regions) && raw.regions.length > 0 ? raw.regions.map(String) : [...DEFAULT_SETTINGS.regions],
         referralPaths: Array.isArray(raw.referralPaths) && raw.referralPaths.length > 0 ? raw.referralPaths.map(String) : [...DEFAULT_SETTINGS.referralPaths],
+        surveyPublicUrl: typeof raw.surveyPublicUrl === 'string' ? raw.surveyPublicUrl.trim() : '',
     };
 }
 
@@ -133,6 +136,11 @@ export async function refreshOrgConfig(): Promise<OrgSettings> {
     _teamsConfig = null;
     _teamsFor = _subTeamsFor = _regionsFor = _pathsFor = _teamsConfigFor = null;
     return initOrgConfig();
+}
+
+/** 이 센터의 Track A 설문 배포 주소. 관리자 페이지 > 기관 설정에서 입력하며, 없으면 빈 문자열. */
+export function getSurveyPublicUrl(): string {
+    return getOrgConfig().surveyPublicUrl;
 }
 
 /** 동기 조회. initOrgConfig() 이전에 호출되면 폴백 기본값 반환. */

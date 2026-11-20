@@ -1031,22 +1031,18 @@ class ApiClient {
 /**
  * [Campaign Link Helper]
  * Track A 설문 기본 URL과 캠페인 코드를 결합하여 배포 링크를 안전하게 생성합니다.
- * 환경 변수(VITE_TRACK_A_BASE_URL 등) 또는 전달된 기본 URL을 기반으로 생성하며,
+ * 센터별 설문 배포 주소(관리자 페이지 > 기관 설정)를 기반으로 생성하며,
  * 배포 주소가 미설정된 경우 빈 문자열을 반환합니다 (fail-closed).
  * 선택된 척도 목록(selectedAssessments)이 있으면 &scales= 파라미터를 추가합니다.
  * 예: ?c=CODE&scales=cape-15,ces-d (코드 순서대로 콤마 구분, URL 인코딩)
  */
-export function buildCampaignDistributionUrl(campaignCode: string, customBaseUrl?: string, selectedAssessments?: string[]): string {
+export function buildCampaignDistributionUrl(campaignCode: string, surveyBaseUrl: string, selectedAssessments?: string[]): string {
     if (!campaignCode || typeof campaignCode !== 'string') return '';
     const cleanCode = campaignCode.trim().toUpperCase();
     if (!cleanCode) return '';
     const encoded = encodeURIComponent(cleanCode);
 
-    let baseUrl = (customBaseUrl && customBaseUrl.trim()) ||
-        (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_TRACK_A_BASE_URL) ||
-        (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SURVEY_BASE_URL) ||
-        (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SURVEY_URL) ||
-        '';
+    let baseUrl = (surveyBaseUrl || '').trim();
 
     if (!baseUrl) return '';
 

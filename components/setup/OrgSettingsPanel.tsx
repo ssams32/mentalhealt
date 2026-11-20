@@ -25,6 +25,7 @@ const OrgSettingsPanel: React.FC<OrgSettingsPanelProps> = ({ showToast }) => {
     const [subTeamsText, setSubTeamsText] = useState('');
     const [regionsText, setRegionsText] = useState('');
     const [pathsText, setPathsText] = useState('');
+    const [surveyPublicUrl, setSurveyPublicUrl] = useState('');
 
     useEffect(() => {
         apiClient.getSettings().then((s: any) => {
@@ -36,12 +37,14 @@ const OrgSettingsPanel: React.FC<OrgSettingsPanelProps> = ({ showToast }) => {
             setSubTeamsText((s.subTeams || []).join(', '));
             setRegionsText((s.regions || []).join('\n'));
             setPathsText((s.referralPaths || []).join('\n'));
+            setSurveyPublicUrl(s.surveyPublicUrl || '');
         }).catch(() => {
             const c = getOrgConfig();
             setOrgName(c.orgName); setOrgShortName(c.orgShortName); setRegion(c.region);
             setTeams(c.teams); setSubTeamParent(c.subTeamParent);
             setSubTeamsText(c.subTeams.join(', '));
             setRegionsText(c.regions.join('\n')); setPathsText(c.referralPaths.join('\n'));
+            setSurveyPublicUrl(c.surveyPublicUrl);
         }).finally(() => setLoading(false));
     }, []);
 
@@ -65,6 +68,7 @@ const OrgSettingsPanel: React.FC<OrgSettingsPanelProps> = ({ showToast }) => {
                 subTeams: subTeamsText.split(',').map(s => s.trim()).filter(Boolean),
                 regions: regionsText.split('\n').map(s => s.trim()).filter(Boolean),
                 referralPaths: pathsText.split('\n').map(s => s.trim()).filter(Boolean),
+                surveyPublicUrl: surveyPublicUrl.trim(),
             });
             await refreshOrgConfig();
             showToast?.('저장되었습니다. 새로고침 후 전체 화면에 반영됩니다.', 'success');
@@ -119,6 +123,18 @@ const OrgSettingsPanel: React.FC<OrgSettingsPanelProps> = ({ showToast }) => {
                     <textarea className={inputCls + " h-40 resize-none"} value={regionsText} onChange={e => setRegionsText(e.target.value)} /></div>
                 <div><label className={labelCls}>의뢰경로 목록 (줄바꿈 구분)</label>
                     <textarea className={inputCls + " h-40 resize-none"} value={pathsText} onChange={e => setPathsText(e.target.value)} /></div>
+            </div>
+
+            <div>
+                <label className={labelCls} htmlFor="org-survey-public-url">온라인 설문 배포 주소 (Track A)</label>
+                <input
+                    id="org-survey-public-url"
+                    className={inputCls}
+                    value={surveyPublicUrl}
+                    onChange={e => setSurveyPublicUrl(e.target.value)}
+                    placeholder="예: https://우리센터-설문.vercel.app/survey"
+                />
+                <p className="text-xs text-slate-400 mt-1 ml-1">우리 센터가 Vercel에 올린 설문 주소입니다. 캠페인 링크·QR이 이 주소로 만들어지며, 비워 두면 링크가 만들어지지 않습니다.</p>
             </div>
 
             <div className="flex justify-end">

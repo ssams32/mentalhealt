@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { User, SurveyImportItem, SurveyStatusSummary, Attachment } from '../../types';
 import { apiClient, buildCampaignDistributionUrl, getCampaignLabelInfo } from '../../services/apiClient';
+import { getSurveyPublicUrl } from '../../services/orgConfig';
 import FilePreviewModal from '../common/FilePreviewModal';
 import SurveyCharts from './SurveyCharts';
 import {
@@ -1434,9 +1435,9 @@ export const SurveyManagementPage: React.FC<SurveyManagementPageProps> = ({
             return;
         }
 
-        const url = buildCampaignDistributionUrl(campaign.code, undefined, campaign.selectedAssessments);
+        const url = buildCampaignDistributionUrl(campaign.code, getSurveyPublicUrl(), campaign.selectedAssessments);
         if (!url) {
-            if (showToast) showToast('캠페인 링크를 만들 수 없습니다. 설문 배포 주소(Track A)가 설정되지 않았습니다.', 'error');
+            if (showToast) showToast('캠페인 링크를 만들 수 없습니다. 관리자 페이지 > 기관 설정에서 "설문 배포 주소"를 먼저 입력해 주세요.', 'error');
             return;
         }
 
